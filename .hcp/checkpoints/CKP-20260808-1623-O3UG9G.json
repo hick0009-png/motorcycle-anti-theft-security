@@ -1,0 +1,261 @@
+{
+  "$schema": "../schema/hcp-checkpoint.schema.json",
+  "id": "CKP-20260808-1623-O3UG9G",
+  "timestamp": "2026-08-08T16:23:38.9656108+07:00",
+  "phase": "P4",
+  "task_id": "SVC-01",
+  "status": "IN_PROGRESS",
+  "description": "Protection-system audit and approved design await final written-spec review before TDD implementation planning.",
+  "progress": 15,
+  "scope": "MotorcycleAntiTheftSensor authoritative protection state, Telegram commands, sensor incident pipeline, delivery reporting, Demo Mode, history, and supporting UI.",
+  "completed": [
+    "Audited the current dashboard, Telegram setup, sensor diagnostics, arm/disarm lifecycle, status reporting, and alert paths.",
+    "Removed the blocking red alarm popup while retaining background alert delivery.",
+    "Kept Telegram polling alive after disarm and added local UI synchronization for remote arm-state changes.",
+    "Added pairing-code expiry renewal and a 30-second per-alert-type cooldown as interim safeguards.",
+    "Removed the stale Telegram certificate pin so Android system trust can establish the API connection.",
+    "Paired the Telegram owner successfully and confirmed remote control became enabled.",
+    "Defined and user-approved the product direction: one authoritative protection model, truthful status, correlated incidents, persistent history, and safe Demo Mode.",
+    "Defined Demo Mode to send marked Telegram messages but never SMS or emergency calls.",
+    "Wrote and committed the design specification at commit ee8e3d1."
+  ],
+  "knowledge": [
+    "The existing service, UI, encrypted preferences, sensors, and Telegram client infer protection state independently; this is the primary architectural defect.",
+    "Telegram /arm currently acknowledges too early and /status reports stored values rather than verified runtime health.",
+    "Sensors currently alert independently; light uses a fixed threshold and audio is relative amplitude rather than calibrated sound pressure.",
+    "Disarmed mode must retain the foreground service and Telegram polling so remote /arm remains available.",
+    "The raw Bot Token was visible in the old UI and in discarded audit captures; retained audit images are redacted."
+  ],
+  "assumptions": [
+    {
+      "assumption": "The connected Android phone remains the primary deployment and demonstration target.",
+      "confidence": "high",
+      "needsValidation": false
+    },
+    {
+      "assumption": "The existing Telegram Bot API and encrypted preference storage will be preserved during the incremental implementation.",
+      "confidence": "high",
+      "needsValidation": false
+    },
+    {
+      "assumption": "A 10-second arming baseline is acceptable for the first implementation and can later be tuned with device evidence.",
+      "confidence": "medium",
+      "needsValidation": true
+    }
+  ],
+  "risks": [
+    {
+      "risk": "The previously displayed Telegram Bot Token must be considered compromised.",
+      "impact": "high",
+      "mitigation": "Revoke and regenerate it through BotFather before customer use; mask it by default in the app and never store it in screenshots, logs, tests, or checkpoints."
+    },
+    {
+      "risk": "The Git worktree contains many pre-existing modified and untracked files.",
+      "impact": "high",
+      "mitigation": "Preserve all unrelated changes, use exact-path staging only, and review diffs before every commit."
+    },
+    {
+      "risk": "A broad rewrite could regress the Telegram path that is currently functioning.",
+      "impact": "high",
+      "mitigation": "Implement the coordinator incrementally with TDD and retain existing transports behind narrow interfaces."
+    },
+    {
+      "risk": "Current fixed sensor thresholds can create false alerts on real hardware.",
+      "impact": "high",
+      "mitigation": "Add grace-period baseline capture, debounce, freshness checks, correlation, and controlled device verification before production claims."
+    },
+    {
+      "risk": "HCP auto-commit reported success even though sandbox permissions prevented writing the Git index.",
+      "impact": "medium",
+      "mitigation": "Treat checkpoint usability as the deliverable; explicitly validate latest pointer, resume, audit, and recovery. Commit HCP artifacts only with exact-path approval if needed."
+    }
+  ],
+  "memory_snapshot": [
+    {
+      "key": "approved_design",
+      "value": "Incremental authoritative ProtectionCoordinator with SETUP_REQUIRED, DISARMED_ONLINE, ARMING, ARMED_HEALTHY, ARMED_DEGRADED, ALERT_ACTIVE, and OFFLINE."
+    },
+    {
+      "key": "demo_policy",
+      "value": "Demo incidents use the real UI/history/Telegram path, are always marked DEMO, and cannot invoke SMS or calls."
+    },
+    {
+      "key": "implementation_gate",
+      "value": "Do not write the implementation plan or production code until the user reviews and approves the written specification."
+    }
+  ],
+  "dependencies": [
+    "User approval of docs/superpowers/specs/2026-08-08-motorcycle-guard-protection-system-design.md",
+    "Fresh TDD implementation plan before production changes",
+    "BotFather token rotation before customer use"
+  ],
+  "error_info": null,
+  "agent": {
+    "conversation_id": "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+    "name": "Codex",
+    "model": "GPT-5"
+  },
+  "snapshot": {
+    "build_status": "NOT_RUN",
+    "build_output_snippet": "Checkpoint used -Lite. The previously reported testDebugUnitTest and assembleDebug pass predates this documentation-only checkpoint and was not rerun here.",
+    "test_results": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "files_changed": [
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicy.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorServiceAction.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/res/xml/network_security_config.xml",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicyTest.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/service/SensorServiceActionTest.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/AlertCooldown.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/ArmStateChangedEvent.kt",
+        "action": "CREATED"
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "question": "How should the app evolve without breaking working Telegram connectivity?",
+      "decision": "Add an authoritative protection coordinator incrementally while preserving existing transports.",
+      "rationale": "This minimizes regression risk and enables testable phased delivery.",
+      "decided_by": "user"
+    },
+    {
+      "question": "What external effects may Demo Mode trigger?",
+      "decision": "It may send clearly marked Telegram messages but must never send SMS or initiate emergency calls.",
+      "rationale": "Customer demonstrations need realistic evidence without unsafe side effects.",
+      "decided_by": "user"
+    },
+    {
+      "question": "What happens to remote control after disarm?",
+      "decision": "Theft detectors stop, but the service and Telegram polling remain active.",
+      "rationale": "The owner must be able to arm the parked phone remotely.",
+      "decided_by": "user"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "Does the user approve the written specification without changes?",
+      "required_before": "Writing the implementation plan",
+      "recommended_answer": "Reply: approve spec"
+    }
+  ],
+  "open_tasks": [
+    {
+      "task_id": "SPEC-REVIEW",
+      "description": "Review and approve the written protection-system specification.",
+      "priority": 1,
+      "blocked_by": "User review"
+    },
+    {
+      "task_id": "PLAN-TDD",
+      "description": "Write the phased TDD implementation plan with exact files, interfaces, failing tests, and verification commands.",
+      "priority": 1,
+      "blocked_by": "SPEC-REVIEW"
+    },
+    {
+      "task_id": "IMPLEMENT-CORE",
+      "description": "Implement authoritative state, truthful commands, sensor health, incident correlation, persistence, Demo Mode, and UI in reviewed phases.",
+      "priority": 2,
+      "blocked_by": "PLAN-TDD"
+    },
+    {
+      "task_id": "DEVICE-VERIFY",
+      "description": "Build, install, verify Telegram and local flows, simulate all Demo events, verify no SMS/call, and run controlled real sensor/restart checks.",
+      "priority": 2,
+      "blocked_by": "IMPLEMENT-CORE"
+    },
+    {
+      "task_id": "ROTATE-TOKEN",
+      "description": "Revoke and replace the exposed Telegram Bot Token before customer use.",
+      "priority": 1,
+      "blocked_by": "Owner access to BotFather"
+    }
+  ],
+  "verification": {
+    "current_checkpoint": [
+      "Design spec exists and is committed at ee8e3d1.",
+      "No production implementation for the new design has started.",
+      "No build or device test was rerun for this documentation-only checkpoint.",
+      "JSON parse, latest pointer, HCP resume, and HCP audit succeeded for CKP-20260808-1623-O3UG9G.",
+      "HCP recover -DryRun reached the recovery script but could not select a target because no checkpoint in this repository records BUILD SUCCESSFUL."
+    ],
+    "prior_session_evidence": [
+      "testDebugUnitTest and assembleDebug passed after the Telegram/pairing/lifecycle fixes.",
+      "The debug APK was installed on device JUCDU18811013149.",
+      "The foreground SensorService and MainActivity were observed active.",
+      "The user confirmed successful Telegram owner pairing and bidirectional message flow."
+    ]
+  },
+  "artifacts": [
+    "MotorcycleAntiTheftSensor/docs/superpowers/specs/2026-08-08-motorcycle-guard-protection-system-design.md",
+    "MotorcycleAntiTheftSensor/docs/audits/2026-08-08-product-flow/audit.md",
+    "MotorcycleAntiTheftSensor/docs/audits/2026-08-08-product-flow/02-telegram-status-redacted.png",
+    "MotorcycleAntiTheftSensor/docs/audits/2026-08-08-product-flow/03-sensor-diagnostics.png"
+  ],
+  "context": {
+    "summary": "Telegram connectivity and owner pairing work. The product audit and system design are complete. The next session must first obtain explicit written-spec approval, then produce a TDD implementation plan; do not jump directly into production code.",
+    "warnings": [
+      "Never reveal or persist the previous Telegram Bot Token; rotate it before customer use.",
+      "Preserve the dirty worktree and stage only exact task files.",
+      "Do not report new design behavior as implemented; it is specification-only at this checkpoint.",
+      "HCP artifacts are not committed because the sandbox denied Git index writes during automatic checkpointing.",
+      "Recovery dry-run cannot complete until a future checkpoint records a successful build."
+    ],
+    "next_steps": [
+      "Run .\\hcp.cmd resume and summarize this checkpoint before acting.",
+      "Ask the user to approve the written spec if approval was not already given after this checkpoint.",
+      "After approval, use the writing-plans workflow to create the phased TDD implementation plan.",
+      "Review the plan with the user before changing production code.",
+      "Implement with failing tests first and verify each phase independently."
+    ]
+  },
+  "git": {
+    "branch": "main",
+    "remote_url": "",
+    "dirty": true,
+    "commit_hash": "ee8e3d1"
+  },
+  "parent_checkpoint_id": "CKP-20260808-1330-MSU957",
+  "tags": [
+    "handoff",
+    "protection-state",
+    "telegram",
+    "demo-mode",
+    "spec-review"
+  ],
+  "resume_command": ".\\hcp.cmd resume"
+}
