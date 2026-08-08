@@ -1,7 +1,7 @@
 # Demo-Free Authoritative UI Design
 
 Date: 2026-08-08
-Status: Approved design, pending written-spec review
+Status: Approved
 Scope: Motorcycle Guard Protection System UI and presentation state
 
 ## Decision
@@ -22,7 +22,7 @@ Protection status always uses text and iconography in addition to color. An acti
 
 ## Architecture
 
-`ProtectionViewModel` is the only presentation-state owner for these destinations. It observes `ProtectionRuntimeGraph.coordinator` snapshots and the incident repository, then maps them into immutable UI state. It does not maintain a second armed boolean and does not write armed state directly to preferences.
+`ProtectionViewModel` is the only presentation-state owner for these destinations. It observes `ProtectionRuntimeGraph.coordinator` snapshots and the incident repository, then maps only production fields into immutable UI state. The raw snapshot is not exposed because it still contains a legacy Demo-only field outside this UI scope. The ViewModel does not maintain a second armed boolean and does not write armed state directly to preferences.
 
 The UI sends intents to the ViewModel. Arm and disarm intents call the authoritative coordinator and render its confirmed result. Navigation owns only the selected destination and does not duplicate protection state.
 
@@ -76,8 +76,8 @@ There are no Demo-related fields, event types, callbacks, semantics tags, or tes
 ### Settings
 
 - Shows pairing state without exposing operational details to an unauthorized identity.
-- Keeps the Telegram bot token masked by default. Reveal is explicit and temporary; token values never enter general UI state, logs, saved-state handles, screenshots, or accessibility descriptions.
-- Reset/re-pair is a deliberate security-sensitive operation with confirmation and uses the existing security gate before encrypted preference changes.
+- Never loads the stored Telegram bot token into general UI state. Replacing it uses a blank password field, so the configured secret remains masked and absent from logs, saved-state handles, screenshots, and accessibility descriptions.
+- Replace/re-pair is deliberate and confirmed. It uses the existing encrypted preference operations without changing the security-critical `EncryptedPrefsManager` implementation.
 - Permission rows state why a permission is needed and whether it blocks arming or only degrades protection.
 - Sensitivity accepts only the supported range and reports the confirmed applied value.
 - SMS fallback clearly states its eligibility: configured real critical incidents after confirmed Telegram failure.
@@ -99,7 +99,7 @@ No sensor, persistence, cryptographic, or network work runs on the main thread.
 - Text supports Android font scaling without clipping critical actions or values.
 - Long evidence, blocker, and diagnostic text wraps or truncates with an accessible full description.
 - Insets, keyboard visibility, scroll behavior, and the target 1080 x 2340 device layout are checked on all three destinations.
-- Destructive confirmation and credential reveal/reset controls are unambiguous and not adjacent to the primary protection action.
+- Destructive confirmation and credential replacement controls are unambiguous and not adjacent to the primary protection action.
 
 ## Verification
 
