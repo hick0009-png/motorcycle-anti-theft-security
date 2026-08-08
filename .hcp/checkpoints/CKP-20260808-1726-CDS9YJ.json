@@ -1,97 +1,301 @@
-﻿{
-    "$schema":  "../schema/hcp-checkpoint.schema.json",
-    "id":  "CKP-20260808-1726-CDS9YJ",
-    "timestamp":  "2026-08-08T17:26:15.9610932+07:00",
-    "phase":  "P4",
-    "task_id":  "SVC-02",
-    "status":  "IN_PROGRESS",
-    "description":  "Authoritative protection core Tasks 1-5 committed; Task 6 persistence and delivery implementation has passing targeted tests and awaits scoped commit before Android runtime integration.",
-    "progress":  50,
-    "scope":  "",
-    "knowledge":  [
-
-                  ],
-    "assumptions":  [
-
-                    ],
-    "risks":  [
-
-              ],
-    "memory_snapshot":  [
-
-                        ],
-    "dependencies":  [
-
-                     ],
-    "error_info":  null,
-    "agent":  {
-                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
-                  "name":  "Codex",
-                  "model":  "GPT-5"
-              },
-    "snapshot":  {
-                     "build_status":  "SUCCESS",
-                     "build_output_snippet":  "",
-                     "files_changed":  [
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SecurityIncident.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicy.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorServiceAction.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/res/xml/network_security_config.xml",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicyTest.kt",
-                                               "action":  "MODIFIED"
-                                           },
-                                           {
-                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/service/SensorServiceActionTest.kt",
-                                               "action":  "MODIFIED"
-                                           }
-                                       ]
-                 },
-    "decisions":  [
-
-                  ],
-    "open_tasks":  [
-
-                   ],
-    "context":  {
-                    "summary":  "Authoritative protection core Tasks 1-5 committed; Task 6 persistence and delivery implementation has passing targeted tests and awaits scoped commit before Android runtime integration.",
-                    "next_steps":  [
-
-                                   ],
-                    "warnings":  [
-
-                                 ]
-                },
-    "git":  {
-                "branch":  "feature/motorcycle-guard-protection",
-                "remote_url":  "",
-                "dirty":  true,
-                "commit_hash":  "d8a7e4f"
-            },
-    "parent_checkpoint_id":  null,
-    "tags":  "motorcycle-guard"
+{
+  "$schema": "../schema/hcp-checkpoint.schema.json",
+  "id": "CKP-20260808-1726-CDS9YJ",
+  "timestamp": "2026-08-08T17:26:15.9610932+07:00",
+  "phase": "P4",
+  "task_id": "SVC-02",
+  "status": "IN_PROGRESS",
+  "description": "Authoritative protection core Tasks 1-5 committed; Task 6 persistence and delivery implementation has passing targeted tests and awaits scoped commit before Android runtime integration.",
+  "progress": 50,
+  "scope": "Execute the approved Motorcycle Guard Protection System plan with TDD: authoritative state, sensor health and correlation, durable incidents, truthful delivery, Android runtime integration, Telegram control, safe Demo Mode, UI, and device verification.",
+  "completed": [
+    "The product design specification was approved and the 11-task TDD implementation plan was written at MotorcycleAntiTheftSensor/docs/superpowers/plans/2026-08-08-motorcycle-guard-protection-system.md.",
+    "Created feature branch feature/motorcycle-guard-protection in the existing dirty checkout after explicit user approval.",
+    "Task 1 defined the authoritative protection contract and was committed as 8ebff9e.",
+    "Task 2 implemented truthful arm and disarm coordination and was committed as bc96e16.",
+    "Task 3 added sensor, service, and Telegram health evaluation plus safe recovery policy and was committed as ff7835f.",
+    "Task 4 added typed sensor observations, arming baseline capture, debounce, freshness rejection, and sensitivity mapping and was committed as 182ee54.",
+    "Task 5 added correlated incident lifecycle behavior and was committed as d8a7e4f.",
+    "Task 6 implemented the file repository, delivery coordinator, message formatter, and update-delivery policy using failing tests first; its scoped files are not committed yet.",
+    "Fixed two FileIncidentRepository defects found by tests: syncing a closed descriptor and failing to replace a pre-created empty target file.",
+    "The four Task 6 suites passed 10 tests with zero failures and zero errors.",
+    "HCP checkpoint build verification ran assembleDebug successfully."
+  ],
+  "knowledge": [
+    "ProtectionCoordinator is the only intended authority for protection state; transports and UI must consume snapshots rather than infer state independently.",
+    "Microphone is optional readiness evidence, while POST_NOTIFICATIONS is a hard arming blocker.",
+    "RESTART while armed must re-enter ARMING; ALERT_ACTIVE recovery records interruption instead of pretending the alert stayed continuous.",
+    "Real sensor evidence is admitted only in active armed states, and vibration plus light within 15 seconds escalates the same incident to critical tamper.",
+    "Demo incidents must use the real repository, UI, and Telegram path but are never eligible for SMS or emergency calls.",
+    "FileIncidentRepository uses java.io File rename and backup operations rather than java.nio.Files.move to remain compatible with Android minSdk 24.",
+    "The existing checkout contains extensive pre-existing tracked modifications and untracked source; exact-path staging is mandatory."
+  ],
+  "assumptions": [
+    {
+      "assumption": "The approved design specification and 11-task implementation plan remain authoritative.",
+      "confidence": "high",
+      "needsValidation": false
+    },
+    {
+      "assumption": "The connected Android phone remains the intended deployment and demonstration target for Task 11.",
+      "confidence": "high",
+      "needsValidation": true
+    },
+    {
+      "assumption": "The existing Telegram transport and encrypted preference storage should be retained behind narrow integration interfaces.",
+      "confidence": "high",
+      "needsValidation": false
+    }
+  ],
+  "risks": [
+    {
+      "risk": "The worktree contains many pre-existing modified and untracked files unrelated to this plan.",
+      "impact": "high",
+      "mitigation": "Never reset or clean the tree; inspect every diff and stage only exact task paths."
+    },
+    {
+      "risk": "Task 6 production and test files are currently uncommitted.",
+      "impact": "high",
+      "mitigation": "Resume by reviewing only the Task 6 paths, remove the emergency-call path required by the spec, rerun targeted tests, and create the scoped Task 6 commit before Task 7."
+    },
+    {
+      "risk": "The previous Telegram Bot Token was exposed in an old UI and must be considered compromised.",
+      "impact": "high",
+      "mitigation": "Rotate the token through BotFather before customer use and never include credentials in logs, screenshots, tests, commits, or checkpoints."
+    },
+    {
+      "risk": "Android service integration affects multiple lifecycle-sensitive files and can regress currently working Telegram polling.",
+      "impact": "high",
+      "mitigation": "Keep transports behind existing interfaces, use TDD, make the smallest scoped changes, and verify disarmed-online plus restart behavior."
+    },
+    {
+      "risk": "Task 10 includes a security review gate, but no dedicated Godkiller review capability has been established in this session.",
+      "impact": "medium",
+      "mitigation": "Do not claim the security gate complete; run the available approved security workflow or request the required capability before security-sensitive release claims."
+    },
+    {
+      "risk": "Passing JVM tests and assembleDebug do not prove device lifecycle, sensor calibration, Telegram delivery, SMS exclusion, or restart behavior.",
+      "impact": "high",
+      "mitigation": "Keep runtime claims pending until the Task 11 device matrix is executed on the target device."
+    }
+  ],
+  "memory_snapshot": [
+    {
+      "key": "implementation_plan",
+      "value": "MotorcycleAntiTheftSensor/docs/superpowers/plans/2026-08-08-motorcycle-guard-protection-system.md"
+    },
+    {
+      "key": "implementation_commits",
+      "value": "8ebff9e, bc96e16, ff7835f, 182ee54, d8a7e4f"
+    },
+    {
+      "key": "current_task",
+      "value": "Task 6 persistence and truthful delivery; code and targeted tests exist but are not committed."
+    },
+    {
+      "key": "next_task",
+      "value": "Task 7 Android runtime, foreground service, readiness, restart, and sensor callback integration."
+    }
+  ],
+  "dependencies": [
+    "Task 6 scoped review and commit before Android runtime integration.",
+    "Target Android device availability for Task 11 verification.",
+    "BotFather access to rotate the exposed Telegram Bot Token before customer use."
+  ],
+  "error_info": null,
+  "agent": {
+    "conversation_id": "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+    "name": "Codex",
+    "model": "GPT-5"
+  },
+  "snapshot": {
+    "build_status": "SUCCESS",
+    "build_output_snippet": "HCP checkpoint ran MotorcycleAntiTheftSensor assembleDebug successfully on 2026-08-08. Task 6 targeted JVM suites also passed separately.",
+    "test_results": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "files_changed": [
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SecurityIncident.kt",
+        "action": "MODIFIED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/FileIncidentRepository.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentDeliveryCoordinator.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentMessageFormatter.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentRepository.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentUpdateDeliveryPolicy.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/FileIncidentRepositoryTest.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentDeliveryCoordinatorTest.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentMessageFormatterTest.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentUpdateDeliveryPolicyTest.kt",
+        "action": "CREATED"
+      },
+      {
+        "path": "MotorcycleAntiTheftSensor/docs/superpowers/plans/2026-08-08-motorcycle-guard-protection-system.md",
+        "action": "CREATED"
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "question": "Where should implementation continue after this checkpoint?",
+      "decision": "Finish and commit Task 6, then execute Task 7 Android runtime integration.",
+      "rationale": "This preserves the reviewed TDD order and prevents uncommitted persistence work from being mixed with service lifecycle changes.",
+      "decided_by": "agent"
+    },
+    {
+      "question": "How should file replacement be implemented on minSdk 24?",
+      "decision": "Use java.io File temporary, backup, and rename operations.",
+      "rationale": "It avoids an API-level compatibility problem with java.nio.Files.move while retaining recoverable publication semantics.",
+      "decided_by": "agent"
+    },
+    {
+      "question": "May Demo Mode trigger fallback SMS or calls?",
+      "decision": "No. Demo may persist and send clearly marked Telegram evidence only.",
+      "rationale": "The approved design requires realistic demos without unsafe external effects.",
+      "decided_by": "user"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "Which approved security-review capability should satisfy the Task 10 security gate if the named Godkiller workflow is unavailable?",
+      "required_before": "Declaring Task 10 security review complete",
+      "recommended_answer": "Use an installed approved security reviewer or explicitly approve a documented manual security review."
+    }
+  ],
+  "open_tasks": [
+    {
+      "task_id": "TASK-06",
+      "description": "Review Task 6 diff, remove emergency-call capability from SmsFallbackManager and manifest, rerun targeted tests, and commit exact paths.",
+      "priority": 1,
+      "blocked_by": "Nothing"
+    },
+    {
+      "task_id": "TASK-07",
+      "description": "Integrate ProtectionCoordinator, sensor callbacks, health, restart recovery, foreground service, permissions, location, and persisted snapshot into Android runtime.",
+      "priority": 1,
+      "blocked_by": "TASK-06"
+    },
+    {
+      "task_id": "TASK-08",
+      "description": "Make Telegram commands and status truthful through coordinator snapshots and delivery state.",
+      "priority": 2,
+      "blocked_by": "TASK-07"
+    },
+    {
+      "task_id": "TASK-09",
+      "description": "Implement safe Demo Mode through the real incident pipeline with Telegram allowed and SMS/calls forbidden.",
+      "priority": 2,
+      "blocked_by": "TASK-08"
+    },
+    {
+      "task_id": "TASK-10",
+      "description": "Implement status, history, setup, diagnostics, and credential-safety UI with the required security review gate.",
+      "priority": 2,
+      "blocked_by": "TASK-09 and security review capability"
+    },
+    {
+      "task_id": "TASK-11",
+      "description": "Run full unit/build verification, install APK, execute the complete device matrix, and create final HCP handoff.",
+      "priority": 2,
+      "blocked_by": "TASK-10 and target device availability"
+    },
+    {
+      "task_id": "ROTATE-TOKEN",
+      "description": "Revoke and replace the previously exposed Telegram Bot Token before customer use.",
+      "priority": 1,
+      "blocked_by": "Owner access to BotFather"
+    }
+  ],
+  "verification": {
+    "current_session": [
+      "Baseline .\\gradlew.bat testDebugUnitTest assembleDebug passed before implementation.",
+      "Each of Tasks 1-5 followed red-green TDD and its focused suites passed before its scoped commit.",
+      "FileIncidentRepositoryTest: 3 passed, 0 failed, 0 errors.",
+      "IncidentDeliveryCoordinatorTest: 4 passed, 0 failed, 0 errors.",
+      "IncidentMessageFormatterTest: 2 passed, 0 failed, 0 errors.",
+      "IncidentUpdateDeliveryPolicyTest: 1 passed, 0 failed, 0 errors.",
+      "HCP checkpoint assembleDebug: SUCCESS.",
+      "No fresh APK install or real-device behavior verification has been performed for the new implementation."
+    ],
+    "required_on_resume": [
+      "Re-read git status and verify branch feature/motorcycle-guard-protection.",
+      "Re-run the four Task 6 focused suites after emergency-call removal.",
+      "Inspect exact staged paths before committing Task 6.",
+      "Do not claim runtime behavior until Task 11 device verification."
+    ]
+  },
+  "artifacts": [
+    "MotorcycleAntiTheftSensor/docs/superpowers/specs/2026-08-08-motorcycle-guard-protection-system-design.md",
+    "MotorcycleAntiTheftSensor/docs/superpowers/plans/2026-08-08-motorcycle-guard-protection-system.md",
+    "MotorcycleAntiTheftSensor/app/build/test-results/testDebugUnitTest/TEST-com.example.motorcycleantitheftsensor.protection.FileIncidentRepositoryTest.xml",
+    "MotorcycleAntiTheftSensor/app/build/test-results/testDebugUnitTest/TEST-com.example.motorcycleantitheftsensor.protection.IncidentDeliveryCoordinatorTest.xml",
+    "MotorcycleAntiTheftSensor/app/build/test-results/testDebugUnitTest/TEST-com.example.motorcycleantitheftsensor.protection.IncidentMessageFormatterTest.xml",
+    "MotorcycleAntiTheftSensor/app/build/test-results/testDebugUnitTest/TEST-com.example.motorcycleantitheftsensor.protection.IncidentUpdateDeliveryPolicyTest.xml",
+    "MotorcycleAntiTheftSensor/app/build/outputs/apk/debug/app-debug.apk"
+  ],
+  "context": {
+    "summary": "The approved implementation is halfway through the 11-task plan. Tasks 1-5 are committed and verified. Task 6 code and tests exist in the working tree and its 10 focused tests pass, but it still needs emergency-call removal, final focused verification, and a scoped commit. Resume at Task 6; do not jump to service integration first.",
+    "warnings": [
+      "Preserve all pre-existing dirty and untracked files; never reset, clean, or broadly stage.",
+      "HCP generation commit b95ba5b created the initial skeleton; a follow-up exact-path checkpoint commit contains this populated handoff.",
+      "Do not reveal or persist Telegram credentials. Rotate the previously exposed token before customer use.",
+      "Do not claim production readiness from unit tests or assembleDebug alone.",
+      "No emergency phone call is allowed by the approved scope."
+    ],
+    "next_steps": [
+      "Run .\\hcp.cmd resume CKP-20260808-1726-CDS9YJ -Format full and summarize the checkpoint before acting.",
+      "Read the plan Task 6 section and inspect the listed Task 6 source and test files.",
+      "Remove triggerEmergencyDirectCall and CALL_PHONE only if still present, without absorbing unrelated file changes.",
+      "Run the four focused Task 6 test suites and review the exact diff.",
+      "Commit only Task 6 paths, then update plan status and begin Task 7 with a multi-file impact note and TDD."
+    ],
+    "environment": {
+      "java_version": "Android Studio JBR 21.0.10",
+      "android_sdk": "Local Android SDK configured by scripts/setup_env.ps1",
+      "gradle_version": "Gradle wrapper in MotorcycleAntiTheftSensor",
+      "kotlin_version": "Project-defined in MotorcycleAntiTheftSensor build files"
+    }
+  },
+  "git": {
+    "branch": "feature/motorcycle-guard-protection",
+    "remote_url": "",
+    "dirty": true,
+    "commit_hash": "d8a7e4f"
+  },
+  "parent_checkpoint_id": "CKP-20260808-1623-O3UG9G",
+  "tags": [
+    "motorcycle-guard",
+    "protection-core",
+    "tdd",
+    "handoff"
+  ],
+  "resume_command": ".\\hcp.cmd resume CKP-20260808-1726-CDS9YJ -Format full"
 }
