@@ -29,6 +29,7 @@ class EncryptedPrefsManager(context: Context) {
         private const val KEY_SENSITIVITY = "sensor_sensitivity_level"
         private const val KEY_PAIRING_CODE = "pairing_code"
         private const val KEY_PAIRING_EXPIRES_AT_MS = "pairing_expires_at_ms"
+        private const val KEY_LAST_TELEGRAM_UPDATE_ID = "last_telegram_update_id"
     }
 
     private val secureKeyManager = SecureKeyManager(context)
@@ -45,7 +46,10 @@ class EncryptedPrefsManager(context: Context) {
 
     // --- Telegram Bot Token ---
     fun saveBotToken(token: String) {
-        prefs.edit().putString(KEY_BOT_TOKEN, token).apply()
+        val previous = prefs.getString(KEY_BOT_TOKEN, null)
+        val editor = prefs.edit().putString(KEY_BOT_TOKEN, token)
+        if (previous != token) editor.remove(KEY_LAST_TELEGRAM_UPDATE_ID)
+        editor.apply()
     }
 
     fun getBotToken(): String? {
@@ -64,6 +68,12 @@ class EncryptedPrefsManager(context: Context) {
     fun isChatIdAllowed(chatId: String): Boolean {
         return getAllowedChatIds().contains(chatId)
     }
+
+    fun getLastTelegramUpdateId(): Long = prefs.getLong(KEY_LAST_TELEGRAM_UPDATE_ID, 0L)
+
+    fun commitLastTelegramUpdateId(updateId: Long): Boolean = prefs.edit()
+        .putLong(KEY_LAST_TELEGRAM_UPDATE_ID, updateId)
+        .commit()
 
     fun createPairingCode(policy: PairingCodePolicy, nowMs: Long = System.currentTimeMillis()): PairingCode {
         val pairingCode = policy.generate(nowMs)

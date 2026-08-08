@@ -36,6 +36,7 @@ object ProtectionRuntimeGraph {
     )
 
     private fun buildGraph(context: Context): Graph {
+        lateinit var coordinator: ProtectionCoordinator
         val wallClock = ProtectionClock(System::currentTimeMillis)
         val elapsedClock = ProtectionClock(SystemClock::elapsedRealtime)
         val snapshotStore = ProtectionSnapshotStore(context, wallClock)
@@ -48,6 +49,7 @@ object ProtectionRuntimeGraph {
             context = context,
             prefsManager = preferences,
             totpAuthenticator = TotpAuthenticator(preferences),
+            onTelegramContact = { atMs -> coordinator.recordTelegramContact(atMs) },
         )
         val sms = SmsFallbackManager(context, preferences)
         val delivery = IncidentDeliveryCoordinator(
@@ -88,7 +90,6 @@ object ProtectionRuntimeGraph {
         val deliveryPolicy = IncidentUpdateDeliveryPolicy()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val incidentMutex = Mutex()
-        lateinit var coordinator: ProtectionCoordinator
         suspend fun process(update: IncidentUpdate) {
             val incident = update.incidentOrNull() ?: return
             when (deliveryPolicy.action(update)) {

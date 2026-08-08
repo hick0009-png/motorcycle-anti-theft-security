@@ -8,6 +8,17 @@ import org.junit.Test
 
 class RemoteCommandTest {
     @Test
+    fun sensitivityOutsideNumericSyntaxRemainsRejectedInput() {
+        assertEquals(RemoteCommand.Sensitivity(null), RemoteCommand.parse("/sensitivity fast"))
+    }
+
+    @Test
+    fun unknownCommandDoesNotMapToOperationalAction() {
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/shutdown"))
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/arm now"))
+    }
+
+    @Test
     fun disarmWithoutCodeIsParsedAsAnAuthorizationFailure() {
         assertEquals(RemoteCommand.Disarm(null), RemoteCommand.parse("/disarm"))
     }

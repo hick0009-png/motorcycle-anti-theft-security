@@ -15,7 +15,6 @@ import androidx.core.app.NotificationCompat
 import com.example.motorcycleantitheftsensor.MainActivity
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
-import com.example.motorcycleantitheftsensor.protection.CommandOutcome
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryPolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryGate
@@ -25,8 +24,9 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
-import com.example.motorcycleantitheftsensor.telegram.RemoteCommand
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
+import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
+import com.example.motorcycleantitheftsensor.telegram.TelegramCommandHandler
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -84,7 +84,11 @@ class SensorService : Service(), ServiceEnvironment {
             context = this,
             prefsManager = preferences,
             totpAuthenticator = TotpAuthenticator(preferences),
-            onAuthorizedCommand = ::handleRemoteCommand,
+            commandHandler = TelegramCommandHandler(
+                coordinator = graph.coordinator,
+                statusFormatter = ProtectionStatusFormatter(),
+            ),
+            onTelegramContact = graph.coordinator::recordTelegramContact,
         )
         acquireWakeLock()
         serviceScope.launch {
@@ -119,8 +123,8 @@ class SensorService : Service(), ServiceEnvironment {
                     action in setOf(SensorServiceAction.Start, SensorServiceAction.Ignore)
                 ) {
                     if (recoveryStarted.compareAndSet(false, true)) {
-                        controller.handle(action, commandId("start"))
                         applyRecovery()
+                        controller.handle(action, commandId("start"))
                     }
                 } else {
                     recoveryGate.markRecoveryComplete()
@@ -165,35 +169,6 @@ class SensorService : Service(), ServiceEnvironment {
         }
         recoveryGate.markRecoveryComplete()
         handleSnapshot(graph.coordinator.snapshot.value)
-    }
-
-    private fun handleRemoteCommand(command: RemoteCommand) {
-        serviceScope.launch {
-            initialization.await()
-            commandMutex.withLock {
-                when (command) {
-                    RemoteCommand.Arm -> controller.handle(
-                        SensorServiceAction.Arm,
-                        commandId("telegram-arm"),
-                        CommandOrigin.TELEGRAM,
-                    )
-
-                    is RemoteCommand.Disarm -> controller.handle(
-                        SensorServiceAction.Disarm,
-                        commandId("telegram-disarm"),
-                        CommandOrigin.TELEGRAM,
-                    )
-
-                    is RemoteCommand.Sensitivity -> command.level?.let { level ->
-                        val result = graph.coordinator.changeSensitivity(commandId("sensitivity"), level)
-                        if (result.outcome == CommandOutcome.APPLIED) preferences.setSensitivity(level)
-                        renderNotification(graph.coordinator.snapshot.value)
-                    }
-
-                    else -> Unit
-                }
-            }
-        }
     }
 
     private suspend fun handleSnapshot(snapshot: ProtectionSnapshot) {
