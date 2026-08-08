@@ -21,7 +21,8 @@ import kotlin.concurrent.thread
 class TelegramBotClient(
     private val context: Context,
     private val prefsManager: EncryptedPrefsManager,
-    private val totpAuthenticator: TotpAuthenticator
+    private val totpAuthenticator: TotpAuthenticator,
+    private val onAuthorizedCommand: (RemoteCommand) -> Unit = {}
 ) {
 
     private val pairingCodePolicy = PairingCodePolicy()
@@ -128,14 +129,15 @@ class TelegramBotClient(
             }
 
             "/arm" -> {
-                prefsManager.setSystemArmed(true)
-                context.sendBroadcast(android.content.Intent("com.example.motorcycleantitheftsensor.SYSTEM_ARM"))
+                onAuthorizedCommand(RemoteCommand.Arm)
                 sendTelegramMessage(chatId, "🛡️ *SYSTEM ARMED!* Anti-Theft sensors are active.")
             }
 
             "/disarm" -> {
                 val totpSeed = prefsManager.getTotpSeed()
                 if (totpSeed == null) {
+                    sendTelegramMessage(chatId, "TOTP must be configured on the device before remote disarm is allowed.")
+                    return
                     prefsManager.setSystemArmed(false)
                     context.sendBroadcast(android.content.Intent("com.example.motorcycleantitheftsensor.SYSTEM_DISARM"))
                     sendTelegramMessage(chatId, "🔓 *SYSTEM DISARMED.* Anti-Theft sensors paused.")
@@ -149,6 +151,9 @@ class TelegramBotClient(
 
                 val result = totpAuthenticator.verifyCode(arg)
                 if (result == TotpAuthenticator.VerificationResult.SUCCESS) {
+                    onAuthorizedCommand(RemoteCommand.Disarm(arg))
+                    sendTelegramMessage(chatId, "DISARM COMMAND ACCEPTED")
+                    return
                     prefsManager.setSystemArmed(false)
                     context.sendBroadcast(android.content.Intent("com.example.motorcycleantitheftsensor.SYSTEM_DISARM"))
                     sendTelegramMessage(chatId, "🔓 *SYSTEM DISARMED.* Anti-Theft sensors paused.")
@@ -201,6 +206,29 @@ class TelegramBotClient(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    fun sendTelegramAlert(textMarkdown: String): Boolean {
+        val ownerIds = prefsManager.getAllowedChatIds()
+        if (ownerIds.isEmpty()) return false
+        return ownerIds.all { chatId -> sendTelegramMessageSync(chatId, textMarkdown) }
+    }
+
+    private fun sendTelegramMessageSync(chatId: String, textMarkdown: String): Boolean {
+        val botToken = prefsManager.getBotToken() ?: return false
+        return try {
+            val url = "https://api.telegram.org/bot$botToken/sendMessage"
+            val body = FormBody.Builder()
+                .add("chat_id", chatId)
+                .add("text", textMarkdown)
+                .add("parse_mode", "Markdown")
+                .build()
+            val request = Request.Builder().url(url).post(body).build()
+            TlsPinningClient.client.newCall(request).execute().use { response -> response.isSuccessful }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 

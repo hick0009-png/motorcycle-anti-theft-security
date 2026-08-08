@@ -24,6 +24,7 @@ class EncryptedPrefsManager(context: Context) {
         private const val KEY_TOTP_SEED = "enc_totp_seed"
         private const val KEY_DEVICE_UUID = "enc_device_uuid"
         private const val KEY_SMS_AES_KEY = "enc_sms_aes_key"
+        private const val KEY_SMS_DESTINATION = "enc_sms_destination"
         private const val KEY_SYSTEM_ARMED = "system_armed_state"
         private const val KEY_SENSITIVITY = "sensor_sensitivity_level"
         private const val KEY_PAIRING_CODE = "pairing_code"
@@ -125,6 +126,12 @@ class EncryptedPrefsManager(context: Context) {
     fun getSmsAesKey(): String? {
         return prefs.getString(KEY_SMS_AES_KEY, null)
     }
+
+    fun saveSmsDestination(phoneNumber: String) {
+        prefs.edit().putString(KEY_SMS_DESTINATION, phoneNumber.trim()).apply()
+    }
+
+    fun getSmsDestination(): String? = prefs.getString(KEY_SMS_DESTINATION, null)
 
     // --- Arm / Disarm State ---
     fun setSystemArmed(armed: Boolean) {
