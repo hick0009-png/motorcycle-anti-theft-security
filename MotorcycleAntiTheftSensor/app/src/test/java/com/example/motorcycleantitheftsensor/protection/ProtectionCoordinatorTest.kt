@@ -80,11 +80,34 @@ class ProtectionCoordinatorTest {
         assertEquals(CommandOutcome.APPLIED, coordinator.changeSensitivity("ok", 7).outcome)
         assertEquals(7, runtime.appliedSensitivity)
     }
+
+    @Test
+    fun recordedHealthAndHeartbeatBecomeOfflineWhenTheyExpire() {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            healthPolicy = ProtectionHealthPolicy(5_000L, 10_000L, 20_000L),
+        )
+
+        coordinator.recordServiceHeartbeat(atMs = 1_000L)
+        coordinator.recordTelegramContact(atMs = 1_000L)
+        coordinator.recordSensorSample(SensorKind.VIBRATION, atMs = 1_000L, detail = "baseline")
+        coordinator.evaluateFreshness(nowMs = 11_001L)
+
+        assertEquals(ProtectionState.OFFLINE, coordinator.snapshot.value.state)
+        assertFalse(coordinator.snapshot.value.serviceRunning)
+        assertEquals(SensorHealthState.STALE, coordinator.snapshot.value.sensorHealth[SensorKind.VIBRATION]?.state)
+    }
 }
 
 private fun coordinator(
     runtime: FakeRuntime,
     armingDelay: ArmingDelay,
+    healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -94,6 +117,7 @@ private fun coordinator(
     runtime = runtime,
     armingDelay = armingDelay,
     clock = ProtectionClock { 1_000L },
+    healthPolicy = healthPolicy,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(

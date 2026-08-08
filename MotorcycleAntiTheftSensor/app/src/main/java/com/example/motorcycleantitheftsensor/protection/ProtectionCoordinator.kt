@@ -11,9 +11,11 @@ class ProtectionCoordinator(
     private val runtime: ProtectionRuntime,
     private val armingDelay: ArmingDelay,
     private val clock: ProtectionClock,
+    private val healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val armingEpoch = AtomicLong(0L)
+    @Volatile private var lastServiceHeartbeatAtMs: Long? = null
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -103,6 +105,80 @@ class ProtectionCoordinator(
         return result(commandId, CommandOutcome.APPLIED, "Sensitivity applied: $level")
     }
 
+    fun recordServiceHeartbeat(atMs: Long) {
+        lastServiceHeartbeatAtMs = atMs
+        mutableSnapshot.update { current -> current.copy(serviceRunning = true) }
+    }
+
+    fun recordTelegramContact(atMs: Long) {
+        mutableSnapshot.update { current ->
+            current.copy(
+                telegramReachable = true,
+                lastTelegramContactAtMs = atMs,
+            )
+        }
+    }
+
+    fun recordSensorSample(
+        kind: SensorKind,
+        atMs: Long,
+        detail: String? = null,
+    ) {
+        mutableSnapshot.update { current ->
+            current.copy(
+                sensorHealth = current.sensorHealth + (
+                    kind to SensorHealth(
+                        state = SensorHealthState.HEALTHY,
+                        lastSampleAtMs = atMs,
+                        detail = detail,
+                    )
+                ),
+            )
+        }
+    }
+
+    fun evaluateFreshness(nowMs: Long) {
+        mutableSnapshot.update { current ->
+            val evaluatedSensors = current.sensorHealth.mapValues { (_, health) ->
+                health.copy(state = healthPolicy.sensorState(health, nowMs))
+            }
+            val runtimeState = healthPolicy.runtimeState(
+                current = current.state,
+                lastServiceHeartbeatAtMs = lastServiceHeartbeatAtMs,
+                nowMs = nowMs,
+            )
+            val telegramReachable = healthPolicy.telegramReachable(
+                lastContactAtMs = current.lastTelegramContactAtMs,
+                nowMs = nowMs,
+            )
+            val staleSensors = evaluatedSensors
+                .filterValues { health -> health.state == SensorHealthState.STALE || health.state == SensorHealthState.FAILED }
+                .keys
+                .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+            val degradations = current.degradationReasons + staleSensors + if (
+                current.state in ARMED_STATES && !telegramReachable
+            ) {
+                setOf("TELEGRAM unreachable")
+            } else {
+                emptySet()
+            }
+            val evaluatedState = when {
+                runtimeState == ProtectionState.OFFLINE -> ProtectionState.OFFLINE
+                current.state == ProtectionState.ALERT_ACTIVE -> ProtectionState.ALERT_ACTIVE
+                current.state in ARMED_STATES && degradations.isNotEmpty() -> ProtectionState.ARMED_DEGRADED
+                else -> current.state
+            }
+
+            current.copy(
+                state = evaluatedState,
+                serviceRunning = runtimeState != ProtectionState.OFFLINE,
+                telegramReachable = telegramReachable,
+                sensorHealth = evaluatedSensors,
+                degradationReasons = degradations,
+            )
+        }
+    }
+
     private fun transition(
         state: ProtectionState,
         blockers: Set<String>,
@@ -130,4 +206,11 @@ class ProtectionCoordinator(
         resultingState = snapshot.value.state,
         reason = reason,
     )
+
+    private companion object {
+        val ARMED_STATES = setOf(
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+        )
+    }
 }
