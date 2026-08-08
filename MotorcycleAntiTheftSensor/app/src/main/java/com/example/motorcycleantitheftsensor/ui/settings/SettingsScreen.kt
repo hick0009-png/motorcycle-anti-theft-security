@@ -1,5 +1,9 @@
 package com.example.motorcycleantitheftsensor.ui.settings
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -19,6 +23,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -27,6 +32,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,6 +50,7 @@ fun SettingsScreen(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
+    val view = LocalView.current
     var replacementToken by rememberSaveable { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
     var smsKey by rememberSaveable { mutableStateOf("") }
@@ -49,6 +58,28 @@ fun SettingsScreen(
     var authenticatorSecret by remember { mutableStateOf<String?>(null) }
     var verificationCode by remember { mutableStateOf("") }
     var authenticatorError by remember { mutableStateOf<String?>(null) }
+    var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun clearAuthenticatorUi() {
+        cancelAuthenticatorRequest?.invoke()
+        cancelAuthenticatorRequest = null
+        authenticatorSecret = null
+        verificationCode = ""
+        authenticatorError = null
+    }
+
+    DisposableEffect(Unit) {
+        onDispose(::clearAuthenticatorUi)
+    }
+    DisposableEffect(authenticatorSecret, view) {
+        val window = if (authenticatorSecret == null) null else view.context.findActivity()?.window
+        val wasSecure = window != null && window.attributes.flags
+            .and(WindowManager.LayoutParams.FLAG_SECURE) != 0
+        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            if (window != null && !wasSecure) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     LaunchedEffect(state.settings.sensitivity) {
         sensitivityDraft = state.settings.sensitivity
@@ -197,11 +228,16 @@ fun SettingsScreen(
                 )
                 Button(
                     onClick = {
+                        cancelAuthenticatorRequest?.invoke()
+                        cancelAuthenticatorRequest = null
                         verificationCode = ""
                         authenticatorError = null
-                        authenticatorSecret = actions.beginAuthenticatorSetup()
-                        if (authenticatorSecret == null) {
-                            authenticatorError = "Unable to start authenticator setup"
+                        cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { secret ->
+                            cancelAuthenticatorRequest = null
+                            authenticatorSecret = secret
+                            if (secret == null) {
+                                authenticatorError = "Unable to start authenticator setup"
+                            }
                         }
                     },
                     enabled = !state.operationInFlight,
@@ -245,19 +281,18 @@ fun SettingsScreen(
     }
 
     authenticatorSecret?.let { secret ->
-        fun dismissAuthenticator() {
-            authenticatorSecret = null
-            verificationCode = ""
-            authenticatorError = null
-        }
-
         AlertDialog(
-            onDismissRequest = ::dismissAuthenticator,
+            onDismissRequest = ::clearAuthenticatorUi,
             title = { Text("Authenticator setup") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Enter this secret in your authenticator:")
-                    Text(secret)
+                    Text(
+                        text = secret,
+                        modifier = Modifier
+                            .testTag(AUTHENTICATOR_SECRET_TAG)
+                            .clearAndSetSemantics { },
+                    )
                     OutlinedTextField(
                         value = verificationCode,
                         onValueChange = { verificationCode = it },
@@ -271,13 +306,17 @@ fun SettingsScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (actions.verifyAuthenticator(verificationCode)) {
-                            dismissAuthenticator()
-                        } else {
-                            authenticatorError = "Verification code not accepted"
+                        cancelAuthenticatorRequest?.invoke()
+                        cancelAuthenticatorRequest = actions.verifyAuthenticator(verificationCode) { verified ->
+                            cancelAuthenticatorRequest = null
+                            if (verified) {
+                                clearAuthenticatorUi()
+                            } else {
+                                authenticatorError = "Verification code not accepted"
+                            }
                         }
                     },
-                    enabled = verificationCode.isNotBlank(),
+                    enabled = verificationCode.isNotBlank() && !state.operationInFlight,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text("Verify")
@@ -285,7 +324,7 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(
-                    onClick = ::dismissAuthenticator,
+                    onClick = ::clearAuthenticatorUi,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text("Cancel")
@@ -294,6 +333,14 @@ fun SettingsScreen(
         )
     }
 }
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private const val AUTHENTICATOR_SECRET_TAG = "authenticator_secret"
 
 @Composable
 private fun SettingsCard(

@@ -21,6 +21,7 @@ import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -38,6 +39,7 @@ import org.junit.Test
 class ProtectionViewModelTest {
     @Test
     fun stateUsesCoordinatorSnapshotAndNewestFirstRealEvents() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
         val coordinator = fakeCoordinator(ProtectionState.ARMED_DEGRADED)
         val incidents = FakeIncidentRepository(
             listOf(
@@ -51,7 +53,8 @@ class ProtectionViewModelTest {
             settings = FakeProtectionSettingsGateway(),
             nowMs = { 2_500L },
             ticker = emptyFlow(),
-            dispatcher = StandardTestDispatcher(testScheduler),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
         )
         runCurrent()
 
@@ -137,6 +140,76 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun authenticatorSetupRunsAsynchronouslyWithoutEnteringUiState() = runTest {
+        val secret = "transient-authenticator-secret"
+        val settings = FakeProtectionSettingsGateway(authenticatorSetupSecret = secret)
+        val fixture = fixture(testScheduler, settings = settings)
+        var completedSecret: String? = null
+
+        fixture.viewModel.beginAuthenticatorSetup { completedSecret = it }
+
+        assertEquals(0, settings.authenticatorSetupCalls)
+        assertNull(completedSecret)
+        advanceUntilIdle()
+        assertEquals(1, settings.authenticatorSetupCalls)
+        assertEquals(secret, completedSecret)
+        assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
+    }
+
+    @Test
+    fun successfulAuthenticatorVerificationRefreshesConfiguredStateBeforeCompletion() = runTest {
+        val verification = CompletableDeferred<Boolean>()
+        val settings = FakeProtectionSettingsGateway(
+            authenticatorConfigured = false,
+            authenticatorVerification = verification,
+        )
+        val fixture = fixture(testScheduler, settings = settings)
+        runCurrent()
+        var completion: Boolean? = null
+
+        fixture.viewModel.verifyAuthenticator("123456") { verified -> completion = verified }
+        runCurrent()
+
+        assertFalse(fixture.viewModel.uiState.value.settings.authenticatorConfigured)
+        assertNull(completion)
+        verification.complete(true)
+        advanceUntilIdle()
+        assertTrue(fixture.viewModel.uiState.value.settings.authenticatorConfigured)
+        assertEquals(true, completion)
+    }
+
+    @Test
+    fun latestPermissionUpdateWinsWhenInitialSettingsReadCompletesLast() = runTest {
+        val initialReadStarted = CompletableDeferred<Unit>()
+        val allowInitialRead = CompletableDeferred<Unit>()
+        val settings = FakeProtectionSettingsGateway(
+            firstSettingsReadStarted = initialReadStarted,
+            allowFirstSettingsRead = allowInitialRead,
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = settings,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+            initialMissingPermissions = setOf("INITIAL_PERMISSION"),
+        )
+        runCurrent()
+        assertTrue(initialReadStarted.isCompleted)
+
+        viewModel.updateMissingPermissions(setOf("LATEST_PERMISSION"))
+        runCurrent()
+
+        assertEquals(setOf("LATEST_PERMISSION"), viewModel.uiState.value.settings.missingPermissions)
+        allowInitialRead.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(setOf("LATEST_PERMISSION"), viewModel.uiState.value.settings.missingPermissions)
+    }
+
+    @Test
     fun smsFallbackFailureNeverPublishesCredentialExceptionText() = runTest {
         val secret = "sms-key-sentinel"
         val fixture = fixture(
@@ -162,6 +235,7 @@ class ProtectionViewModelTest {
             nowMs = { 1_000L },
             ticker = emptyFlow(),
             dispatcher = Dispatchers.Default,
+            callbackDispatcher = Dispatchers.Default,
         )
         awaitCondition {
             viewModel.uiState.value.events.map { it.id } == listOf("initial") &&
@@ -220,6 +294,7 @@ private fun fixture(
     repository: FakeIncidentRepository = FakeIncidentRepository(incidents),
     settings: FakeProtectionSettingsGateway = FakeProtectionSettingsGateway(),
 ): ViewModelFixture {
+    val dispatcher = StandardTestDispatcher(scheduler)
     return ViewModelFixture(
         viewModel = ProtectionViewModel(
             coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
@@ -227,7 +302,8 @@ private fun fixture(
             settings = settings,
             nowMs = { 1_000L },
             ticker = emptyFlow(),
-            dispatcher = StandardTestDispatcher(scheduler),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
         ),
         settings = settings,
     )
@@ -239,6 +315,7 @@ private fun fixtureWithBlocker(
     scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
 ): ViewModelFixture {
     val settings = FakeProtectionSettingsGateway()
+    val dispatcher = StandardTestDispatcher(scheduler)
     return ViewModelFixture(
         viewModel = ProtectionViewModel(
             coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE, setOf(blocker)),
@@ -246,7 +323,8 @@ private fun fixtureWithBlocker(
             settings = settings,
             nowMs = { 1_000L },
             ticker = emptyFlow(),
-            dispatcher = StandardTestDispatcher(scheduler),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
         ),
         settings = settings,
     )
@@ -392,16 +470,32 @@ private fun awaitCondition(condition: () -> Boolean) {
 private class FakeProtectionSettingsGateway(
     private val botTokenFailure: String? = null,
     private val smsFallbackFailure: String? = null,
+    private var authenticatorConfigured: Boolean = true,
+    private val authenticatorSetupSecret: String? = null,
+    private val authenticatorVerification: CompletableDeferred<Boolean>? = null,
+    private val firstSettingsReadStarted: CompletableDeferred<Unit>? = null,
+    private val allowFirstSettingsRead: CompletableDeferred<Unit>? = null,
 ) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
     var tokenReplaceCalls = 0
         private set
     var writeCount = 0
         private set
+    var authenticatorSetupCalls = 0
+        private set
+    private var settingsReadCount = 0
 
-    override fun read(missingPermissions: Set<String>): ProtectionSettingsSummary = settingsSummary().copy(
-        missingPermissions = missingPermissions,
-    )
+    override suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary {
+        settingsReadCount += 1
+        if (settingsReadCount == 1 && allowFirstSettingsRead != null) {
+            firstSettingsReadStarted?.complete(Unit)
+            allowFirstSettingsRead.await()
+        }
+        return settingsSummary().copy(
+            authenticatorConfigured = authenticatorConfigured,
+            missingPermissions = missingPermissions,
+        )
+    }
 
     override fun saveSensitivity(level: Int) {
         savedSensitivity += level
@@ -419,5 +513,16 @@ private class FakeProtectionSettingsGateway(
         smsFallbackFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
+    }
+
+    override suspend fun beginAuthenticatorSetup(): String? {
+        authenticatorSetupCalls += 1
+        return authenticatorSetupSecret
+    }
+
+    override suspend fun verifyAuthenticator(code: String): Boolean {
+        val verified = authenticatorVerification?.await() ?: false
+        if (verified) authenticatorConfigured = true
+        return verified
     }
 }

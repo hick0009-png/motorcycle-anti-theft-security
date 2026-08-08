@@ -63,10 +63,12 @@ data class IncidentRowSummary(
 data class SettingsOperationResult(val applied: Boolean, val message: String)
 
 interface ProtectionSettingsGateway {
-    fun read(missingPermissions: Set<String>): ProtectionSettingsSummary
+    suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary
     fun saveSensitivity(level: Int)
     suspend fun replaceBotToken(token: String): SettingsOperationResult
     fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
+    suspend fun beginAuthenticatorSetup(): String?
+    suspend fun verifyAuthenticator(code: String): Boolean
 }
 
 data class ProtectionUiState(

@@ -1,24 +1,41 @@
 package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
+import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
+import com.example.motorcycleantitheftsensor.telegram.normalizeTelegramBotToken
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-class AndroidProtectionSettingsGateway(
-    private val preferences: EncryptedPrefsManager,
-    private val telegram: TelegramBotClient,
+class AndroidProtectionSettingsGateway internal constructor(
+    private val operations: AndroidProtectionSettingsOperations,
     private val pairingCodePolicy: PairingCodePolicy,
-    private val startControlService: () -> Unit,
 ) : ProtectionSettingsGateway {
-    override fun read(missingPermissions: Set<String>): ProtectionSettingsSummary {
-        val allowedChatIds = preferences.getAllowedChatIds()
+    constructor(
+        preferences: EncryptedPrefsManager,
+        telegram: TelegramBotClient,
+        pairingCodePolicy: PairingCodePolicy,
+        totpAuthenticator: TotpAuthenticator,
+        startControlService: () -> Unit,
+    ) : this(
+        operations = EncryptedAndroidProtectionSettingsOperations(
+            preferences = preferences,
+            telegram = telegram,
+            totpAuthenticator = totpAuthenticator,
+            startService = startControlService,
+        ),
+        pairingCodePolicy = pairingCodePolicy,
+    )
+
+    override suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary {
+        val allowedChatIds = operations.getAllowedChatIds()
         val pairingCode = if (allowedChatIds.isEmpty()) {
-            val stored = preferences.getPairingCode()
+            val stored = operations.getPairingCode()
             if (stored == null || pairingCodePolicy.isExpired(stored)) {
-                preferences.createPairingCode(pairingCodePolicy).value
+                operations.createPairingCode(pairingCodePolicy).value
             } else {
                 stored.value
             }
@@ -26,31 +43,31 @@ class AndroidProtectionSettingsGateway(
             null
         }
         return ProtectionSettingsSummary(
-            tokenConfigured = !preferences.getBotToken().isNullOrBlank(),
+            tokenConfigured = !operations.getBotToken().isNullOrBlank(),
             pairedOwnerCount = allowedChatIds.size,
             pairingCode = pairingCode,
-            authenticatorConfigured = !preferences.getTotpSeed().isNullOrBlank(),
-            sensitivity = preferences.getSensitivity(),
-            smsFallbackConfigured = !preferences.getSmsDestination().isNullOrBlank() &&
-                !preferences.getSmsAesKey().isNullOrBlank(),
+            authenticatorConfigured = !operations.getTotpSeed().isNullOrBlank(),
+            sensitivity = operations.getSensitivity(),
+            smsFallbackConfigured = !operations.getSmsDestination().isNullOrBlank() &&
+                !operations.getSmsAesKey().isNullOrBlank(),
             missingPermissions = missingPermissions,
         )
     }
 
     override fun saveSensitivity(level: Int) {
-        preferences.setSensitivity(level)
+        operations.setSensitivity(level)
     }
 
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
-        val candidate = token.trim()
+        val candidate = normalizeTelegramBotToken(token)
         if (candidate.isBlank()) {
             return SettingsOperationResult(applied = false, message = "Bot token is required")
         }
         if (!verifyBotToken(candidate)) {
             return SettingsOperationResult(applied = false, message = "Bot token could not be verified")
         }
-        preferences.saveBotToken(candidate)
-        startControlService()
+        operations.saveBotToken(candidate)
+        operations.startControlService()
         return SettingsOperationResult(applied = true, message = "Bot token updated")
     }
 
@@ -63,18 +80,69 @@ class AndroidProtectionSettingsGateway(
                 message = "SMS destination and encryption key are required",
             )
         }
-        preferences.saveSmsDestination(cleanDestination)
-        preferences.saveSmsAesKey(cleanKey)
+        operations.saveSmsDestination(cleanDestination)
+        operations.saveSmsAesKey(cleanKey)
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
     }
+
+    override suspend fun beginAuthenticatorSetup(): String = operations.setupAuthenticator()
+
+    override suspend fun verifyAuthenticator(code: String): Boolean =
+        operations.verifyAuthenticator(code) == TotpAuthenticator.VerificationResult.SUCCESS
 
     private suspend fun verifyBotToken(candidate: String): Boolean = suspendCancellableCoroutine { continuation ->
         val completed = AtomicBoolean(false)
         continuation.invokeOnCancellation { completed.compareAndSet(false, true) }
-        telegram.verifyBotToken(candidate) { isValid, _, _ ->
+        operations.verifyBotToken(candidate) { isValid ->
             if (completed.compareAndSet(false, true) && continuation.isActive) {
                 continuation.resume(isValid)
             }
         }
     }
+}
+
+internal interface AndroidProtectionSettingsOperations {
+    fun getAllowedChatIds(): Set<String>
+    fun getPairingCode(): PairingCode?
+    fun createPairingCode(policy: PairingCodePolicy): PairingCode
+    fun getBotToken(): String?
+    fun getTotpSeed(): String?
+    fun getSensitivity(): Int
+    fun getSmsDestination(): String?
+    fun getSmsAesKey(): String?
+    fun setSensitivity(level: Int)
+    fun saveBotToken(token: String)
+    fun saveSmsDestination(destination: String)
+    fun saveSmsAesKey(aesKey: String)
+    fun verifyBotToken(token: String, onResult: (Boolean) -> Unit)
+    fun startControlService()
+    fun setupAuthenticator(): String
+    fun verifyAuthenticator(code: String): TotpAuthenticator.VerificationResult
+}
+
+private class EncryptedAndroidProtectionSettingsOperations(
+    private val preferences: EncryptedPrefsManager,
+    private val telegram: TelegramBotClient,
+    private val totpAuthenticator: TotpAuthenticator,
+    private val startService: () -> Unit,
+) : AndroidProtectionSettingsOperations {
+    override fun getAllowedChatIds(): Set<String> = preferences.getAllowedChatIds()
+    override fun getPairingCode(): PairingCode? = preferences.getPairingCode()
+    override fun createPairingCode(policy: PairingCodePolicy): PairingCode = preferences.createPairingCode(policy)
+    override fun getBotToken(): String? = preferences.getBotToken()
+    override fun getTotpSeed(): String? = preferences.getTotpSeed()
+    override fun getSensitivity(): Int = preferences.getSensitivity()
+    override fun getSmsDestination(): String? = preferences.getSmsDestination()
+    override fun getSmsAesKey(): String? = preferences.getSmsAesKey()
+    override fun setSensitivity(level: Int) = preferences.setSensitivity(level)
+    override fun saveBotToken(token: String) = preferences.saveBotToken(token)
+    override fun saveSmsDestination(destination: String) = preferences.saveSmsDestination(destination)
+    override fun saveSmsAesKey(aesKey: String) = preferences.saveSmsAesKey(aesKey)
+    override fun verifyBotToken(token: String, onResult: (Boolean) -> Unit) {
+        telegram.verifyBotToken(token) { isValid, _, _ -> onResult(isValid) }
+    }
+    override fun startControlService() = startService()
+    override fun setupAuthenticator(): String = totpAuthenticator.setupNewTotpSeed()
+    override fun verifyAuthenticator(code: String): TotpAuthenticator.VerificationResult =
+        totpAuthenticator.verifyCode(code)
 }

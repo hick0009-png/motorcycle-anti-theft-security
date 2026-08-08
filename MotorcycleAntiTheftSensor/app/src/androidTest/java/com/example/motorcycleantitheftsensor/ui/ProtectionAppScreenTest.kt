@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.ui
 
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,9 +12,11 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
@@ -21,6 +24,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -156,6 +160,45 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText("No protection events").assertExists()
     }
 
+    @Test
+    fun authenticatorSecretAppearsOnlyAfterAsyncCompletionAndClearsOnCancel() {
+        val secret = "TRANSIENT-SETUP-SECRET"
+        var setupCompletion: ((String?) -> Unit)? = null
+        val actions = fakeActions().copy(
+            beginAuthenticatorSetup = { onComplete ->
+                setupCompletion = onComplete
+                {}
+            },
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.DISARMED_ONLINE).copy(
+                    destination = ProtectionDestination.SETTINGS,
+                ),
+                actions,
+            )
+        }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
+        compose.onNodeWithText("Set up authenticator").performClick()
+        compose.onAllNodes(hasText(secret)).assertCountEquals(0)
+        compose.runOnIdle { requireNotNull(setupCompletion)(secret) }
+        compose.onNode(hasTestTag("authenticator_secret")).assertExists()
+        compose.onAllNodes(hasText(secret)).assertCountEquals(0)
+        compose.runOnIdle {
+            assertTrue(
+                compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,
+            )
+        }
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onAllNodes(hasTestTag("authenticator_secret")).assertCountEquals(0)
+        compose.runOnIdle {
+            assertFalse(
+                compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,
+            )
+        }
+    }
+
     private fun showWithLocalNavigation(
         initialState: ProtectionUiState,
         initialActions: ProtectionAppActions = fakeActions(),
@@ -263,8 +306,8 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
     requestPermissions = {},
     replaceBotToken = {},
     configureSmsFallback = { _, _ -> },
-    beginAuthenticatorSetup = { null },
-    verifyAuthenticator = { false },
+    beginAuthenticatorSetup = { _ -> {} },
+    verifyAuthenticator = { _, _ -> {} },
     retry = {},
 )
 

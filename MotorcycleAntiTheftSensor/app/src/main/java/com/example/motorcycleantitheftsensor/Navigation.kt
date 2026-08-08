@@ -56,17 +56,10 @@ fun MainNavigation() {
             preferences = preferences,
             telegram = telegram,
             pairingCodePolicy = pairingCodePolicy,
+            totpAuthenticator = totpAuth,
             startControlService = startControlService,
         )
     }
-    val protectionViewModel: ProtectionViewModel = viewModel {
-        ProtectionViewModel(
-            coordinator = graph.coordinator,
-            incidents = graph.incidents,
-            settings = settingsGateway,
-        )
-    }
-    val uiState by protectionViewModel.uiState.collectAsStateWithLifecycle()
     val managedPermissions = remember {
         ProtectionPermissionPolicy.requiredPermissions(Build.VERSION.SDK_INT) +
             ProtectionPermissionPolicy.optionalPermissions()
@@ -76,6 +69,15 @@ fun MainNavigation() {
             context.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
         }
     var missingPermissions by remember { mutableStateOf(currentMissingPermissions()) }
+    val protectionViewModel: ProtectionViewModel = viewModel {
+        ProtectionViewModel(
+            coordinator = graph.coordinator,
+            incidents = graph.incidents,
+            settings = settingsGateway,
+            initialMissingPermissions = missingPermissions,
+        )
+    }
+    val uiState by protectionViewModel.uiState.collectAsStateWithLifecycle()
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
@@ -83,9 +85,6 @@ fun MainNavigation() {
         protectionViewModel.updateMissingPermissions(missingPermissions)
     }
 
-    LaunchedEffect(protectionViewModel) {
-        protectionViewModel.updateMissingPermissions(missingPermissions)
-    }
     LaunchedEffect(preferences, startControlService) {
         val tokenConfigured = withContext(Dispatchers.IO) {
             !preferences.getBotToken().isNullOrBlank()
@@ -104,12 +103,8 @@ fun MainNavigation() {
             requestPermissions = { permissionLauncher.launch(missingPermissions.toTypedArray()) },
             replaceBotToken = protectionViewModel::replaceBotToken,
             configureSmsFallback = protectionViewModel::configureSmsFallback,
-            beginAuthenticatorSetup = totpAuth::setupNewTotpSeed,
-            verifyAuthenticator = { code ->
-                val verified = totpAuth.verifyCode(code) == TotpAuthenticator.VerificationResult.SUCCESS
-                if (verified) protectionViewModel.retry()
-                verified
-            },
+            beginAuthenticatorSetup = protectionViewModel::beginAuthenticatorSetup,
+            verifyAuthenticator = protectionViewModel::verifyAuthenticator,
             retry = protectionViewModel::retry,
         ),
     )

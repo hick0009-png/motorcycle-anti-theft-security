@@ -51,7 +51,7 @@ class TelegramBotClient(
     fun startPolling(): Boolean {
         stopPolling()
         val rawToken = prefsManager.getBotToken() ?: return false
-        val cleanToken = rawToken.trim().removePrefix("bot").removePrefix("BOT")
+        val cleanToken = normalizeTelegramBotToken(rawToken)
         if (cleanToken.isBlank()) return false
 
         lastUpdateId = prefsManager.getLastTelegramUpdateId()
@@ -269,7 +269,7 @@ class TelegramBotClient(
      * Guaranteed to return callback results on Main UI Thread.
      */
     fun verifyBotToken(token: String, onResult: (isValid: Boolean, botUsername: String?, botId: String?) -> Unit) {
-        val cleanToken = token.trim().removePrefix("bot").removePrefix("BOT")
+        val cleanToken = normalizeTelegramBotToken(token)
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         if (cleanToken.isBlank()) {
             mainHandler.post { onResult(false, null, null) }
@@ -294,8 +294,8 @@ class TelegramBotClient(
                         }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (_: Exception) {
+                android.util.Log.w(TOKEN_VERIFICATION_TAG, "Bot token verification failed")
             }
             mainHandler.post {
                 onResult(false, null, null)
@@ -329,3 +329,10 @@ class TelegramBotClient(
         val command: RemoteCommand,
     )
 }
+
+internal fun normalizeTelegramBotToken(token: String): String {
+    val trimmed = token.trim()
+    return if (trimmed.startsWith("bot", ignoreCase = true)) trimmed.drop(3) else trimmed
+}
+
+private const val TOKEN_VERIFICATION_TAG = "TelegramBotClient"

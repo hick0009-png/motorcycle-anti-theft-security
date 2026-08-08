@@ -35,6 +35,7 @@ class ProtectionViewModel(
     private val coordinator: ProtectionCoordinator,
     private val incidents: IncidentRepository,
     private val settings: ProtectionSettingsGateway,
+    private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
         while (coroutineContext.isActive) {
@@ -43,10 +44,12 @@ class ProtectionViewModel(
         }
     },
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val commandMutex = Mutex()
     private val commandSequence = AtomicLong(0L)
+    private val settingsReadVersion = AtomicLong(0L)
     private val destination = MutableStateFlow(ProtectionDestination.PROTECTION)
     private val settingsSummary = MutableStateFlow(emptySettingsSummary())
     private val presentation = MutableStateFlow(PresentationInputs())
@@ -83,7 +86,7 @@ class ProtectionViewModel(
 
     init {
         scope.launch { refreshEvents() }
-        scope.launch { readSettings(emptySet()) }
+        scope.launch { readSettings(initialMissingPermissions) }
         scope.launch {
             ticker.collect { currentTimeMs.value = nowMs() }
         }
@@ -144,6 +147,24 @@ class ProtectionViewModel(
         publishSettingsResult(settings.saveSmsFallback(destination, aesKey))
     }
 
+    fun beginAuthenticatorSetup(onComplete: (String?) -> Unit): () -> Unit = runSensitiveCommand(
+        failureMessage = "Unable to start authenticator setup",
+        failureValue = null,
+        onComplete = onComplete,
+    ) {
+        settings.beginAuthenticatorSetup()
+    }
+
+    fun verifyAuthenticator(code: String, onComplete: (Boolean) -> Unit): () -> Unit = runSensitiveCommand(
+        failureMessage = "Unable to verify authenticator code",
+        failureValue = false,
+        onComplete = onComplete,
+    ) {
+        val verified = settings.verifyAuthenticator(code)
+        if (verified) readSettings(settingsSummary.value.missingPermissions)
+        verified
+    }
+
     fun retry() = runCommand("Unable to refresh event history") {
         refreshEvents()
     }
@@ -176,6 +197,31 @@ class ProtectionViewModel(
         }
     }
 
+    private fun <T> runSensitiveCommand(
+        failureMessage: String,
+        failureValue: T,
+        onComplete: (T) -> Unit,
+        action: suspend () -> T,
+    ): () -> Unit {
+        val job = scope.launch {
+            val result = commandMutex.withLock {
+                presentation.update { it.copy(operationInFlight = true) }
+                try {
+                    action()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    publishMessage(failureMessage, isError = true)
+                    failureValue
+                } finally {
+                    presentation.update { it.copy(operationInFlight = false) }
+                }
+            }
+            withContext(callbackDispatcher) { onComplete(result) }
+        }
+        return job::cancel
+    }
+
     private suspend fun refreshEvents() {
         presentation.update { it.copy(eventsLoading = true, eventsError = null) }
         try {
@@ -196,7 +242,11 @@ class ProtectionViewModel(
     }
 
     private suspend fun readSettings(missingPermissions: Set<String>) {
-        settingsSummary.value = withContext(dispatcher) { settings.read(missingPermissions) }
+        val requestVersion = settingsReadVersion.incrementAndGet()
+        val summary = withContext(dispatcher) { settings.read(missingPermissions) }
+        if (settingsReadVersion.get() == requestVersion) {
+            settingsSummary.value = summary
+        }
     }
 
     private suspend fun publishSettingsResult(result: SettingsOperationResult) {
