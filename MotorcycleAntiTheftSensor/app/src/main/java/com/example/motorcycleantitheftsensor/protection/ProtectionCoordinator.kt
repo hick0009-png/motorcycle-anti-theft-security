@@ -12,10 +12,14 @@ class ProtectionCoordinator(
     private val armingDelay: ArmingDelay,
     private val clock: ProtectionClock,
     private val healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
+    private val incidentCloser: suspend (String) -> Unit = { },
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val armingEpoch = AtomicLong(0L)
+    private val incidentEpoch = AtomicLong(0L)
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
+    @Volatile private var stateBeforeAlert: ProtectionState? = null
+    @Volatile private var baseDegradationReasons: Set<String> = initialSnapshot.degradationReasons
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -23,6 +27,7 @@ class ProtectionCoordinator(
         commandId: String,
         origin: CommandOrigin,
     ): ProtectionCommandResult {
+        incidentEpoch.incrementAndGet()
         val readiness = runtime.readiness()
         if (readiness.blockers.isNotEmpty()) {
             armingEpoch.incrementAndGet()
@@ -65,8 +70,10 @@ class ProtectionCoordinator(
         }
 
         val health = runtime.currentSensorHealth()
-        val vibrationHealthy = health[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY
-        val finalState = if (readiness.degradations.isEmpty() && vibrationHealthy) {
+        val finalDegradations = readiness.degradations +
+            unhealthySensorReasons(health) +
+            telegramDegradationReasons(snapshot.value)
+        val finalState = if (finalDegradations.isEmpty()) {
             ProtectionState.ARMED_HEALTHY
         } else {
             ProtectionState.ARMED_DEGRADED
@@ -74,8 +81,9 @@ class ProtectionCoordinator(
         transition(
             state = finalState,
             blockers = emptySet(),
-            degradations = readiness.degradations,
+            degradations = finalDegradations,
             sensorHealth = health,
+            baseDegradations = readiness.degradations,
         )
         return result(commandId, CommandOutcome.APPLIED, "Protection active")
     }
@@ -85,7 +93,10 @@ class ProtectionCoordinator(
         origin: CommandOrigin,
     ): ProtectionCommandResult {
         armingEpoch.incrementAndGet()
+        incidentEpoch.incrementAndGet()
         runtime.stopDetectors()
+        incidentCloser("owner disarmed")
+        stateBeforeAlert = null
         transition(
             state = ProtectionState.DISARMED_ONLINE,
             blockers = emptySet(),
@@ -119,6 +130,31 @@ class ProtectionCoordinator(
         }
     }
 
+    fun recordTelegramPolling(active: Boolean) {
+        mutableSnapshot.update { current ->
+            current.copy(
+                telegramPolling = active,
+                telegramReachable = if (active) current.telegramReachable else false,
+            )
+        }
+    }
+
+    fun recordServiceStopped() {
+        armingEpoch.incrementAndGet()
+        incidentEpoch.incrementAndGet()
+        stateBeforeAlert = null
+        baseDegradationReasons = emptySet()
+        mutableSnapshot.update { current ->
+            current.copy(
+                state = ProtectionState.OFFLINE,
+                lastTransitionAtMs = clock.nowMs(),
+                serviceRunning = false,
+                telegramPolling = false,
+                telegramReachable = false,
+            )
+        }
+    }
+
     fun recordSensorSample(
         kind: SensorKind,
         atMs: Long,
@@ -137,6 +173,49 @@ class ProtectionCoordinator(
         }
     }
 
+    fun currentIncidentEpoch(): Long = incidentEpoch.get()
+
+    fun acceptsIncident(epoch: Long): Boolean = epoch == incidentEpoch.get() &&
+        snapshot.value.state in ACTIVE_INCIDENT_STATES
+
+    @Synchronized
+    fun recordIncident(incident: SecurityIncident) {
+        mutableSnapshot.update { current ->
+            val canChangeProtectionState = current.state in ARMED_STATES ||
+                current.state == ProtectionState.ALERT_ACTIVE
+            val nextState = if (!canChangeProtectionState) {
+                current.state
+            } else when (incident.lifecycle) {
+                IncidentLifecycle.OPEN -> {
+                    if (current.state != ProtectionState.ALERT_ACTIVE) {
+                        stateBeforeAlert = current.state.takeIf { state -> state in ARMED_STATES }
+                    }
+                    ProtectionState.ALERT_ACTIVE
+                }
+
+                IncidentLifecycle.CLOSED,
+                IncidentLifecycle.INTERRUPTED,
+                -> stateBeforeAlert ?: armedStateFrom(current)
+            }
+            if (incident.lifecycle != IncidentLifecycle.OPEN || !canChangeProtectionState) {
+                stateBeforeAlert = null
+            }
+            current.copy(
+                state = nextState,
+                lastTransitionAtMs = clock.nowMs(),
+                lastIncident = IncidentSummary(
+                    id = incident.id,
+                    source = incident.source,
+                    severity = incident.severity,
+                    lifecycle = incident.lifecycle,
+                    updatedAtMs = incident.updatedAtMs,
+                    deliveryState = incident.deliveryState,
+                ),
+                lastDeliveryState = incident.deliveryState,
+            )
+        }
+    }
+
     fun evaluateFreshness(nowMs: Long) {
         mutableSnapshot.update { current ->
             val evaluatedSensors = current.sensorHealth.mapValues { (_, health) ->
@@ -151,21 +230,15 @@ class ProtectionCoordinator(
                 lastContactAtMs = current.lastTelegramContactAtMs,
                 nowMs = nowMs,
             )
-            val staleSensors = evaluatedSensors
-                .filterValues { health -> health.state == SensorHealthState.STALE || health.state == SensorHealthState.FAILED }
-                .keys
-                .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
-            val degradations = current.degradationReasons + staleSensors + if (
-                current.state in ARMED_STATES && !telegramReachable
-            ) {
-                setOf("TELEGRAM unreachable")
-            } else {
-                emptySet()
-            }
+            val evaluatedChannels = current.copy(telegramReachable = telegramReachable)
+            val degradations = baseDegradationReasons +
+                unhealthySensorReasons(evaluatedSensors) +
+                if (current.state in ARMED_STATES) telegramDegradationReasons(evaluatedChannels) else emptySet()
             val evaluatedState = when {
                 runtimeState == ProtectionState.OFFLINE -> ProtectionState.OFFLINE
                 current.state == ProtectionState.ALERT_ACTIVE -> ProtectionState.ALERT_ACTIVE
                 current.state in ARMED_STATES && degradations.isNotEmpty() -> ProtectionState.ARMED_DEGRADED
+                current.state in ARMED_STATES -> ProtectionState.ARMED_HEALTHY
                 else -> current.state
             }
 
@@ -184,7 +257,9 @@ class ProtectionCoordinator(
         blockers: Set<String>,
         degradations: Set<String>,
         sensorHealth: Map<SensorKind, SensorHealth> = snapshot.value.sensorHealth,
+        baseDegradations: Set<String> = degradations,
     ) {
+        baseDegradationReasons = baseDegradations
         mutableSnapshot.update { current ->
             current.copy(
                 state = state,
@@ -207,10 +282,32 @@ class ProtectionCoordinator(
         reason = reason,
     )
 
+    private fun armedStateFrom(snapshot: ProtectionSnapshot): ProtectionState = if (
+        snapshot.degradationReasons.isEmpty() &&
+        snapshot.sensorHealth[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY
+    ) {
+        ProtectionState.ARMED_HEALTHY
+    } else {
+        ProtectionState.ARMED_DEGRADED
+    }
+
+    private fun unhealthySensorReasons(
+        health: Map<SensorKind, SensorHealth>,
+    ): Set<String> = health
+        .filterValues { item -> item.state != SensorHealthState.HEALTHY }
+        .keys
+        .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+
+    private fun telegramDegradationReasons(snapshot: ProtectionSnapshot): Set<String> = buildSet {
+        if (!snapshot.telegramPolling) add("TELEGRAM polling inactive")
+        if (!snapshot.telegramReachable) add("TELEGRAM unreachable")
+    }
+
     private companion object {
         val ARMED_STATES = setOf(
             ProtectionState.ARMED_HEALTHY,
             ProtectionState.ARMED_DEGRADED,
         )
+        val ACTIVE_INCIDENT_STATES = ARMED_STATES + ProtectionState.ALERT_ACTIVE
     }
 }

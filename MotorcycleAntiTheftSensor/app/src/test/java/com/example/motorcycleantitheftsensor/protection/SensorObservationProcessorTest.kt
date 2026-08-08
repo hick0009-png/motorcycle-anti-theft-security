@@ -97,6 +97,41 @@ class SensorObservationProcessorTest {
 
         assertTrue(accepted is ObservationDecision.Accepted)
     }
+
+    @Test
+    fun thermalDiagnosticUsesAbsoluteSafeLimitInsteadOfBaselineDelta() {
+        val thermalProcessor = SensorObservationProcessor(
+            staleAfterMs = 5_000L,
+            debounceSamples = mapOf(SensorKind.POWER_THERMAL to 1),
+            thresholdDeltas = mapOf(SensorKind.POWER_THERMAL to 5.0),
+            absoluteMinimumsByDiagnostic = mapOf("temperature_celsius" to 45.0),
+        )
+        thermalProcessor.seedBaseline(SensorKind.POWER_THERMAL, SensorBaseline(44.0, 3))
+
+        assertEquals(
+            ObservationDecision.Debounced,
+            thermalProcessor.accept(
+                observation(
+                    kind = SensorKind.POWER_THERMAL,
+                    normalizedValue = 44.9,
+                    diagnostic = "temperature_celsius",
+                ),
+                nowElapsedMs = 1_000L,
+                arming = false,
+            ),
+        )
+        assertTrue(
+            thermalProcessor.accept(
+                observation(
+                    kind = SensorKind.POWER_THERMAL,
+                    normalizedValue = 45.0,
+                    diagnostic = "temperature_celsius",
+                ),
+                nowElapsedMs = 1_000L,
+                arming = false,
+            ) is ObservationDecision.Accepted,
+        )
+    }
 }
 
 private fun observation(

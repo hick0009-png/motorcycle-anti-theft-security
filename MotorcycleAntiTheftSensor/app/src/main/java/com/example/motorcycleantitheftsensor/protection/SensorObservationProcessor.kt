@@ -6,6 +6,7 @@ class SensorObservationProcessor(
     private val staleAfterMs: Long,
     private val debounceSamples: Map<SensorKind, Int>,
     thresholdDeltas: Map<SensorKind, Double>,
+    private val absoluteMinimumsByDiagnostic: Map<String, Double> = emptyMap(),
 ) {
     private val baselines = mutableMapOf<SensorKind, SensorBaseline>()
     private val consecutiveSamples = mutableMapOf<SensorKind, Int>()
@@ -17,16 +18,25 @@ class SensorObservationProcessor(
         nowElapsedMs: Long,
         arming: Boolean,
     ): ObservationDecision {
-        if (!observation.valid) {
-            return ObservationDecision.Rejected("invalid sample")
-        }
-        if (nowElapsedMs - observation.eventElapsedMs > staleAfterMs) {
-            return ObservationDecision.Rejected("stale sample")
+        rejectionReason(observation, nowElapsedMs)?.let { reason ->
+            return ObservationDecision.Rejected(reason)
         }
         if (arming) {
             updateBaseline(observation)
             consecutiveSamples.remove(observation.kind)
             return ObservationDecision.BaselineUpdated
+        }
+
+        val absoluteMinimum = observation.diagnostic?.let(absoluteMinimumsByDiagnostic::get)
+        if (absoluteMinimum != null) {
+            if (observation.normalizedValue < absoluteMinimum) {
+                consecutiveSamples.remove(observation.kind)
+                return ObservationDecision.Debounced
+            }
+            val baselineDelta = baselines[observation.kind]
+                ?.let { baseline -> observation.normalizedValue - baseline.average }
+                ?: observation.baselineDelta
+            return ObservationDecision.Accepted(observation.copy(baselineDelta = baselineDelta))
         }
 
         val threshold = thresholds[observation.kind]
@@ -52,6 +62,17 @@ class SensorObservationProcessor(
 
     @Synchronized
     fun baseline(kind: SensorKind): SensorBaseline? = baselines[kind]
+
+    @Synchronized
+    fun resetSession() {
+        baselines.clear()
+        consecutiveSamples.clear()
+    }
+
+    fun isUsable(
+        observation: SensorObservation,
+        nowElapsedMs: Long,
+    ): Boolean = rejectionReason(observation, nowElapsedMs) == null
 
     @Synchronized
     fun seedBaseline(
@@ -84,5 +105,15 @@ class SensorObservationProcessor(
             average = nextAverage,
             sampleCount = nextCount,
         )
+    }
+
+    private fun rejectionReason(
+        observation: SensorObservation,
+        nowElapsedMs: Long,
+    ): String? = when {
+        !observation.valid -> "invalid sample"
+        observation.eventElapsedMs > nowElapsedMs -> "future sample"
+        nowElapsedMs - observation.eventElapsedMs > staleAfterMs -> "stale sample"
+        else -> null
     }
 }

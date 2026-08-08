@@ -14,7 +14,9 @@ class FileIncidentRepository(
     private val file: File,
     private val maxRecords: Int,
 ) : IncidentRepository {
-    private val records = readRecords().associateByTo(linkedMapOf()) { incident -> incident.id }
+    private val records by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        readRecords().associateByTo(linkedMapOf()) { incident -> incident.id }
+    }
 
     init {
         require(maxRecords > 0) { "maxRecords must be positive" }

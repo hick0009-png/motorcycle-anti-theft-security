@@ -10,6 +10,7 @@ import com.example.motorcycleantitheftsensor.telephony.EncryptedSmsCodec
 import okhttp3.FormBody
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 /**
@@ -27,18 +28,21 @@ class TelegramBotClient(
 
     private val pairingCodePolicy = PairingCodePolicy()
 
+    @Volatile
     private var isPolling = false
+    private val pollingEpoch = AtomicLong(0L)
     private var lastUpdateId = 0L
 
-    fun startPolling() {
+    fun startPolling(): Boolean {
         stopPolling()
-        val rawToken = prefsManager.getBotToken() ?: return
+        val rawToken = prefsManager.getBotToken() ?: return false
         val cleanToken = rawToken.trim().removePrefix("bot").removePrefix("BOT")
-        if (cleanToken.isBlank()) return
+        if (cleanToken.isBlank()) return false
 
+        val epoch = pollingEpoch.incrementAndGet()
         isPolling = true
         thread(name = "TelegramBotPollingThread") {
-            while (isPolling) {
+            while (isPolling && epoch == pollingEpoch.get()) {
                 try {
                     pollUpdates(cleanToken)
                 } catch (e: Exception) {
@@ -47,10 +51,12 @@ class TelegramBotClient(
                 }
             }
         }
+        return true
     }
 
     fun stopPolling() {
         isPolling = false
+        pollingEpoch.incrementAndGet()
     }
 
     private fun pollUpdates(botToken: String) {

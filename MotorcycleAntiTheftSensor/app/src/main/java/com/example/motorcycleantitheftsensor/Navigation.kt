@@ -36,7 +36,7 @@ fun MainNavigation() {
     val prefsManager = remember { EncryptedPrefsManager(context) }
     val totpAuth = remember { TotpAuthenticator(prefsManager) }
     val telegramClient = remember { TelegramBotClient(context, prefsManager, totpAuth) }
-    val powerThermalMonitor = remember { PowerThermalMonitor(context, {}, {}) }
+    val powerThermalMonitor = remember { PowerThermalMonitor(context) { } }
 
     // Dynamic Hardware Sensor Discovery
     val hardwareSensors = remember { SensorScanner.scanHardwareSensors(context) }
