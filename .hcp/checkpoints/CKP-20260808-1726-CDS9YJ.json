@@ -1,0 +1,97 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260808-1726-CDS9YJ",
+    "timestamp":  "2026-08-08T17:26:15.9610932+07:00",
+    "phase":  "P4",
+    "task_id":  "SVC-02",
+    "status":  "IN_PROGRESS",
+    "description":  "Authoritative protection core Tasks 1-5 committed; Task 6 persistence and delivery implementation has passing targeted tests and awaits scoped commit before Android runtime integration.",
+    "progress":  50,
+    "scope":  "",
+    "knowledge":  [
+
+                  ],
+    "assumptions":  [
+
+                    ],
+    "risks":  [
+
+              ],
+    "memory_snapshot":  [
+
+                        ],
+    "dependencies":  [
+
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+                  "name":  "Codex",
+                  "model":  "GPT-5"
+              },
+    "snapshot":  {
+                     "build_status":  "SUCCESS",
+                     "build_output_snippet":  "",
+                     "files_changed":  [
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SecurityIncident.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicy.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorServiceAction.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/res/xml/network_security_config.xml",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicyTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/service/SensorServiceActionTest.kt",
+                                               "action":  "MODIFIED"
+                                           }
+                                       ]
+                 },
+    "decisions":  [
+
+                  ],
+    "open_tasks":  [
+
+                   ],
+    "context":  {
+                    "summary":  "Authoritative protection core Tasks 1-5 committed; Task 6 persistence and delivery implementation has passing targeted tests and awaits scoped commit before Android runtime integration.",
+                    "next_steps":  [
+
+                                   ],
+                    "warnings":  [
+
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "d8a7e4f"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  "motorcycle-guard"
+}
