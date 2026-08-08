@@ -93,15 +93,15 @@ class ProtectionViewModel(
         this.destination.value = destination
     }
 
-    fun arm() = runCommand {
+    fun arm() = runCommand("Unable to arm protection") {
         publishResult(coordinator.arm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun disarm() = runCommand {
+    fun disarm() = runCommand("Unable to disarm protection") {
         publishResult(coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun changeSensitivity(level: Int) = runCommand {
+    fun changeSensitivity(level: Int) = runCommand("Unable to change sensitivity") {
         val result = coordinator.changeSensitivity(nextCommandId(), level)
         publishResult(result)
         if (result.outcome == CommandOutcome.APPLIED) {
@@ -110,24 +110,35 @@ class ProtectionViewModel(
         }
     }
 
-    fun clearHistory() = runCommand {
-        withContext(dispatcher) { incidents.clearHistory() }
-        refreshEvents()
+    fun clearHistory() = runCommand("Unable to clear event history") {
+        presentation.update { it.copy(eventsLoading = true, eventsError = null) }
+        try {
+            withContext(dispatcher) { incidents.clearHistory() }
+            refreshEvents()
+        } catch (exception: CancellationException) {
+            presentation.update { it.copy(eventsLoading = false) }
+            throw exception
+        } catch (exception: Throwable) {
+            presentation.update { it.copy(eventsLoading = false) }
+            throw exception
+        }
     }
 
-    fun updateMissingPermissions(permissions: Set<String>) = runCommand {
+    fun updateMissingPermissions(permissions: Set<String>) = runCommand("Unable to update permissions") {
         readSettings(permissions)
     }
 
-    fun replaceBotToken(token: String) = runCommand {
+    fun replaceBotToken(token: String) = runCommand("Unable to update bot token") {
         publishSettingsResult(settings.replaceBotToken(token))
     }
 
-    fun configureSmsFallback(destination: String, aesKey: String) = runCommand {
+    fun configureSmsFallback(destination: String, aesKey: String) = runCommand(
+        "Unable to configure SMS fallback",
+    ) {
         publishSettingsResult(settings.saveSmsFallback(destination, aesKey))
     }
 
-    fun retry() = runCommand {
+    fun retry() = runCommand("Unable to refresh event history") {
         refreshEvents()
     }
 
@@ -142,7 +153,7 @@ class ProtectionViewModel(
         super.onCleared()
     }
 
-    private fun runCommand(action: suspend () -> Unit) {
+    private fun runCommand(failureMessage: String, action: suspend () -> Unit) {
         scope.launch {
             commandMutex.withLock {
                 presentation.update { it.copy(operationInFlight = true) }
@@ -151,7 +162,7 @@ class ProtectionViewModel(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
-                    publishMessage(exception.message ?: "Operation failed", isError = true)
+                    publishMessage(failureMessage, isError = true)
                 } finally {
                     presentation.update { it.copy(operationInFlight = false) }
                 }

@@ -20,11 +20,14 @@ import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -39,7 +42,6 @@ class ProtectionViewModelTest {
         val incidents = FakeIncidentRepository(
             listOf(
                 realIncident("older", 1_000L),
-                legacyIncident("excluded", 3_000L),
                 realIncident("newer", 2_000L),
             ),
         )
@@ -108,6 +110,66 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun botTokenFailureNeverPublishesCredentialExceptionText() = runTest {
+        val secret = "bot-token-sentinel"
+        val fixture = fixture(
+            scheduler = testScheduler,
+            settings = FakeProtectionSettingsGateway(botTokenFailure = "provider failed: $secret"),
+        )
+
+        fixture.viewModel.replaceBotToken(secret)
+        advanceUntilIdle()
+
+        assertEquals("Unable to update bot token", fixture.viewModel.uiState.value.message?.text)
+        assertFalse(fixture.viewModel.uiState.value.message?.text.orEmpty().contains(secret))
+        assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
+    }
+
+    @Test
+    fun smsFallbackFailureNeverPublishesCredentialExceptionText() = runTest {
+        val secret = "sms-key-sentinel"
+        val fixture = fixture(
+            scheduler = testScheduler,
+            settings = FakeProtectionSettingsGateway(smsFallbackFailure = "provider failed: $secret"),
+        )
+
+        fixture.viewModel.configureSmsFallback("+15555550123", secret)
+        advanceUntilIdle()
+
+        assertEquals("Unable to configure SMS fallback", fixture.viewModel.uiState.value.message?.text)
+        assertFalse(fixture.viewModel.uiState.value.message?.text.orEmpty().contains(secret))
+        assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
+    }
+
+    @Test
+    fun clearHistoryPublishesLoadingBeforeRepositoryClearCompletes() = runTest {
+        val repository = BlockingClearIncidentRepository()
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+            incidents = repository,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = Dispatchers.Default,
+        )
+        awaitCondition {
+            viewModel.uiState.value.events.map { it.id } == listOf("initial") &&
+                !viewModel.uiState.value.eventsLoading
+        }
+
+        viewModel.clearHistory()
+        try {
+            assertTrue(repository.clearStarted.await(2, TimeUnit.SECONDS))
+            awaitCondition { viewModel.uiState.value.eventsLoading }
+        } finally {
+            repository.allowClear.countDown()
+        }
+        awaitCondition {
+            viewModel.uiState.value.events.isEmpty() && !viewModel.uiState.value.eventsLoading
+        }
+    }
+
+    @Test
     fun retryClearsRepositoryFailureAfterLoadingEventsAgain() = runTest {
         val repository = FakeIncidentRepository(
             incidents = listOf(realIncident("i-1", 1L)),
@@ -145,8 +207,8 @@ private fun fixture(
     scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
     incidents: List<SecurityIncident> = emptyList(),
     repository: FakeIncidentRepository = FakeIncidentRepository(incidents),
+    settings: FakeProtectionSettingsGateway = FakeProtectionSettingsGateway(),
 ): ViewModelFixture {
-    val settings = FakeProtectionSettingsGateway()
     return ViewModelFixture(
         viewModel = ProtectionViewModel(
             coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
@@ -220,12 +282,6 @@ private fun realIncident(id: String, updatedAtMs: Long): SecurityIncident = inci
     source = IncidentSource.REAL,
 )
 
-private fun legacyIncident(id: String, updatedAtMs: Long): SecurityIncident = incident(
-    id = id,
-    updatedAtMs = updatedAtMs,
-    source = IncidentSource.DEMO,
-)
-
 private fun incident(
     id: String,
     updatedAtMs: Long,
@@ -293,7 +349,39 @@ private class FakeIncidentRepository(
     }
 }
 
-private class FakeProtectionSettingsGateway : ProtectionSettingsGateway {
+private class BlockingClearIncidentRepository : IncidentRepository {
+    private val records = mutableListOf(realIncident("initial", 1L))
+    val clearStarted = CountDownLatch(1)
+    val allowClear = CountDownLatch(1)
+
+    override fun upsert(incident: SecurityIncident) {
+        records.removeAll { it.id == incident.id }
+        records += incident
+    }
+
+    override fun findById(id: String): SecurityIncident? = records.firstOrNull { it.id == id }
+
+    override fun listNewestFirst(): List<SecurityIncident> = records.sortedByDescending { it.updatedAtMs }
+
+    override fun clearHistory() {
+        clearStarted.countDown()
+        check(allowClear.await(2, TimeUnit.SECONDS))
+        records.clear()
+    }
+}
+
+private fun awaitCondition(condition: () -> Boolean) {
+    repeat(200) {
+        if (condition()) return
+        Thread.sleep(10)
+    }
+    assertTrue("Timed out waiting for condition", condition())
+}
+
+private class FakeProtectionSettingsGateway(
+    private val botTokenFailure: String? = null,
+    private val smsFallbackFailure: String? = null,
+) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
     var writeCount = 0
         private set
@@ -308,11 +396,13 @@ private class FakeProtectionSettingsGateway : ProtectionSettingsGateway {
     }
 
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
+        botTokenFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "Bot token updated")
     }
 
     override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
+        smsFallbackFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
     }
