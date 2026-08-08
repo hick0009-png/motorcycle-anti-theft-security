@@ -5,8 +5,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -19,6 +21,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -36,6 +39,36 @@ class ProtectionAppScreenTest {
         compose.onAllNodes(hasTestTag("primary_destination")).assertCountEquals(3)
         compose.onAllNodes(hasText("Demo", substring = true, ignoreCase = true))
             .assertCountEquals(0)
+    }
+
+    @Test
+    fun selectedPrimaryDestinationRendersWithMonochromePixels() {
+        compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
+
+        val pixels = compose.onAllNodes(hasTestTag("primary_destination"))[0]
+            .captureToImage()
+            .toPixelMap()
+        var hasNearBlackPixel = false
+        var hasNearWhitePixel = false
+
+        for (y in 0 until pixels.height) {
+            for (x in 0 until pixels.width) {
+                val color = pixels[x, y]
+                if (color.alpha < OPAQUE_ALPHA) continue
+
+                val minimumChannel = minOf(color.red, color.green, color.blue)
+                val maximumChannel = maxOf(color.red, color.green, color.blue)
+                assertTrue(
+                    "Non-monochrome pixel at ($x, $y): $color",
+                    maximumChannel - minimumChannel <= CHANNEL_TOLERANCE,
+                )
+                hasNearBlackPixel = hasNearBlackPixel || maximumChannel <= NEAR_BLACK
+                hasNearWhitePixel = hasNearWhitePixel || minimumChannel >= NEAR_WHITE
+            }
+        }
+
+        assertTrue("Selected destination must render a black surface", hasNearBlackPixel)
+        assertTrue("Selected destination must render a white indicator/content", hasNearWhitePixel)
     }
 
     @Test
@@ -236,3 +269,7 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
 )
 
 private const val TEST_ONLY_TOKEN = "123456:TEST_ONLY_NOT_A_REAL_TOKEN"
+private const val OPAQUE_ALPHA = 0.95f
+private const val CHANNEL_TOLERANCE = 0.02f
+private const val NEAR_BLACK = 0.10f
+private const val NEAR_WHITE = 0.90f
