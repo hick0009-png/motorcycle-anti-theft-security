@@ -128,8 +128,14 @@ class ProtectionViewModel(
         readSettings(permissions)
     }
 
-    fun replaceBotToken(token: String) = runCommand("Unable to update bot token") {
-        publishSettingsResult(settings.replaceBotToken(token))
+    fun replaceBotToken(token: String) {
+        if (token.isBlank()) {
+            publishMessage("Bot token is required", isError = true)
+            return
+        }
+        runCommand("Unable to update bot token") {
+            publishSettingsResult(settings.replaceBotToken(token))
+        }
     }
 
     fun configureSmsFallback(destination: String, aesKey: String) = runCommand(

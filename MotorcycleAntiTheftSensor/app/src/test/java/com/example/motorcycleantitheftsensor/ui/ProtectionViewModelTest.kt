@@ -126,6 +126,17 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun blankReplacementTokenIsRejectedWithoutGatewayCall() = runTest {
+        val fixture = fixture(testScheduler)
+
+        fixture.viewModel.replaceBotToken("   ")
+        advanceUntilIdle()
+
+        assertEquals(0, fixture.settings.tokenReplaceCalls)
+        assertTrue(fixture.viewModel.uiState.value.message?.isError == true)
+    }
+
+    @Test
     fun smsFallbackFailureNeverPublishesCredentialExceptionText() = runTest {
         val secret = "sms-key-sentinel"
         val fixture = fixture(
@@ -383,6 +394,8 @@ private class FakeProtectionSettingsGateway(
     private val smsFallbackFailure: String? = null,
 ) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
+    var tokenReplaceCalls = 0
+        private set
     var writeCount = 0
         private set
 
@@ -396,6 +409,7 @@ private class FakeProtectionSettingsGateway(
     }
 
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
+        tokenReplaceCalls += 1
         botTokenFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "Bot token updated")
