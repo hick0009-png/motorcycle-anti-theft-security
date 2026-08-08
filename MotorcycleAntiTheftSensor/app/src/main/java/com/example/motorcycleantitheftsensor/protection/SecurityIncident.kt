@@ -17,6 +17,18 @@ data class IncidentEvidence(
     val diagnostic: String?,
 )
 
+enum class DeliveryChannel {
+    TELEGRAM,
+    SMS,
+}
+
+data class DeliveryAttempt(
+    val channel: DeliveryChannel,
+    val state: DeliveryState,
+    val attemptedAtMs: Long,
+    val detail: String? = null,
+)
+
 data class SecurityIncident(
     val id: String,
     val type: IncidentType,
@@ -29,6 +41,7 @@ data class SecurityIncident(
     val closedAtMs: Long?,
     val protectionState: ProtectionState,
     val deliveryState: DeliveryState,
+    val deliveryAttempts: List<DeliveryAttempt> = emptyList(),
     val closeReason: String? = null,
 )
 
