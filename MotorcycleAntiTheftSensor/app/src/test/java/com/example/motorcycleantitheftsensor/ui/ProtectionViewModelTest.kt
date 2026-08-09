@@ -141,19 +141,36 @@ class ProtectionViewModelTest {
 
     @Test
     fun authenticatorSetupRunsAsynchronouslyWithoutEnteringUiState() = runTest {
-        val secret = "transient-authenticator-secret"
-        val settings = FakeProtectionSettingsGateway(authenticatorSetupSecret = secret)
+        val details = AuthenticatorSetupDetails(
+            secret = "transient-authenticator-secret",
+            uri = "otpauth://transient",
+        )
+        val settings = FakeProtectionSettingsGateway(authenticatorSetupDetails = details)
         val fixture = fixture(testScheduler, settings = settings)
-        var completedSecret: String? = null
+        var completedDetails: AuthenticatorSetupDetails? = null
 
-        fixture.viewModel.beginAuthenticatorSetup { completedSecret = it }
+        fixture.viewModel.beginAuthenticatorSetup { completedDetails = it }
 
         assertEquals(0, settings.authenticatorSetupCalls)
-        assertNull(completedSecret)
+        assertNull(completedDetails)
         advanceUntilIdle()
         assertEquals(1, settings.authenticatorSetupCalls)
-        assertEquals(secret, completedSecret)
-        assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
+        assertEquals(details, completedDetails)
+        assertFalse(fixture.viewModel.uiState.value.toString().contains(details.secret))
+    }
+
+    @Test
+    fun cancellingAuthenticatorSetupDiscardsGatewayCandidate() = runTest {
+        val settings = FakeProtectionSettingsGateway(
+            authenticatorSetupDetails = AuthenticatorSetupDetails("secret", "otpauth://candidate"),
+        )
+        val fixture = fixture(testScheduler, settings = settings)
+        val cancel = fixture.viewModel.beginAuthenticatorSetup { }
+        advanceUntilIdle()
+
+        cancel()
+
+        assertEquals(1, settings.authenticatorCancelCalls)
     }
 
     @Test
@@ -471,7 +488,7 @@ private class FakeProtectionSettingsGateway(
     private val botTokenFailure: String? = null,
     private val smsFallbackFailure: String? = null,
     private var authenticatorConfigured: Boolean = true,
-    private val authenticatorSetupSecret: String? = null,
+    private val authenticatorSetupDetails: AuthenticatorSetupDetails? = null,
     private val authenticatorVerification: CompletableDeferred<Boolean>? = null,
     private val firstSettingsReadStarted: CompletableDeferred<Unit>? = null,
     private val allowFirstSettingsRead: CompletableDeferred<Unit>? = null,
@@ -482,6 +499,8 @@ private class FakeProtectionSettingsGateway(
     var writeCount = 0
         private set
     var authenticatorSetupCalls = 0
+        private set
+    var authenticatorCancelCalls = 0
         private set
     private var settingsReadCount = 0
 
@@ -515,9 +534,13 @@ private class FakeProtectionSettingsGateway(
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
     }
 
-    override suspend fun beginAuthenticatorSetup(): String? {
+    override suspend fun beginAuthenticatorSetup(): AuthenticatorSetupDetails? {
         authenticatorSetupCalls += 1
-        return authenticatorSetupSecret
+        return authenticatorSetupDetails
+    }
+
+    override fun cancelAuthenticatorSetup() {
+        authenticatorCancelCalls += 1
     }
 
     override suspend fun verifyAuthenticator(code: String): Boolean {

@@ -147,22 +147,38 @@ class ProtectionViewModel(
         publishSettingsResult(settings.saveSmsFallback(destination, aesKey))
     }
 
-    fun beginAuthenticatorSetup(onComplete: (String?) -> Unit): () -> Unit = runSensitiveCommand(
-        failureMessage = "Unable to start authenticator setup",
-        failureValue = null,
-        onComplete = onComplete,
-    ) {
-        settings.beginAuthenticatorSetup()
+    fun beginAuthenticatorSetup(onComplete: (AuthenticatorSetupDetails?) -> Unit): () -> Unit {
+        val cancelJob = runSensitiveCommand(
+            failureMessage = "Unable to start authenticator setup",
+            failureValue = null,
+            onComplete = onComplete,
+        ) {
+            settings.beginAuthenticatorSetup()
+        }
+        return {
+            cancelJob()
+            settings.cancelAuthenticatorSetup()
+        }
     }
 
-    fun verifyAuthenticator(code: String, onComplete: (Boolean) -> Unit): () -> Unit = runSensitiveCommand(
-        failureMessage = "Unable to verify authenticator code",
-        failureValue = false,
-        onComplete = onComplete,
-    ) {
-        val verified = settings.verifyAuthenticator(code)
-        if (verified) readSettings(settingsSummary.value.missingPermissions)
-        verified
+    fun verifyAuthenticator(code: String, onComplete: (Boolean) -> Unit): () -> Unit {
+        val cancelJob = runSensitiveCommand(
+            failureMessage = "Unable to verify authenticator code",
+            failureValue = false,
+            onComplete = onComplete,
+        ) {
+            val verified = settings.verifyAuthenticator(code)
+            if (verified) readSettings(settingsSummary.value.missingPermissions)
+            verified
+        }
+        return {
+            cancelJob()
+            settings.cancelAuthenticatorSetup()
+        }
+    }
+
+    fun cancelAuthenticatorSetup() {
+        settings.cancelAuthenticatorSetup()
     }
 
     fun retry() = runCommand("Unable to refresh event history") {
@@ -176,6 +192,7 @@ class ProtectionViewModel(
     }
 
     override fun onCleared() {
+        settings.cancelAuthenticatorSetup()
         scope.cancel()
         super.onCleared()
     }

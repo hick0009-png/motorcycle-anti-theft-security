@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
+import com.example.motorcycleantitheftsensor.ui.AuthenticatorSetupDetails
 import kotlin.math.roundToInt
 
 @Composable
@@ -55,15 +56,16 @@ fun SettingsScreen(
     var smsDestination by rememberSaveable { mutableStateOf("") }
     var smsKey by rememberSaveable { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
-    var authenticatorSecret by remember { mutableStateOf<String?>(null) }
+    var authenticatorSetup by remember { mutableStateOf<AuthenticatorSetupDetails?>(null) }
     var verificationCode by remember { mutableStateOf("") }
     var authenticatorError by remember { mutableStateOf<String?>(null) }
     var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     fun clearAuthenticatorUi() {
-        cancelAuthenticatorRequest?.invoke()
+        val cancelRequest = cancelAuthenticatorRequest
         cancelAuthenticatorRequest = null
-        authenticatorSecret = null
+        if (cancelRequest != null) cancelRequest() else actions.cancelAuthenticatorSetup()
+        authenticatorSetup = null
         verificationCode = ""
         authenticatorError = null
     }
@@ -71,8 +73,8 @@ fun SettingsScreen(
     DisposableEffect(Unit) {
         onDispose(::clearAuthenticatorUi)
     }
-    DisposableEffect(authenticatorSecret, view) {
-        val window = if (authenticatorSecret == null) null else view.context.findActivity()?.window
+    DisposableEffect(authenticatorSetup, view) {
+        val window = if (authenticatorSetup == null) null else view.context.findActivity()?.window
         val wasSecure = window != null && window.attributes.flags
             .and(WindowManager.LayoutParams.FLAG_SECURE) != 0
         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -232,10 +234,10 @@ fun SettingsScreen(
                         cancelAuthenticatorRequest = null
                         verificationCode = ""
                         authenticatorError = null
-                        cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { secret ->
+                        cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { setup ->
                             cancelAuthenticatorRequest = null
-                            authenticatorSecret = secret
-                            if (secret == null) {
+                            authenticatorSetup = setup
+                            if (setup == null) {
                                 authenticatorError = "Unable to start authenticator setup"
                             }
                         }
@@ -280,7 +282,7 @@ fun SettingsScreen(
         }
     }
 
-    authenticatorSecret?.let { secret ->
+    authenticatorSetup?.let { setup ->
         AlertDialog(
             onDismissRequest = ::clearAuthenticatorUi,
             title = { Text("Authenticator setup") },
@@ -288,7 +290,7 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Enter this secret in your authenticator:")
                     Text(
-                        text = secret,
+                        text = setup.secret,
                         modifier = Modifier
                             .testTag(AUTHENTICATOR_SECRET_TAG)
                             .clearAndSetSemantics { },

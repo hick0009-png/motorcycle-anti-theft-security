@@ -27,7 +27,8 @@ data class ProtectionAppActions(
     val requestPermissions: () -> Unit,
     val replaceBotToken: (String) -> Unit,
     val configureSmsFallback: (String, String) -> Unit,
-    val beginAuthenticatorSetup: ((String?) -> Unit) -> (() -> Unit),
+    val beginAuthenticatorSetup: ((AuthenticatorSetupDetails?) -> Unit) -> (() -> Unit),
+    val cancelAuthenticatorSetup: () -> Unit,
     val verifyAuthenticator: (String, (Boolean) -> Unit) -> (() -> Unit),
     val retry: () -> Unit,
 )

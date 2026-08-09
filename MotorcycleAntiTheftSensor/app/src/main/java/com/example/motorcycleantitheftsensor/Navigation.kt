@@ -104,6 +104,7 @@ fun MainNavigation() {
             replaceBotToken = protectionViewModel::replaceBotToken,
             configureSmsFallback = protectionViewModel::configureSmsFallback,
             beginAuthenticatorSetup = protectionViewModel::beginAuthenticatorSetup,
+            cancelAuthenticatorSetup = protectionViewModel::cancelAuthenticatorSetup,
             verifyAuthenticator = protectionViewModel::verifyAuthenticator,
             retry = protectionViewModel::retry,
         ),

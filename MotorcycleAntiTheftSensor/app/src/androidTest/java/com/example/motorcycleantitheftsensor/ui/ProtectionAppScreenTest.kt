@@ -163,7 +163,7 @@ class ProtectionAppScreenTest {
     @Test
     fun authenticatorSecretAppearsOnlyAfterAsyncCompletionAndClearsOnCancel() {
         val secret = "TRANSIENT-SETUP-SECRET"
-        var setupCompletion: ((String?) -> Unit)? = null
+        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
         val actions = fakeActions().copy(
             beginAuthenticatorSetup = { onComplete ->
                 setupCompletion = onComplete
@@ -182,7 +182,11 @@ class ProtectionAppScreenTest {
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
         compose.onNodeWithText("Set up authenticator").performClick()
         compose.onAllNodes(hasText(secret)).assertCountEquals(0)
-        compose.runOnIdle { requireNotNull(setupCompletion)(secret) }
+        compose.runOnIdle {
+            requireNotNull(setupCompletion)(
+                AuthenticatorSetupDetails(secret = secret, uri = "otpauth://transient"),
+            )
+        }
         compose.onNode(hasTestTag("authenticator_secret")).assertExists()
         compose.onAllNodes(hasText(secret)).assertCountEquals(0)
         compose.runOnIdle {
@@ -307,6 +311,7 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
     replaceBotToken = {},
     configureSmsFallback = { _, _ -> },
     beginAuthenticatorSetup = { _ -> {} },
+    cancelAuthenticatorSetup = {},
     verifyAuthenticator = { _, _ -> {} },
     retry = {},
 )

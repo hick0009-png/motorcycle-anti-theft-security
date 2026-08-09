@@ -14,6 +14,10 @@ class AndroidProtectionSettingsGateway internal constructor(
     private val operations: AndroidProtectionSettingsOperations,
     private val pairingCodePolicy: PairingCodePolicy,
 ) : ProtectionSettingsGateway {
+    private val authenticatorLock = Any()
+    private var authenticatorSetupVersion = 0L
+    private var pendingAuthenticatorSetup: TotpAuthenticator.SetupCandidate? = null
+
     constructor(
         preferences: EncryptedPrefsManager,
         telegram: TelegramBotClient,
@@ -85,10 +89,56 @@ class AndroidProtectionSettingsGateway internal constructor(
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
     }
 
-    override suspend fun beginAuthenticatorSetup(): String = operations.setupAuthenticator()
+    override suspend fun beginAuthenticatorSetup(): AuthenticatorSetupDetails? {
+        val requestVersion = synchronized(authenticatorLock) {
+            authenticatorSetupVersion += 1
+            pendingAuthenticatorSetup = null
+            authenticatorSetupVersion
+        }
+        val candidate = operations.createAuthenticatorSetup()
+        val accepted = synchronized(authenticatorLock) {
+            if (authenticatorSetupVersion == requestVersion) {
+                pendingAuthenticatorSetup = candidate
+                true
+            } else {
+                false
+            }
+        }
+        return if (accepted) {
+            AuthenticatorSetupDetails(secret = candidate.secret, uri = candidate.uri)
+        } else {
+            null
+        }
+    }
 
-    override suspend fun verifyAuthenticator(code: String): Boolean =
-        operations.verifyAuthenticator(code) == TotpAuthenticator.VerificationResult.SUCCESS
+    override fun cancelAuthenticatorSetup() {
+        synchronized(authenticatorLock) {
+            authenticatorSetupVersion += 1
+            pendingAuthenticatorSetup = null
+        }
+    }
+
+    override suspend fun verifyAuthenticator(code: String): Boolean {
+        val pending = synchronized(authenticatorLock) {
+            val candidate = pendingAuthenticatorSetup ?: return false
+            PendingAuthenticatorSetup(authenticatorSetupVersion, candidate)
+        }
+        val result = operations.verifyAuthenticatorSetup(pending.candidate, code)
+        if (result != TotpAuthenticator.VerificationResult.SUCCESS) return false
+
+        return synchronized(authenticatorLock) {
+            if (
+                authenticatorSetupVersion != pending.version ||
+                pendingAuthenticatorSetup !== pending.candidate
+            ) {
+                false
+            } else {
+                operations.activateAuthenticatorSetup(pending.candidate)
+                pendingAuthenticatorSetup = null
+                true
+            }
+        }
+    }
 
     private suspend fun verifyBotToken(candidate: String): Boolean = suspendCancellableCoroutine { continuation ->
         val completed = AtomicBoolean(false)
@@ -116,8 +166,12 @@ internal interface AndroidProtectionSettingsOperations {
     fun saveSmsAesKey(aesKey: String)
     fun verifyBotToken(token: String, onResult: (Boolean) -> Unit)
     fun startControlService()
-    fun setupAuthenticator(): String
-    fun verifyAuthenticator(code: String): TotpAuthenticator.VerificationResult
+    fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate
+    fun verifyAuthenticatorSetup(
+        candidate: TotpAuthenticator.SetupCandidate,
+        code: String,
+    ): TotpAuthenticator.VerificationResult
+    fun activateAuthenticatorSetup(candidate: TotpAuthenticator.SetupCandidate)
 }
 
 private class EncryptedAndroidProtectionSettingsOperations(
@@ -142,7 +196,19 @@ private class EncryptedAndroidProtectionSettingsOperations(
         telegram.verifyBotToken(token) { isValid, _, _ -> onResult(isValid) }
     }
     override fun startControlService() = startService()
-    override fun setupAuthenticator(): String = totpAuthenticator.setupNewTotpSeed()
-    override fun verifyAuthenticator(code: String): TotpAuthenticator.VerificationResult =
-        totpAuthenticator.verifyCode(code)
+    override fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate =
+        totpAuthenticator.createSetupCandidate()
+
+    override fun verifyAuthenticatorSetup(
+        candidate: TotpAuthenticator.SetupCandidate,
+        code: String,
+    ): TotpAuthenticator.VerificationResult = totpAuthenticator.verifySetupCode(candidate, code)
+
+    override fun activateAuthenticatorSetup(candidate: TotpAuthenticator.SetupCandidate) =
+        totpAuthenticator.activateSetup(candidate)
 }
+
+private data class PendingAuthenticatorSetup(
+    val version: Long,
+    val candidate: TotpAuthenticator.SetupCandidate,
+)
