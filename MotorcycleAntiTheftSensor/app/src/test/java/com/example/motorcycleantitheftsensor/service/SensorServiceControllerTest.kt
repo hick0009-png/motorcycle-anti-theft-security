@@ -10,6 +10,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ReadinessReport
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -18,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class SensorServiceControllerTest {
@@ -148,6 +150,67 @@ class SensorServiceControllerTest {
 
         assertFalse(boundary.refresh())
         assertEquals(0, startCalls)
+    }
+
+    @Test
+    fun refreshBoundaryReturnsInactiveWhenCursorResetThrows() = runTest {
+        var startCalls = 0
+        val boundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = {},
+            resetCursor = { error("cursor unavailable") },
+            start = {
+                startCalls += 1
+                true
+            },
+        )
+
+        assertFalse(boundary.refresh())
+        assertEquals(0, startCalls)
+    }
+
+    @Test
+    fun refreshBoundaryReturnsInactiveWhenNewSessionStartThrows() = runTest {
+        val boundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = {},
+            resetCursor = { true },
+            start = { error("transport unavailable") },
+        )
+
+        assertFalse(boundary.refresh())
+    }
+
+    @Test
+    fun failedRefreshIsPublishedAsPollingInactive() = runTest {
+        val environment = RecordingServiceEnvironment(
+            foregroundRunning = true,
+            telegramPolling = true,
+            pollingCanStart = false,
+        )
+        val controller = SensorServiceController(
+            coordinator = realCoordinator(RecordingProtectionRuntime()),
+            environment = environment,
+        )
+
+        controller.refreshTelegramPolling()
+
+        assertFalse(environment.telegramPolling)
+        assertFalse(controller.snapshot.value.telegramPolling)
+    }
+
+    @Test
+    fun refreshBoundaryDoesNotSwallowCoroutineCancellation() = runTest {
+        val boundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = { throw CancellationException("service stopping") },
+            resetCursor = { true },
+            start = { true },
+        )
+
+        try {
+            boundary.refresh()
+            fail("Expected coroutine cancellation")
+        } catch (_: CancellationException) {
+            // Cancellation remains authoritative for service shutdown.
+        }
     }
 }
 

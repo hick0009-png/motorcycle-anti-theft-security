@@ -3,6 +3,7 @@ package com.example.motorcycleantitheftsensor.service
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 
 interface ServiceEnvironment {
@@ -72,9 +73,11 @@ internal class TelegramPollingRefreshBoundary(
     private val resetCursor: suspend () -> Boolean,
     private val start: () -> Boolean,
 ) {
-    suspend fun refresh(): Boolean {
+    suspend fun refresh(): Boolean = try {
         stopAndAwait()
-        if (!resetCursor()) return false
-        return start()
+        if (!resetCursor()) false else start()
+    } catch (error: Exception) {
+        if (error is CancellationException) throw error
+        false
     }
 }
