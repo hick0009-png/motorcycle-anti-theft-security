@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionEventRow
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
+import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 
 @Composable
 fun EventsScreen(
@@ -134,7 +135,7 @@ private fun EventRow(event: ProtectionEventRow) {
             Text("Severity: ${event.severity.displayName()}")
             Text("Lifecycle: ${event.lifecycle.displayName()}")
             Text("Evidence: ${event.evidenceSummary}")
-            Text("Time: ${event.updatedAtMs} ms")
+            Text("Time: ${formatProtectionTimestamp(event.updatedAtMs)}")
             Text("Delivery: ${event.deliveryState.displayName()}")
         }
     }
@@ -158,7 +159,11 @@ private fun EventError(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Unable to load events", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = "Unable to load events",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
+            )
             Text(error)
             Button(
                 onClick = retry,
@@ -190,7 +195,11 @@ private fun EventMessage(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (progress) CircularProgressIndicator()
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
+            )
             detail?.let { Text(it) }
         }
     }

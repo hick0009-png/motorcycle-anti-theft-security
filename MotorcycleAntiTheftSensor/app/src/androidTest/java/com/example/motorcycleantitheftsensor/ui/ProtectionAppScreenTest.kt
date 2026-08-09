@@ -8,13 +8,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
@@ -82,6 +88,51 @@ class ProtectionAppScreenTest {
         compose.onAllNodes(hasText("Arm protection")).assertCountEquals(1)
         compose.onAllNodes(hasText("Disarm protection")).assertCountEquals(0)
         compose.onNodeWithText("Arm protection").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun primaryNavigationReservesEnoughHeightForIconsAndLabels() {
+        compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
+
+        compose.onNodeWithTag("primary_navigation").assertHeightIsAtLeast(80.dp)
+    }
+
+    @Test
+    fun selectedEventsNavigationLabelIsDisplayed() {
+        compose.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.EVENTS),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("Events").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Events destination", useUnmergedTree = true)
+            .assertHeightIsEqualTo(24.dp)
+    }
+
+    @Test
+    fun missingMicrophoneIsExplainedOnProtectionWithSettingsAction() {
+        var selectedDestination: ProtectionDestination? = null
+        val state = baseState(ProtectionState.OFFLINE).copy(
+            settings = baseState(ProtectionState.OFFLINE).settings.copy(
+                missingPermissions = setOf("android.permission.RECORD_AUDIO"),
+            ),
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                state,
+                fakeActions().copy(selectDestination = { selectedDestination = it }),
+            )
+        }
+
+        compose.onNodeWithText(
+            "Microphone access is missing. Vibration detection will be unavailable.",
+        ).assertExists()
+        compose.onNodeWithText("Review permissions").performClick()
+        compose.runOnIdle {
+            assertEquals(ProtectionDestination.SETTINGS, selectedDestination)
+        }
     }
 
     @Test
@@ -157,7 +208,58 @@ class ProtectionAppScreenTest {
                 fakeActions(),
             )
         }
-        compose.onNodeWithText("No protection events").assertExists()
+        compose.onNode(hasText("No protection events") and isHeading()).assertExists()
+    }
+
+    @Test
+    fun eventsUseReadableLocalTimestampInsteadOfRawEpochMillis() {
+        val state = historyState().copy(destination = ProtectionDestination.EVENTS)
+        compose.setContent { ProtectionAppScreen(state, fakeActions()) }
+
+        compose.onNodeWithText(
+            "Time: ${formatProtectionTimestamp(TEST_TIMESTAMP_MS)}",
+        ).assertExists()
+        compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun protectionUsesReadableLocalTimestampInsteadOfRawEpochMillis() {
+        compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
+
+        compose.onNodeWithText(formatProtectionTimestamp(TEST_TIMESTAMP_MS)).assertExists()
+        compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun settingsUseReadableLocalTimestampInsteadOfRawEpochMillis() {
+        compose.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions(),
+            )
+        }
+
+        val timestamp = formatProtectionTimestamp(TEST_TIMESTAMP_MS)
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(timestamp))
+        compose.onNodeWithText(timestamp).assertExists()
+        compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun sensitivityHasAccessibleNameStateAndMinimumTouchTarget() {
+        compose.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions(),
+            )
+        }
+
+        val description = "Protection sensitivity, 5 out of 10"
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription(description))
+        compose.onNodeWithContentDescription(description).assertHeightIsAtLeast(48.dp)
     }
 
     @Test
@@ -189,6 +291,8 @@ class ProtectionAppScreenTest {
         }
         compose.onNode(hasTestTag("authenticator_secret")).assertExists()
         compose.onAllNodes(hasText(secret)).assertCountEquals(0)
+        compose.onNodeWithText("Reveal secret").performClick()
+        compose.onNodeWithContentDescription("Authenticator secret: $secret").assertExists()
         compose.runOnIdle {
             assertTrue(
                 compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,
@@ -261,7 +365,7 @@ private fun historyState(): ProtectionUiState =
                 severity = IncidentSeverity.WARNING,
                 lifecycle = IncidentLifecycle.CLOSED,
                 evidenceSummary = "VIBRATION: movement",
-                updatedAtMs = 1_725_000_000_000L,
+                updatedAtMs = TEST_TIMESTAMP_MS,
                 deliveryState = DeliveryState.SENT,
             ),
         ),
@@ -271,11 +375,11 @@ private fun baseState(protectionState: ProtectionState): ProtectionUiState = Pro
     destination = ProtectionDestination.PROTECTION,
     protection = ProtectionStatusUiState(
         state = protectionState,
-        lastTransitionAtMs = 1_725_000_000_000L,
+        lastTransitionAtMs = TEST_TIMESTAMP_MS,
         serviceRunning = true,
         telegramPolling = true,
         telegramReachable = true,
-        lastTelegramContactAtMs = 1_725_000_000_000L,
+        lastTelegramContactAtMs = TEST_TIMESTAMP_MS,
         permissionBlockers = emptySet(),
         sensorHealth = emptyMap(),
         degradationReasons = emptySet(),
@@ -317,6 +421,7 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
 )
 
 private const val TEST_ONLY_TOKEN = "123456:TEST_ONLY_NOT_A_REAL_TOKEN"
+private const val TEST_TIMESTAMP_MS = 1_725_000_000_000L
 private const val OPAQUE_ALPHA = 0.95f
 private const val CHANNEL_TOLERANCE = 0.02f
 private const val NEAR_BLACK = 0.10f

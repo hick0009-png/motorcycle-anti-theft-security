@@ -1,7 +1,10 @@
 package com.example.motorcycleantitheftsensor.ui
 
+import android.os.Build
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -14,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.events.EventsScreen
 import com.example.motorcycleantitheftsensor.ui.protection.ProtectionScreen
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
@@ -39,12 +43,21 @@ fun ProtectionAppScreen(
     actions: ProtectionAppActions,
     modifier: Modifier = Modifier,
 ) {
+    val navigationBarMinHeight = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+        110.dp
+    } else {
+        80.dp
+    }
     MaterialTheme(colorScheme = ProtectionMonochromeColorScheme) {
         Scaffold(
             modifier = modifier,
             contentWindowInsets = WindowInsets.safeDrawing,
             bottomBar = {
-                NavigationBar {
+                NavigationBar(
+                    modifier = Modifier
+                        .testTag(PRIMARY_NAVIGATION_TAG)
+                        .heightIn(min = navigationBarMinHeight),
+                ) {
                     PrimaryDestination.entries.forEach { item ->
                         NavigationBarItem(
                             modifier = Modifier.testTag(PRIMARY_DESTINATION_TAG),
@@ -54,6 +67,7 @@ fun ProtectionAppScreen(
                                 Icon(
                                     painter = painterResource(item.iconResource),
                                     contentDescription = "${item.label} destination",
+                                    modifier = Modifier.size(24.dp),
                                 )
                             },
                             label = { Text(item.label) },
@@ -153,3 +167,4 @@ private enum class PrimaryDestination(
 }
 
 private const val PRIMARY_DESTINATION_TAG = "primary_destination"
+private const val PRIMARY_NAVIGATION_TAG = "primary_navigation"

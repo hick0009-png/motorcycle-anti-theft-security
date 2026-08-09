@@ -24,7 +24,10 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
+import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
+import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
+import com.example.motorcycleantitheftsensor.ui.friendlyPermissionExplanation
 
 @Composable
 fun ProtectionScreen(
@@ -40,6 +43,10 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ALERT_ACTIVE
     val actionEnabled = !state.operationInFlight &&
         (disarmAction || protection.state == ProtectionState.DISARMED_ONLINE)
+    val permissionIssues = (state.settings.missingPermissions + protection.permissionBlockers)
+        .map(::friendlyPermissionExplanation)
+        .distinct()
+        .sorted()
 
     LazyColumn(
         modifier = modifier
@@ -77,11 +84,22 @@ fun ProtectionScreen(
             }
         }
 
-        if (protection.permissionBlockers.isNotEmpty()) {
+        if (permissionIssues.isNotEmpty()) {
             item(key = "permission-blockers") {
                 StatusCard(title = "Protection blockers") {
-                    protection.permissionBlockers.sorted().forEach { blocker ->
-                        Text(blocker)
+                    permissionIssues.forEach { issue ->
+                        Text(issue)
+                    }
+                    Button(
+                        onClick = {
+                            actions.selectDestination(ProtectionDestination.SETTINGS)
+                        },
+                        enabled = !state.operationInFlight,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("Review permissions")
                     }
                 }
             }
@@ -110,7 +128,8 @@ fun ProtectionScreen(
                 )
                 StatusRow(
                     "Last Telegram contact",
-                    protection.lastTelegramContactAtMs?.let { "$it ms" } ?: "No contact",
+                    protection.lastTelegramContactAtMs?.let(::formatProtectionTimestamp)
+                        ?: "No contact",
                 )
             }
         }
@@ -127,7 +146,9 @@ fun ProtectionScreen(
             StatusCard(title = sensor.displayName()) {
                 Text(health.healthText())
                 health?.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
-                health?.lastSampleAtMs?.let { lastSample -> Text("Last sample: $lastSample ms") }
+                health?.lastSampleAtMs?.let { lastSample ->
+                    Text("Last sample: ${formatProtectionTimestamp(lastSample)}")
+                }
             }
         }
 
@@ -155,7 +176,7 @@ fun ProtectionScreen(
                 ) {
                     StatusRow("Severity", incident.severity.displayName())
                     StatusRow("Lifecycle", incident.lifecycle.displayName())
-                    StatusRow("Updated", "${incident.updatedAtMs} ms")
+                    StatusRow("Updated", formatProtectionTimestamp(incident.updatedAtMs))
                     StatusRow("Delivery", incident.deliveryState.displayName())
                 }
             }

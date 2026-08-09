@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,9 +33,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.AuthenticatorSetupDetails
+import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
+import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
 import kotlin.math.roundToInt
 
 @Composable
@@ -57,6 +62,7 @@ fun SettingsScreen(
     var smsKey by rememberSaveable { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var authenticatorSetup by remember { mutableStateOf<AuthenticatorSetupDetails?>(null) }
+    var authenticatorSecretRevealed by remember { mutableStateOf(false) }
     var verificationCode by remember { mutableStateOf("") }
     var authenticatorError by remember { mutableStateOf<String?>(null) }
     var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -66,6 +72,7 @@ fun SettingsScreen(
         cancelAuthenticatorRequest = null
         if (cancelRequest != null) cancelRequest() else actions.cancelAuthenticatorSetup()
         authenticatorSetup = null
+        authenticatorSecretRevealed = false
         verificationCode = ""
         authenticatorError = null
     }
@@ -145,9 +152,9 @@ fun SettingsScreen(
                 if (state.settings.missingPermissions.isEmpty()) {
                     Text("All required permissions granted")
                 } else {
-                    Text("Protection cannot run until these permissions are granted.")
+                    Text("Some protection features need these permissions.")
                     state.settings.missingPermissions.sorted().forEach { permission ->
-                        Text("Missing: $permission")
+                        Text("Missing: ${friendlyPermissionName(permission)}")
                     }
                     Button(
                         onClick = actions.requestPermissions,
@@ -165,14 +172,26 @@ fun SettingsScreen(
         item(key = "sensitivity") {
             SettingsCard(title = "Sensitivity") {
                 Text("Sensitivity: $sensitivityDraft (1-10)")
-                Slider(
-                    value = sensitivityDraft.toFloat(),
-                    onValueChange = { sensitivityDraft = it.roundToInt().coerceIn(1, 10) },
-                    onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
-                    valueRange = 1f..10f,
-                    steps = 8,
-                    enabled = !state.operationInFlight,
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription =
+                                "Protection sensitivity, $sensitivityDraft out of 10"
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Slider(
+                        value = sensitivityDraft.toFloat(),
+                        onValueChange = { sensitivityDraft = it.roundToInt().coerceIn(1, 10) },
+                        onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        enabled = !state.operationInFlight,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
 
@@ -237,6 +256,7 @@ fun SettingsScreen(
                         cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { setup ->
                             cancelAuthenticatorRequest = null
                             authenticatorSetup = setup
+                            authenticatorSecretRevealed = false
                             if (setup == null) {
                                 authenticatorError = "Unable to start authenticator setup"
                             }
@@ -273,7 +293,10 @@ fun SettingsScreen(
                     "Telegram",
                     if (state.protection.telegramReachable) "Reachable" else "Unreachable",
                 )
-                DiagnosticRow("Last transition", "${state.protection.lastTransitionAtMs} ms")
+                DiagnosticRow(
+                    "Last transition",
+                    formatProtectionTimestamp(state.protection.lastTransitionAtMs),
+                )
                 DiagnosticRow(
                     "Battery",
                     state.protection.batteryLevelPercent?.let { "$it%" } ?: "Unavailable",
@@ -290,11 +313,25 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Enter this secret in your authenticator:")
                     Text(
-                        text = setup.secret,
+                        text = if (authenticatorSecretRevealed) setup.secret else "••••••••",
                         modifier = Modifier
                             .testTag(AUTHENTICATOR_SECRET_TAG)
-                            .clearAndSetSemantics { },
+                            .clearAndSetSemantics {
+                                contentDescription = if (authenticatorSecretRevealed) {
+                                    "Authenticator secret: ${setup.secret}"
+                                } else {
+                                    "Authenticator secret hidden"
+                                }
+                            },
                     )
+                    TextButton(
+                        onClick = {
+                            authenticatorSecretRevealed = !authenticatorSecretRevealed
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(if (authenticatorSecretRevealed) "Hide secret" else "Reveal secret")
+                    }
                     OutlinedTextField(
                         value = verificationCode,
                         onValueChange = { verificationCode = it },
