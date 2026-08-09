@@ -75,6 +75,7 @@ class SensorService : Service(), ServiceEnvironment {
     private lateinit var recoveryGate: ProtectionRecoveryGate
     private lateinit var controller: SensorServiceController
     private lateinit var telegramClient: TelegramBotClient
+    private lateinit var telegramRefreshBoundary: TelegramPollingRefreshBoundary
 
     override fun onCreate() {
         super.onCreate()
@@ -90,6 +91,15 @@ class SensorService : Service(), ServiceEnvironment {
                 statusFormatter = ProtectionStatusFormatter(),
             ),
             onTelegramContact = graph.coordinator::recordTelegramContact,
+        )
+        telegramRefreshBoundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = telegramClient::stopPollingAndAwait,
+            resetCursor = {
+                withContext(Dispatchers.IO) {
+                    preferences.commitLastTelegramUpdateId(0L)
+                }
+            },
+            start = telegramClient::startPolling,
         )
         acquireWakeLock()
         serviceScope.launch {
@@ -257,6 +267,11 @@ class SensorService : Service(), ServiceEnvironment {
         if (!telegramPolling) return
         telegramClient.stopPolling()
         telegramPolling = false
+    }
+
+    override suspend fun refreshTelegramPolling(): Boolean {
+        telegramPolling = telegramRefreshBoundary.refresh()
+        return telegramPolling
     }
 
     override fun renderNotification(snapshot: ProtectionSnapshot) {

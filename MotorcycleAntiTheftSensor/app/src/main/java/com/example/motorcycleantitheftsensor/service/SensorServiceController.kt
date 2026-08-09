@@ -14,6 +14,8 @@ interface ServiceEnvironment {
 
     fun stopTelegramPolling()
 
+    suspend fun refreshTelegramPolling(): Boolean
+
     fun renderNotification(snapshot: ProtectionSnapshot)
 }
 
@@ -23,10 +25,9 @@ class SensorServiceController(
 ) {
     val snapshot: StateFlow<ProtectionSnapshot> = coordinator.snapshot
 
-    fun refreshTelegramPolling() {
+    suspend fun refreshTelegramPolling() {
         environment.ensureForeground()
-        environment.stopTelegramPolling()
-        coordinator.recordTelegramPolling(environment.ensureTelegramPolling())
+        coordinator.recordTelegramPolling(environment.refreshTelegramPolling())
         environment.renderNotification(coordinator.snapshot.value)
     }
 
@@ -63,5 +64,17 @@ class SensorServiceController(
             }
         }
         environment.renderNotification(coordinator.snapshot.value)
+    }
+}
+
+internal class TelegramPollingRefreshBoundary(
+    private val stopAndAwait: suspend () -> Unit,
+    private val resetCursor: suspend () -> Boolean,
+    private val start: () -> Boolean,
+) {
+    suspend fun refresh(): Boolean {
+        stopAndAwait()
+        if (!resetCursor()) return false
+        return start()
     }
 }

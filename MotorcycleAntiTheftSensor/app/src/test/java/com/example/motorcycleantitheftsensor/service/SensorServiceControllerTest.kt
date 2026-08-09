@@ -10,6 +10,10 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ReadinessReport
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,7 +73,7 @@ class SensorServiceControllerTest {
     }
 
     @Test
-    fun refreshPollingStopsOldTransportBeforeStartingWithPersistedSettings() = runTest {
+    fun refreshPollingUsesAwaitedServiceOwnedSessionBoundary() = runTest {
         val environment = RecordingServiceEnvironment(
             foregroundRunning = true,
             telegramPolling = true,
@@ -82,11 +86,68 @@ class SensorServiceControllerTest {
         controller.refreshTelegramPolling()
 
         assertEquals(
-            listOf("foreground", "stop-polling", "start-polling", "render"),
+            listOf("foreground", "refresh-polling", "render"),
             environment.events,
         )
         assertTrue(environment.telegramPolling)
         assertTrue(controller.snapshot.value.telegramPolling)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun refreshBoundaryResetsCursorOnlyAfterOldSessionStopsThenStartsNewSession() = runTest {
+        val allowOldSessionToStop = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        val boundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = {
+                events += "stop-requested"
+                allowOldSessionToStop.await()
+                events += "old-session-stopped"
+            },
+            resetCursor = {
+                events += "reset-cursor"
+                true
+            },
+            start = {
+                events += "start-new-session"
+                true
+            },
+        )
+
+        val refresh = async { boundary.refresh() }
+        runCurrent()
+
+        assertEquals(listOf("stop-requested"), events)
+        assertFalse(refresh.isCompleted)
+
+        allowOldSessionToStop.complete(Unit)
+
+        assertTrue(refresh.await())
+        assertEquals(
+            listOf(
+                "stop-requested",
+                "old-session-stopped",
+                "reset-cursor",
+                "start-new-session",
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun refreshBoundaryDoesNotStartNewSessionWhenCursorResetFails() = runTest {
+        var startCalls = 0
+        val boundary = TelegramPollingRefreshBoundary(
+            stopAndAwait = {},
+            resetCursor = { false },
+            start = {
+                startCalls += 1
+                true
+            },
+        )
+
+        assertFalse(boundary.refresh())
+        assertEquals(0, startCalls)
     }
 }
 
@@ -145,6 +206,12 @@ private class RecordingServiceEnvironment(
     override fun stopTelegramPolling() {
         events += "stop-polling"
         telegramPolling = false
+    }
+
+    override suspend fun refreshTelegramPolling(): Boolean {
+        events += "refresh-polling"
+        telegramPolling = pollingCanStart
+        return telegramPolling
     }
 
     override fun renderNotification(snapshot: ProtectionSnapshot) {

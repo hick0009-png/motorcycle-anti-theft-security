@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * COM-01: TelegramBotClient
@@ -44,6 +45,8 @@ class TelegramBotClient(
     private var isPolling = false
     @Volatile
     private var activePollCall: Call? = null
+    @Volatile
+    private var pollingThread: Thread? = null
     private val pollingEpoch = AtomicLong(0L)
     private var lastUpdateId = 0L
 
@@ -61,27 +64,50 @@ class TelegramBotClient(
         commandScope.launch { consumeCommands() }
         val epoch = pollingEpoch.incrementAndGet()
         isPolling = true
-        thread(name = "TelegramBotPollingThread") {
-            while (isPolling && epoch == pollingEpoch.get()) {
-                try {
-                    pollUpdates(cleanToken, epoch)
-                } catch (e: Exception) {
-                    if (!isPolling || epoch != pollingEpoch.get()) return@thread
-                    e.printStackTrace()
-                    try { Thread.sleep(3000) } catch (ignored: Exception) {}
+        val worker = thread(start = false, name = "TelegramBotPollingThread") {
+            try {
+                while (isPolling && epoch == pollingEpoch.get()) {
+                    try {
+                        pollUpdates(cleanToken, epoch)
+                    } catch (e: Exception) {
+                        if (!isPolling || epoch != pollingEpoch.get()) return@thread
+                        e.printStackTrace()
+                        try { Thread.sleep(3000) } catch (ignored: Exception) {}
+                    }
+                }
+            } finally {
+                synchronized(this@TelegramBotClient) {
+                    if (pollingThread === Thread.currentThread()) pollingThread = null
                 }
             }
         }
+        pollingThread = worker
+        worker.start()
         return true
     }
 
     @Synchronized
     fun stopPolling() {
+        stopPollingLocked()
+    }
+
+    suspend fun stopPollingAndAwait() {
+        val (worker, commands) = synchronized(this) {
+            (pollingThread to commandJob).also { stopPollingLocked() }
+        }
+        awaitTelegramPollingSessionShutdown(worker, commands)
+        synchronized(this) {
+            if (pollingThread === worker) pollingThread = null
+        }
+    }
+
+    private fun stopPollingLocked() {
         isPolling = false
         pollingEpoch.incrementAndGet()
         activePollCall?.cancel()
         commandQueue.close()
         commandJob.cancel()
+        pollingThread?.interrupt()
     }
 
     private fun pollUpdates(botToken: String, epoch: Long) {
@@ -328,6 +354,16 @@ class TelegramBotClient(
         val commandId: String,
         val command: RemoteCommand,
     )
+}
+
+internal suspend fun awaitTelegramPollingSessionShutdown(
+    worker: Thread?,
+    commandJob: Job,
+) {
+    commandJob.cancelAndJoin()
+    if (worker != null && worker !== Thread.currentThread()) {
+        withContext(Dispatchers.IO) { worker.join() }
+    }
 }
 
 internal fun normalizeTelegramBotToken(token: String): String {
