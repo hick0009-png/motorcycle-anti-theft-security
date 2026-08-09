@@ -51,13 +51,25 @@ fun MainNavigation() {
             }
         }
     }
-    val settingsGateway = remember(preferences, telegram, pairingCodePolicy, startControlService) {
+    val refreshControlService: () -> Unit = remember(applicationContext) {
+        {
+            val intent = Intent(applicationContext, SensorService::class.java).apply {
+                action = SensorService.ACTION_REFRESH_TELEGRAM_POLLING
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(intent)
+            } else {
+                applicationContext.startService(intent)
+            }
+        }
+    }
+    val settingsGateway = remember(preferences, telegram, pairingCodePolicy, refreshControlService) {
         AndroidProtectionSettingsGateway(
             preferences = preferences,
             telegram = telegram,
             pairingCodePolicy = pairingCodePolicy,
             totpAuthenticator = totpAuth,
-            startControlService = startControlService,
+            refreshControlService = refreshControlService,
         )
     }
     val managedPermissions = remember {

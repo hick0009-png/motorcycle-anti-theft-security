@@ -23,13 +23,13 @@ class AndroidProtectionSettingsGateway internal constructor(
         telegram: TelegramBotClient,
         pairingCodePolicy: PairingCodePolicy,
         totpAuthenticator: TotpAuthenticator,
-        startControlService: () -> Unit,
+        refreshControlService: () -> Unit,
     ) : this(
         operations = EncryptedAndroidProtectionSettingsOperations(
             preferences = preferences,
             telegram = telegram,
             totpAuthenticator = totpAuthenticator,
-            startService = startControlService,
+            refreshService = refreshControlService,
         ),
         pairingCodePolicy = pairingCodePolicy,
     )
@@ -71,8 +71,18 @@ class AndroidProtectionSettingsGateway internal constructor(
             return SettingsOperationResult(applied = false, message = "Bot token could not be verified")
         }
         operations.saveBotToken(candidate)
-        operations.startControlService()
+        operations.refreshControlService()
         return SettingsOperationResult(applied = true, message = "Bot token updated")
+    }
+
+    override suspend fun resetPairing(): SettingsOperationResult {
+        operations.saveAllowedChatIds(emptySet())
+        operations.createPairingCode(pairingCodePolicy)
+        operations.refreshControlService()
+        return SettingsOperationResult(
+            applied = true,
+            message = "Pairing reset; use the new pairing code",
+        )
     }
 
     override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
@@ -153,6 +163,7 @@ class AndroidProtectionSettingsGateway internal constructor(
 
 internal interface AndroidProtectionSettingsOperations {
     fun getAllowedChatIds(): Set<String>
+    fun saveAllowedChatIds(chatIds: Set<String>)
     fun getPairingCode(): PairingCode?
     fun createPairingCode(policy: PairingCodePolicy): PairingCode
     fun getBotToken(): String?
@@ -165,7 +176,7 @@ internal interface AndroidProtectionSettingsOperations {
     fun saveSmsDestination(destination: String)
     fun saveSmsAesKey(aesKey: String)
     fun verifyBotToken(token: String, onResult: (Boolean) -> Unit)
-    fun startControlService()
+    fun refreshControlService()
     fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate
     fun verifyAuthenticatorSetup(
         candidate: TotpAuthenticator.SetupCandidate,
@@ -178,9 +189,10 @@ private class EncryptedAndroidProtectionSettingsOperations(
     private val preferences: EncryptedPrefsManager,
     private val telegram: TelegramBotClient,
     private val totpAuthenticator: TotpAuthenticator,
-    private val startService: () -> Unit,
+    private val refreshService: () -> Unit,
 ) : AndroidProtectionSettingsOperations {
     override fun getAllowedChatIds(): Set<String> = preferences.getAllowedChatIds()
+    override fun saveAllowedChatIds(chatIds: Set<String>) = preferences.saveAllowedChatIds(chatIds)
     override fun getPairingCode(): PairingCode? = preferences.getPairingCode()
     override fun createPairingCode(policy: PairingCodePolicy): PairingCode = preferences.createPairingCode(policy)
     override fun getBotToken(): String? = preferences.getBotToken()
@@ -195,7 +207,7 @@ private class EncryptedAndroidProtectionSettingsOperations(
     override fun verifyBotToken(token: String, onResult: (Boolean) -> Unit) {
         telegram.verifyBotToken(token) { isValid, _, _ -> onResult(isValid) }
     }
-    override fun startControlService() = startService()
+    override fun refreshControlService() = refreshService()
     override fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate =
         totpAuthenticator.createSetupCandidate()
 

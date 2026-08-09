@@ -23,6 +23,13 @@ class SensorServiceController(
 ) {
     val snapshot: StateFlow<ProtectionSnapshot> = coordinator.snapshot
 
+    fun refreshTelegramPolling() {
+        environment.ensureForeground()
+        environment.stopTelegramPolling()
+        coordinator.recordTelegramPolling(environment.ensureTelegramPolling())
+        environment.renderNotification(coordinator.snapshot.value)
+    }
+
     suspend fun handle(
         action: SensorServiceAction,
         commandId: String,

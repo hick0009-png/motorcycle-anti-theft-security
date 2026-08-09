@@ -528,6 +528,9 @@ private class FakeProtectionSettingsGateway(
         return SettingsOperationResult(applied = true, message = "Bot token updated")
     }
 
+    override suspend fun resetPairing(): SettingsOperationResult =
+        SettingsOperationResult(applied = true, message = "Pairing reset")
+
     override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
         smsFallbackFailure?.let(::error)
         writeCount += 1

@@ -68,6 +68,7 @@ interface ProtectionSettingsGateway {
     suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary
     fun saveSensitivity(level: Int)
     suspend fun replaceBotToken(token: String): SettingsOperationResult
+    suspend fun resetPairing(): SettingsOperationResult
     fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
     suspend fun beginAuthenticatorSetup(): AuthenticatorSetupDetails?
     fun cancelAuthenticatorSetup()

@@ -67,6 +67,27 @@ class SensorServiceControllerTest {
         assertFalse(environment.telegramPolling)
         assertFalse(controller.snapshot.value.telegramPolling)
     }
+
+    @Test
+    fun refreshPollingStopsOldTransportBeforeStartingWithPersistedSettings() = runTest {
+        val environment = RecordingServiceEnvironment(
+            foregroundRunning = true,
+            telegramPolling = true,
+        )
+        val controller = SensorServiceController(
+            coordinator = realCoordinator(RecordingProtectionRuntime()),
+            environment = environment,
+        )
+
+        controller.refreshTelegramPolling()
+
+        assertEquals(
+            listOf("foreground", "stop-polling", "start-polling", "render"),
+            environment.events,
+        )
+        assertTrue(environment.telegramPolling)
+        assertTrue(controller.snapshot.value.telegramPolling)
+    }
 }
 
 private fun realCoordinator(runtime: ProtectionRuntime): ProtectionCoordinator = ProtectionCoordinator(
@@ -104,7 +125,10 @@ private class RecordingServiceEnvironment(
     var telegramPolling: Boolean = false,
     private val pollingCanStart: Boolean = true,
 ) : ServiceEnvironment {
+    val events = mutableListOf<String>()
+
     override fun ensureForeground() {
+        events += "foreground"
         foregroundRunning = true
     }
 
@@ -113,13 +137,17 @@ private class RecordingServiceEnvironment(
     }
 
     override fun ensureTelegramPolling(): Boolean {
+        events += "start-polling"
         telegramPolling = pollingCanStart
         return telegramPolling
     }
 
     override fun stopTelegramPolling() {
+        events += "stop-polling"
         telegramPolling = false
     }
 
-    override fun renderNotification(snapshot: ProtectionSnapshot) = Unit
+    override fun renderNotification(snapshot: ProtectionSnapshot) {
+        events += "render"
+    }
 }

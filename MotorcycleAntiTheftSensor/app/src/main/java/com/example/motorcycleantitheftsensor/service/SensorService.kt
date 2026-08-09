@@ -57,6 +57,7 @@ class SensorService : Service(), ServiceEnvironment {
         const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
         const val ACTION_ARM = "ACTION_ARM"
         const val ACTION_DISARM = "ACTION_DISARM"
+        const val ACTION_REFRESH_TELEGRAM_POLLING = "ACTION_REFRESH_TELEGRAM_POLLING"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -111,6 +112,7 @@ class SensorService : Service(), ServiceEnvironment {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val refreshTelegramPolling = intent?.action == ACTION_REFRESH_TELEGRAM_POLLING
         val action = SensorServiceAction.from(intent?.action)
         ensureForeground()
         serviceScope.launch {
@@ -124,15 +126,27 @@ class SensorService : Service(), ServiceEnvironment {
                 ) {
                     if (recoveryStarted.compareAndSet(false, true)) {
                         applyRecovery()
-                        controller.handle(action, commandId("start"))
+                        handleInitializedCommand(action, refreshTelegramPolling, "start")
                     }
                 } else {
                     recoveryGate.markRecoveryComplete()
-                    controller.handle(action, commandId(action.name.lowercase()))
+                    handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
                 }
             }
         }
         return if (action == SensorServiceAction.Stop) START_NOT_STICKY else START_STICKY
+    }
+
+    private suspend fun handleInitializedCommand(
+        action: SensorServiceAction,
+        refreshTelegramPolling: Boolean,
+        commandName: String,
+    ) {
+        if (refreshTelegramPolling) {
+            controller.refreshTelegramPolling()
+        } else {
+            controller.handle(action, commandId(commandName))
+        }
     }
 
     private suspend fun applyRecovery() {

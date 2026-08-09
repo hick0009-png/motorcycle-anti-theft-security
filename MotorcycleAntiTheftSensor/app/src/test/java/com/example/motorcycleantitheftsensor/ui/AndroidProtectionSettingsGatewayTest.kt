@@ -15,7 +15,7 @@ import org.junit.Test
 
 class AndroidProtectionSettingsGatewayTest {
     @Test
-    fun prefixedTokenIsNormalizedBeforeVerificationPersistenceAndServiceStart() = runTest {
+    fun prefixedTokenIsNormalizedBeforeVerificationPersistenceAndPollingRefresh() = runTest {
         val operations = FakeAndroidProtectionSettingsOperations()
         val gateway = AndroidProtectionSettingsGateway(
             operations = operations,
@@ -27,9 +27,27 @@ class AndroidProtectionSettingsGatewayTest {
         assertTrue(result.applied)
         assertEquals("123456:ABC", operations.savedToken)
         assertEquals(
-            listOf("verify:123456:ABC", "save:123456:ABC", "start-service"),
+            listOf("verify:123456:ABC", "save:123456:ABC", "refresh-service"),
             operations.events,
         )
+    }
+
+    @Test
+    fun resettingPairingClearsOwnersCreatesNewCodeAndRefreshesPolling() = runTest {
+        val operations = FakeAndroidProtectionSettingsOperations(
+            allowedChatIds = setOf("1001", "1002"),
+        )
+        val gateway = AndroidProtectionSettingsGateway(operations, PairingCodePolicy())
+
+        val result = gateway.resetPairing()
+
+        assertTrue(result.applied)
+        assertEquals("Pairing reset; use the new pairing code", result.message)
+        assertEquals(
+            listOf("save-owners:", "create-pairing", "refresh-service"),
+            operations.events,
+        )
+        assertEquals(emptySet<String>(), operations.allowedOwners)
     }
 
     @Test
@@ -103,15 +121,26 @@ class AndroidProtectionSettingsGatewayTest {
 private class FakeAndroidProtectionSettingsOperations(
     private val verificationStarted: CountDownLatch? = null,
     private val allowVerification: CountDownLatch? = null,
+    allowedChatIds: Set<String> = emptySet(),
 ) : AndroidProtectionSettingsOperations {
     val events = mutableListOf<String>()
     var savedToken: String? = null
+    var allowedOwners = allowedChatIds
+        private set
 
-    override fun getAllowedChatIds(): Set<String> = emptySet()
+    override fun getAllowedChatIds(): Set<String> = allowedOwners
+
+    override fun saveAllowedChatIds(chatIds: Set<String>) {
+        allowedOwners = chatIds
+        events += "save-owners:${chatIds.sorted().joinToString()}"
+    }
 
     override fun getPairingCode(): PairingCode? = null
 
-    override fun createPairingCode(policy: PairingCodePolicy): PairingCode = policy.generate(0L)
+    override fun createPairingCode(policy: PairingCodePolicy): PairingCode {
+        events += "create-pairing"
+        return policy.generate(0L)
+    }
 
     override fun getBotToken(): String? = savedToken
 
@@ -139,8 +168,8 @@ private class FakeAndroidProtectionSettingsOperations(
         onResult(true)
     }
 
-    override fun startControlService() {
-        events += "start-service"
+    override fun refreshControlService() {
+        events += "refresh-service"
     }
 
     override fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate {
