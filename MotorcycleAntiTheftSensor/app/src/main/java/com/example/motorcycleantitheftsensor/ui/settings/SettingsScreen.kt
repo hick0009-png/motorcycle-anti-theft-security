@@ -4,8 +4,10 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -34,13 +38,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
@@ -57,9 +66,9 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    var replacementToken by rememberSaveable { mutableStateOf("") }
+    var replacementToken by remember { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
-    var smsKey by rememberSaveable { mutableStateOf("") }
+    var smsKey by remember { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var authenticatorSetup by remember { mutableStateOf<AuthenticatorSetupDetails?>(null) }
     var authenticatorSecretRevealed by remember { mutableStateOf(false) }
@@ -78,7 +87,11 @@ fun SettingsScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose(::clearAuthenticatorUi)
+        onDispose {
+            replacementToken = ""
+            smsKey = ""
+            clearAuthenticatorUi()
+        }
     }
     DisposableEffect(authenticatorSetup, view) {
         val window = if (authenticatorSetup == null) null else view.context.findActivity()?.window
@@ -154,7 +167,16 @@ fun SettingsScreen(
                 } else {
                     Text("Some protection features need these permissions.")
                     state.settings.missingPermissions.sorted().forEach { permission ->
-                        Text("Missing: ${friendlyPermissionName(permission)}")
+                        val shortName = permission.substringAfterLast('.')
+                        val blocksProtection = state.protection.permissionBlockers.any { blocker ->
+                            blocker == permission || blocker == shortName
+                        }
+                        val severity = if (blocksProtection) {
+                            "Blocks protection"
+                        } else {
+                            "Reduced coverage"
+                        }
+                        Text("$severity: ${friendlyPermissionName(permission)}")
                     }
                     Button(
                         onClick = actions.requestPermissions,
@@ -172,26 +194,13 @@ fun SettingsScreen(
         item(key = "sensitivity") {
             SettingsCard(title = "Sensitivity") {
                 Text("Sensitivity: $sensitivityDraft (1-10)")
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .semantics(mergeDescendants = true) {
-                            contentDescription =
-                                "Protection sensitivity, $sensitivityDraft out of 10"
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Slider(
-                        value = sensitivityDraft.toFloat(),
-                        onValueChange = { sensitivityDraft = it.roundToInt().coerceIn(1, 10) },
-                        onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
-                        valueRange = 1f..10f,
-                        steps = 8,
-                        enabled = !state.operationInFlight,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                AccessibleSensitivitySlider(
+                    value = sensitivityDraft,
+                    onValueChange = { sensitivityDraft = it },
+                    onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
+                    enabled = !state.operationInFlight,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 
@@ -203,6 +212,10 @@ fun SettingsScreen(
                     } else {
                         "SMS fallback not configured"
                     },
+                )
+                Text(
+                    "SMS fallback is eligible only for real critical incidents after " +
+                        "confirmed Telegram failure.",
                 )
                 OutlinedTextField(
                     value = smsDestination,
@@ -380,6 +393,80 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 private const val AUTHENTICATOR_SECRET_TAG = "authenticator_secret"
+private const val SENSITIVITY_SLIDER_TAG = "sensitivity_slider"
+
+@Composable
+private fun AccessibleSensitivitySlider(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val valueRange = 1f..10f
+    val updateFromX: (Float, Float) -> Unit = { x, width ->
+        val fraction = if (width > 0f) (x / width).coerceIn(0f, 1f) else 0f
+        val nextValue = (valueRange.start + fraction * (valueRange.endInclusive - valueRange.start))
+            .roundToInt()
+            .coerceIn(valueRange.start.toInt(), valueRange.endInclusive.toInt())
+        onValueChange(nextValue)
+    }
+
+    Box(
+        modifier = modifier.height(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Slider(
+            value = value.toFloat(),
+            onValueChange = {},
+            valueRange = valueRange,
+            steps = 8,
+            enabled = enabled,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {},
+        )
+        Spacer(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag(SENSITIVITY_SLIDER_TAG)
+                .semantics {
+                    contentDescription = "Protection sensitivity, $value out of 10"
+                    progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), valueRange, 8)
+                    if (!enabled) disabled()
+                    setProgress { targetValue ->
+                        if (!enabled) {
+                            false
+                        } else {
+                            onValueChange(targetValue.roundToInt().coerceIn(1, 10))
+                            onValueChangeFinished()
+                            true
+                        }
+                    }
+                }
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        updateFromX(down.position.x, size.width.toFloat())
+                        down.consume()
+                        var pressed = true
+                        while (pressed) {
+                            val change = awaitPointerEvent().changes
+                                .firstOrNull { it.id == down.id }
+                                ?: break
+                            pressed = change.pressed
+                            if (pressed) {
+                                updateFromX(change.position.x, size.width.toFloat())
+                                change.consume()
+                            }
+                        }
+                        onValueChangeFinished()
+                    }
+                },
+        )
+    }
+}
 
 @Composable
 private fun SettingsCard(

@@ -6,23 +6,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isHeading
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
@@ -95,24 +101,49 @@ class ProtectionAppScreenTest {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
 
         compose.onNodeWithTag("primary_navigation").assertHeightIsAtLeast(80.dp)
+        repeat(3) { index ->
+            compose.onAllNodes(hasTestTag("primary_destination"))[index]
+                .assertHeightIsAtLeast(80.dp)
+        }
     }
 
     @Test
-    fun selectedEventsNavigationLabelIsDisplayed() {
-        compose.setContent {
-            ProtectionAppScreen(
-                healthyState().copy(destination = ProtectionDestination.EVENTS),
-                fakeActions(),
-            )
+    fun everySelectedDestinationHasStableVisibleLabelAndIconBounds() {
+        showWithLocalNavigation(healthyState())
+
+        listOf("Protection", "Events", "Settings").forEach { label ->
+            val labelTag = "primary_destination_label_${label.uppercase()}"
+            compose.onNodeWithTag(labelTag, useUnmergedTree = true).performClick()
+            compose.onNodeWithContentDescription("$label destination")
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(80.dp)
+            compose.onNodeWithTag(labelTag, useUnmergedTree = true)
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(16.dp)
+            compose.onNodeWithTag(
+                "primary_destination_icon_${label.uppercase()}",
+                useUnmergedTree = true,
+            ).assertHeightIsEqualTo(24.dp)
         }
 
-        compose.onNodeWithText("Events").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Events destination", useUnmergedTree = true)
-            .assertHeightIsEqualTo(24.dp)
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Diagnostics"))
+        listOf("Protection", "Events", "Settings").forEach { label ->
+            compose.onNodeWithContentDescription("$label destination")
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(48.dp)
+            compose.onNodeWithTag(
+                "primary_destination_label_${label.uppercase()}",
+                useUnmergedTree = true,
+            ).assertIsDisplayed()
+            compose.onNodeWithTag(
+                "primary_destination_icon_${label.uppercase()}",
+                useUnmergedTree = true,
+            ).assertIsDisplayed()
+        }
     }
 
     @Test
-    fun missingMicrophoneIsExplainedOnProtectionWithSettingsAction() {
+    fun missingMicrophoneIsShownAsReducedCoverageWithSettingsAction() {
         var selectedDestination: ProtectionDestination? = null
         val state = baseState(ProtectionState.OFFLINE).copy(
             settings = baseState(ProtectionState.OFFLINE).settings.copy(
@@ -127,12 +158,33 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText(
-            "Microphone access is missing. Vibration detection will be unavailable.",
+            "Microphone access is missing. Noise detection will be unavailable.",
         ).assertExists()
+        compose.onNodeWithText("Reduced sensor coverage").assertExists()
+        compose.onNodeWithText("Protection blockers").assertDoesNotExist()
         compose.onNodeWithText("Review permissions").performClick()
         compose.runOnIdle {
             assertEquals(ProtectionDestination.SETTINGS, selectedDestination)
         }
+    }
+
+    @Test
+    fun settingsDistinguishesReducedCoverageFromBlockingPermissions() {
+        val audioPermission = "android.permission.RECORD_AUDIO"
+        val notificationPermission = "android.permission.POST_NOTIFICATIONS"
+        val state = baseState(ProtectionState.SETUP_REQUIRED).copy(
+            destination = ProtectionDestination.SETTINGS,
+            protection = baseState(ProtectionState.SETUP_REQUIRED).protection.copy(
+                permissionBlockers = setOf("POST_NOTIFICATIONS"),
+            ),
+            settings = baseState(ProtectionState.SETUP_REQUIRED).settings.copy(
+                missingPermissions = setOf(audioPermission, notificationPermission),
+            ),
+        )
+        compose.setContent { ProtectionAppScreen(state, fakeActions()) }
+
+        compose.onNodeWithText("Reduced coverage: Microphone").assertExists()
+        compose.onNodeWithText("Blocks protection: Notifications").assertExists()
     }
 
     @Test
@@ -143,6 +195,45 @@ class ProtectionAppScreenTest {
 
         compose.onNodeWithText("Token configured").assertExists()
         compose.onNodeWithText(TEST_ONLY_TOKEN).assertDoesNotExist()
+    }
+
+    @Test
+    fun settingsSecretsDoNotSurviveSavedStateRestoration() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions(),
+            )
+        }
+
+        val tokenField = hasSetTextAction() and hasText("Bot token")
+        compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
+        compose.onNode(hasScrollAction()).performScrollToNode(
+            hasText("Replacement encryption key"),
+        )
+        val smsKeyField = hasSetTextAction() and hasText("Replacement encryption key")
+        compose.onNode(smsKeyField).performTextInput(UNSAVED_SMS_KEY)
+
+        restoration.emulateSavedInstanceStateRestore()
+
+        compose.onAllNodes(hasText(UNSAVED_TOKEN, substring = true)).assertCountEquals(0)
+        compose.onAllNodes(hasText(UNSAVED_SMS_KEY, substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun smsFallbackExplainsRealIncidentEligibility() {
+        compose.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions(),
+            )
+        }
+
+        val copy =
+            "SMS fallback is eligible only for real critical incidents after confirmed Telegram failure."
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(copy))
+        compose.onNodeWithText(copy).assertExists()
     }
 
     @Test
@@ -250,16 +341,33 @@ class ProtectionAppScreenTest {
 
     @Test
     fun sensitivityHasAccessibleNameStateAndMinimumTouchTarget() {
+        var changedSensitivity: Int? = null
         compose.setContent {
             ProtectionAppScreen(
                 healthyState().copy(destination = ProtectionDestination.SETTINGS),
-                fakeActions(),
+                fakeActions().copy(changeSensitivity = { changedSensitivity = it }),
             )
         }
 
-        val description = "Protection sensitivity, 5 out of 10"
-        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription(description))
-        compose.onNodeWithContentDescription(description).assertHeightIsAtLeast(48.dp)
+        val slider = hasTestTag("sensitivity_slider") and
+            hasContentDescription("Protection sensitivity, 5 out of 10")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("sensitivity_slider"))
+        val sliderNode = compose.onNode(slider)
+        val semanticsNode = sliderNode.fetchSemanticsNode()
+        val density = compose.activity.resources.displayMetrics.density
+        val visualHeightDp = semanticsNode.boundsInRoot.height / density
+        val touchHeightDp = semanticsNode.touchBoundsInRoot.height / density
+        assertTrue(
+            "Visual height was $visualHeightDp dp; touch height was $touchHeightDp dp",
+            visualHeightDp >= 48f && touchHeightDp >= 48f,
+        )
+
+        sliderNode.performTouchInput {
+            click(Offset(center.x * 1.5f, 1f))
+        }
+        compose.runOnIdle {
+            assertTrue("Expanded touch edge did not change sensitivity", changedSensitivity != null)
+        }
     }
 
     @Test
@@ -421,6 +529,8 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
 )
 
 private const val TEST_ONLY_TOKEN = "123456:TEST_ONLY_NOT_A_REAL_TOKEN"
+private const val UNSAVED_TOKEN = "123456:UNSAVED_TEST_TOKEN"
+private const val UNSAVED_SMS_KEY = "UNSAVED_SMS_KEY"
 private const val TEST_TIMESTAMP_MS = 1_725_000_000_000L
 private const val OPAQUE_ALPHA = 0.95f
 private const val CHANNEL_TOLERANCE = 0.02f

@@ -43,10 +43,20 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ALERT_ACTIVE
     val actionEnabled = !state.operationInFlight &&
         (disarmAction || protection.state == ProtectionState.DISARMED_ONLINE)
-    val permissionIssues = (state.settings.missingPermissions + protection.permissionBlockers)
+    val blockingPermissionIssues = protection.permissionBlockers
         .map(::friendlyPermissionExplanation)
         .distinct()
         .sorted()
+    val reducedCoveragePermissions = state.settings.missingPermissions
+        .filterNot { permission ->
+            protection.permissionBlockers.any { blocker ->
+                blocker == permission || blocker == permission.substringAfterLast('.')
+            }
+        }
+        .sorted()
+    val permissionDegradationReasons = reducedCoveragePermissions
+        .mapTo(mutableSetOf()) { permission -> "${permission.substringAfterLast('.')} unavailable" }
+    val remainingDegradationReasons = protection.degradationReasons - permissionDegradationReasons
 
     LazyColumn(
         modifier = modifier
@@ -84,10 +94,10 @@ fun ProtectionScreen(
             }
         }
 
-        if (permissionIssues.isNotEmpty()) {
+        if (blockingPermissionIssues.isNotEmpty()) {
             item(key = "permission-blockers") {
                 StatusCard(title = "Protection blockers") {
-                    permissionIssues.forEach { issue ->
+                    blockingPermissionIssues.forEach { issue ->
                         Text(issue)
                     }
                     Button(
@@ -105,10 +115,31 @@ fun ProtectionScreen(
             }
         }
 
-        if (protection.degradationReasons.isNotEmpty()) {
+        if (reducedCoveragePermissions.isNotEmpty()) {
+            item(key = "reduced-permission-coverage") {
+                StatusCard(title = "Reduced sensor coverage") {
+                    reducedCoveragePermissions.forEach { permission ->
+                        Text(friendlyPermissionExplanation(permission))
+                    }
+                    Button(
+                        onClick = {
+                            actions.selectDestination(ProtectionDestination.SETTINGS)
+                        },
+                        enabled = !state.operationInFlight,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("Review permissions")
+                    }
+                }
+            }
+        }
+
+        if (remainingDegradationReasons.isNotEmpty()) {
             item(key = "degradation-reasons") {
                 StatusCard(title = "Degradation reasons") {
-                    protection.degradationReasons.sorted().forEach { reason ->
+                    remainingDegradationReasons.sorted().forEach { reason ->
                         Text(reason)
                     }
                 }
