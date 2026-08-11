@@ -109,6 +109,45 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun recoveryCapturedBeforeExplicitDisarmCannotArmAfterDisarmCompletes() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+        val token = coordinator.captureRecoveryToken()
+
+        val disarm = coordinator.disarm("owner", CommandOrigin.LOCAL)
+        val recovery = coordinator.arm("recovery", CommandOrigin.RECOVERY, token)
+
+        assertEquals(CommandOutcome.APPLIED, disarm.outcome)
+        assertEquals(CommandOutcome.REJECTED, recovery.outcome)
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+        assertEquals(0, runtime.startCalls)
+    }
+
+    @Test
+    fun recoveryCapturedBeforeExplicitArmCannotDisarmAfterArmCompletes() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+        val token = coordinator.captureRecoveryToken()
+
+        val arm = coordinator.arm("owner", CommandOrigin.TELEGRAM)
+        val recovery = coordinator.disarm("recovery", CommandOrigin.RECOVERY, token)
+
+        assertEquals(CommandOutcome.APPLIED, arm.outcome)
+        assertEquals(CommandOutcome.REJECTED, recovery.outcome)
+        assertTrue(coordinator.snapshot.value.state in setOf(
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+        ))
+        assertEquals(1, runtime.startCalls)
+    }
+
+    @Test
     fun disarmWaitsBehindOlderWriteAndRemainsLastCommitted() = runTest {
         val oldWriteEntered = CompletableDeferred<Unit>()
         val releaseOldWrite = CompletableDeferred<Unit>()

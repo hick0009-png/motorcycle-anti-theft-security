@@ -11,6 +11,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
 
+@JvmInline
+value class RecoveryGenerationToken(val value: Long)
+
 class ProtectionCoordinator(
     initialSnapshot: ProtectionSnapshot,
     private val runtime: ProtectionRuntime,
@@ -25,6 +28,7 @@ class ProtectionCoordinator(
     private val disarmPending = AtomicBoolean(false)
     private val armingEpoch = AtomicLong(0L)
     private val incidentEpoch = AtomicLong(0L)
+    private val recoveryGeneration = AtomicLong(0L)
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
@@ -36,11 +40,20 @@ class ProtectionCoordinator(
     suspend fun arm(
         commandId: String,
         origin: CommandOrigin,
+        recoveryToken: RecoveryGenerationToken? = null,
     ): ProtectionCommandResult {
+        if (origin != CommandOrigin.RECOVERY) invalidateRecovery()
         if (disarmPending.get()) return result(commandId, CommandOutcome.REJECTED, "Disarm in progress")
         var epoch = -1L
         var armingDegradations = emptySet<String>()
         val immediateResult = commandMutex.withLock {
+            if (!recoveryIsCurrent(origin, recoveryToken)) {
+                return@withLock result(
+                    commandId,
+                    CommandOutcome.REJECTED,
+                    "Recovery superseded by owner command",
+                )
+            }
             if (disarmPending.get()) {
                 return@withLock result(commandId, CommandOutcome.REJECTED, "Disarm in progress")
             }
@@ -118,11 +131,24 @@ class ProtectionCoordinator(
     suspend fun disarm(
         commandId: String,
         origin: CommandOrigin,
+        recoveryToken: RecoveryGenerationToken? = null,
     ): ProtectionCommandResult {
-        disarmPending.set(true)
-        armingEpoch.incrementAndGet()
+        val explicitOwnerCommand = origin != CommandOrigin.RECOVERY
+        if (explicitOwnerCommand) {
+            invalidateRecovery()
+            disarmPending.set(true)
+            armingEpoch.incrementAndGet()
+        }
         return try {
             commandMutex.withLock {
+                if (!recoveryIsCurrent(origin, recoveryToken)) {
+                    return@withLock result(
+                        commandId,
+                        CommandOutcome.REJECTED,
+                        "Recovery superseded by owner command",
+                    )
+                }
+                if (!explicitOwnerCommand) armingEpoch.incrementAndGet()
                 incidentEpoch.incrementAndGet()
                 runtime.stopDetectors()
                 incidentCloser("owner disarmed")
@@ -147,8 +173,16 @@ class ProtectionCoordinator(
                 }
             }
         } finally {
-            disarmPending.set(false)
+            if (explicitOwnerCommand) disarmPending.set(false)
         }
+    }
+
+    fun captureRecoveryToken(): RecoveryGenerationToken =
+        RecoveryGenerationToken(recoveryGeneration.get())
+
+    fun invalidateRecovery() {
+        recoveryGeneration.incrementAndGet()
+        armingEpoch.incrementAndGet()
     }
 
     fun changeSensitivity(
@@ -397,6 +431,12 @@ class ProtectionCoordinator(
             transform(current).copy(revision = current.revision + 1L)
         }
     }
+
+    private fun recoveryIsCurrent(
+        origin: CommandOrigin,
+        token: RecoveryGenerationToken?,
+    ): Boolean = origin != CommandOrigin.RECOVERY ||
+        (token != null && token.value == recoveryGeneration.get())
 
     private fun armedStateFrom(snapshot: ProtectionSnapshot): ProtectionState = if (
         snapshot.degradationReasons.isEmpty() &&

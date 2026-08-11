@@ -30,7 +30,7 @@ class ProtectionSnapshotStoreTest {
     }
 
     @Test
-    fun explicitCommandSupersedesPendingRecovery() {
+    fun explicitCommandAfterRecoveryPlanningSupersedesPendingRecovery() {
         val captured = ProtectionRecoveryState(
             liveSnapshot = ProtectionSnapshot.offline(9_000L),
             hints = ProtectionRecoveryHints(
@@ -43,9 +43,11 @@ class ProtectionSnapshotStoreTest {
             ),
         )
         val gate = ProtectionRecoveryGate(captured)
+        val recoveryWasPlanned = gate.shouldApplyRecovery()
 
         gate.supersedeRecovery()
 
+        assertTrue(recoveryWasPlanned)
         assertFalse(gate.shouldApplyRecovery())
         assertTrue(gate.shouldPersistSnapshot())
     }

@@ -26,6 +26,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRuntimeGraph
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.RecoveryGenerationToken
 import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
@@ -134,6 +135,9 @@ class SensorService : Service(), ServiceEnvironment {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val refreshTelegramPolling = intent?.action == ACTION_REFRESH_TELEGRAM_POLLING
         val action = SensorServiceAction.from(intent?.action)
+        if (action !in setOf(SensorServiceAction.Start, SensorServiceAction.Ignore)) {
+            graph.coordinator.invalidateRecovery()
+        }
         ensureForeground()
         serviceScope.launch {
             initialization.await()
@@ -153,7 +157,7 @@ class SensorService : Service(), ServiceEnvironment {
                 }
             }
             if (shouldRunRecovery) {
-                applyRecovery()
+                applyRecovery(graph.coordinator.captureRecoveryToken())
                 handleInitializedCommand(action, refreshTelegramPolling, "start")
             } else {
                 handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
@@ -174,7 +178,9 @@ class SensorService : Service(), ServiceEnvironment {
         }
     }
 
-    private suspend fun applyRecovery() {
+    private suspend fun applyRecovery(
+        recoveryToken: RecoveryGenerationToken,
+    ) {
         val recoveryState = recoveryGate.capturedState
         val plan = ProtectionRecoveryPolicy.plan(recoveryState.hints.persistedState)
         if (plan.previousIncidentLifecycle == IncidentLifecycle.INTERRUPTED) {
@@ -204,9 +210,9 @@ class SensorService : Service(), ServiceEnvironment {
         }
         if (!recoveryGate.shouldApplyRecovery()) return
         if (plan.restartDetectors) {
-            graph.coordinator.arm(commandId("recovery-arm"), CommandOrigin.RECOVERY)
+            graph.coordinator.arm(commandId("recovery-arm"), CommandOrigin.RECOVERY, recoveryToken)
         } else {
-            graph.coordinator.disarm(commandId("recovery-disarm"), CommandOrigin.RECOVERY)
+            graph.coordinator.disarm(commandId("recovery-disarm"), CommandOrigin.RECOVERY, recoveryToken)
         }
         recoveryGate.markRecoveryComplete()
         handleSnapshot(graph.coordinator.snapshot.value)
