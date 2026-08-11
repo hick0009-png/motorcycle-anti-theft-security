@@ -41,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -68,6 +70,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var replacementToken by remember { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
     var smsKey by remember { mutableStateOf("") }
@@ -176,6 +180,8 @@ fun SettingsScreen(
                         val newToken = replacementToken
                         actions.replaceBotToken(newToken)
                         replacementToken = ""
+                        focusManager.clearFocus(force = true)
+                        keyboardController?.hide()
                     },
                     enabled = replacementToken.isNotBlank() && !state.settingsOperationInFlight,
                     modifier = Modifier

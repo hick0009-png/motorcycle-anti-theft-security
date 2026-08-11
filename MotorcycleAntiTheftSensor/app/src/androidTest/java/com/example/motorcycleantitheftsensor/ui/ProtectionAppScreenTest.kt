@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
@@ -219,6 +220,22 @@ class ProtectionAppScreenTest {
 
         compose.onAllNodes(hasText(UNSAVED_TOKEN, substring = true)).assertCountEquals(0)
         compose.onAllNodes(hasText(UNSAVED_SMS_KEY, substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun savingBotTokenClearsTextFieldFocus() {
+        compose.setContent {
+            ProtectionAppScreen(
+                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions(),
+            )
+        }
+
+        val tokenField = hasSetTextAction() and hasText("Bot token")
+        compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
+        compose.onNodeWithText("Save bot token").performClick()
+
+        compose.onNode(tokenField).assertIsNotFocused()
     }
 
     @Test
