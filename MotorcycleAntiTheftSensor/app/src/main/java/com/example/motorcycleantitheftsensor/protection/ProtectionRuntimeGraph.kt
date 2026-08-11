@@ -109,9 +109,11 @@ object ProtectionRuntimeGraph {
             val incident = update.incidentOrNull() ?: return
             when (deliveryPolicy.action(update)) {
                 DeliveryAction.NONE -> Unit
-                DeliveryAction.PERSIST_ONLY -> withContext(Dispatchers.IO) {
-                    repository.upsert(incident)
-                }.also { coordinator.recordIncident(incident) }
+                DeliveryAction.PERSIST_ONLY -> {
+                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                    coordinator.recordIncident(incident)
+                }
 
                 DeliveryAction.SEND,
                 DeliveryAction.SEND_CLOSE_SUMMARY,
@@ -127,12 +129,13 @@ object ProtectionRuntimeGraph {
                         )
                     }
                     coordinator.recordIncident(delivered)
-                    if (delivered.deliveryAttempts.any { attempt ->
-                            attempt.channel == DeliveryChannel.LOCAL_STORAGE &&
-                                attempt.state == DeliveryState.FAILED
-                        }
-                    ) {
-                        coordinator.recordPersistenceFailure()
+                    val localAttempt = delivered.deliveryAttempts.lastOrNull { attempt ->
+                        attempt.channel == DeliveryChannel.LOCAL_STORAGE
+                    }
+                    if (localAttempt?.state == DeliveryState.FAILED) {
+                        coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+                    } else if (localAttempt != null) {
+                        coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     }
                 }
             }
@@ -141,10 +144,13 @@ object ProtectionRuntimeGraph {
             scope = scope,
             persistLocal = { incident ->
                 withContext(Dispatchers.IO) { repository.upsert(incident) }
+                coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                 coordinator.recordIncident(incident)
             },
             deliverExternal = ::process,
-            onPersistenceFailure = { coordinator.recordPersistenceFailure() },
+            onPersistenceFailure = {
+                coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+            },
             onExternalFailure = { Log.w(TAG, "Incident close delivery failed") },
         )
         val runtime = AndroidProtectionRuntime(
@@ -205,7 +211,7 @@ object ProtectionRuntimeGraph {
                         }
                     } catch (error: Exception) {
                         if (error is CancellationException) throw error
-                        coordinator.recordPersistenceFailure()
+                        coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
                         Log.e(TAG, "Incident processing failed", error)
                     }
                 }
@@ -226,7 +232,7 @@ object ProtectionRuntimeGraph {
                 } finally {
                     incidentMutex.unlock()
                 }
-                closed?.let { incidentCloseDispatcher.persistAndDispatch(it) }
+                closed?.let { incidentCloseDispatcher.persistAndDispatch(it) } ?: true
             },
             durableSnapshotWriter = { snapshot ->
                 statePersistence.persist(

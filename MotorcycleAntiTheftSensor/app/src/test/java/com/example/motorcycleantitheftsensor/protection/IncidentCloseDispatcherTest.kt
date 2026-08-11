@@ -6,6 +6,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,9 +31,28 @@ class IncidentCloseDispatcherTest {
         runCurrent()
 
         assertTrue(result.isCompleted)
+        assertTrue(result.await())
         assertEquals(listOf("closed-1"), persisted)
         assertTrue(externalStarted.isCompleted)
         allowExternal.complete(Unit)
+    }
+
+    @Test
+    fun localCloseFailureReturnsFalseAndSkipsExternalDelivery() = runTest {
+        var persistenceFailureReported = false
+        var externalCalled = false
+        val dispatcher = IncidentCloseDispatcher(
+            scope = this,
+            persistLocal = { error("disk unavailable") },
+            deliverExternal = { externalCalled = true },
+            onPersistenceFailure = { persistenceFailureReported = true },
+        )
+
+        val persisted = dispatcher.persistAndDispatch(IncidentUpdate.Closed(closedIncident("failed")))
+
+        assertFalse(persisted)
+        assertTrue(persistenceFailureReported)
+        assertFalse(externalCalled)
     }
 }
 

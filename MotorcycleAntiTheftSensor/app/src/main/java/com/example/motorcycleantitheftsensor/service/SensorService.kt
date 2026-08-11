@@ -17,6 +17,7 @@ import com.example.motorcycleantitheftsensor.MainActivity
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
+import com.example.motorcycleantitheftsensor.protection.PersistenceSource
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryPolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryGate
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryHints
@@ -202,11 +203,14 @@ class SensorService : Service(), ServiceEnvironment {
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                graph.coordinator.recordPersistenceFailure()
+                graph.coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
                 Log.e(TAG, "Unable to persist interrupted incident during recovery", error)
                 null
             }
-            interrupted?.let(graph.coordinator::recordIncident)
+            interrupted?.let { incident ->
+                graph.coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                graph.coordinator.recordIncident(incident)
+            }
         }
         if (!recoveryGate.shouldApplyRecovery()) return
         if (plan.restartDetectors) {
@@ -236,10 +240,10 @@ class SensorService : Service(), ServiceEnvironment {
                 ProtectionPersistenceRequest(snapshot, lastServiceHeartbeatAtMs),
             )
             if (outcome == ProtectionPersistenceOutcome.COMMITTED) {
-                graph.coordinator.recordPersistenceRecovered()
+                graph.coordinator.recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
             }
         } catch (error: RuntimeException) {
-            graph.coordinator.recordPersistenceFailure()
+            graph.coordinator.recordPersistenceFailure(PersistenceSource.SNAPSHOT)
             Log.e(TAG, "Unable to persist protection snapshot", error)
         }
         if (lastPublishedArmed != armed) {
@@ -258,14 +262,17 @@ class SensorService : Service(), ServiceEnvironment {
     override suspend fun stopForegroundAndSelf() {
         if (recoveryGate.shouldPersistSnapshot()) {
             try {
-                graph.statePersistence.persist(
+                val outcome = graph.statePersistence.persist(
                     ProtectionPersistenceRequest(
                         graph.coordinator.snapshot.value,
                         lastServiceHeartbeatAtMs,
                     ),
                 )
+                if (outcome == ProtectionPersistenceOutcome.COMMITTED) {
+                    graph.coordinator.recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
+                }
             } catch (error: RuntimeException) {
-                graph.coordinator.recordPersistenceFailure()
+                graph.coordinator.recordPersistenceFailure(PersistenceSource.SNAPSHOT)
                 Log.e(TAG, "Unable to persist final protection snapshot", error)
             }
         }

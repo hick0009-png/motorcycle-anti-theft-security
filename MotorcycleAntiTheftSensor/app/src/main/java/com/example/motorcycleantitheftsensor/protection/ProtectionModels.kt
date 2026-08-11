@@ -62,6 +62,11 @@ enum class CommandOutcome {
     UNKNOWN,
 }
 
+enum class PersistenceSource {
+    SNAPSHOT,
+    INCIDENT_HISTORY,
+}
+
 data class SensorHealth(
     val state: SensorHealthState,
     val lastSampleAtMs: Long? = null,

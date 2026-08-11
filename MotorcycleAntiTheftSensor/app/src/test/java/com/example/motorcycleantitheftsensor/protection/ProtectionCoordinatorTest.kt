@@ -276,6 +276,7 @@ class ProtectionCoordinatorTest {
                 assertEquals("owner disarmed", reason)
                 assertFalse(coordinator.acceptsIncident(capturedIncidentEpoch))
                 closeStates += coordinator.snapshot.value.state
+                true
             },
         )
         coordinator.arm("arm", CommandOrigin.LOCAL)
@@ -303,6 +304,7 @@ class ProtectionCoordinatorTest {
             incidentCloser = {
                 closeStarted.complete(Unit)
                 allowClose.await()
+                true
             },
         )
         coordinator.arm("initial-arm", CommandOrigin.LOCAL)
@@ -494,12 +496,52 @@ class ProtectionCoordinatorTest {
         )
         coordinator.arm("arm", CommandOrigin.LOCAL)
 
-        coordinator.recordPersistenceFailure()
+        coordinator.recordPersistenceFailure(PersistenceSource.SNAPSHOT)
 
         assertEquals(ProtectionState.ARMED_DEGRADED, coordinator.snapshot.value.state)
         assertTrue(
-            coordinator.snapshot.value.degradationReasons.contains("LOCAL persistence unavailable"),
+            coordinator.snapshot.value.degradationReasons.contains("SNAPSHOT persistence unavailable"),
         )
+    }
+
+    @Test
+    fun persistenceRecoveryOnlyClearsTheRecoveredSource() {
+        val coordinator = coordinator(
+            runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet())),
+            armingDelay = ArmingDelay { },
+        )
+
+        coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+        coordinator.recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+        coordinator.recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
+
+        assertTrue(
+            coordinator.snapshot.value.degradationReasons.contains("INCIDENT history unavailable"),
+        )
+        assertFalse(
+            coordinator.snapshot.value.degradationReasons.contains("SNAPSHOT persistence unavailable"),
+        )
+    }
+
+    @Test
+    fun incidentHistoryFailureMakesDisarmUnknownAfterProtectionStops() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            incidentCloser = { false },
+            durableSnapshotWriter = { },
+        )
+
+        val result = coordinator.disarm("owner", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.UNKNOWN, result.outcome)
+        assertEquals(ProtectionState.DISARMED_ONLINE, result.resultingState)
+        assertTrue(result.reason.contains("incident history", ignoreCase = true))
+        assertEquals(1, runtime.stopCalls)
     }
 }
 
@@ -507,7 +549,7 @@ private fun coordinator(
     runtime: FakeRuntime,
     armingDelay: ArmingDelay,
     healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
-    incidentCloser: suspend (String) -> Unit = { },
+    incidentCloser: suspend (String) -> Boolean = { true },
     durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
@@ -541,6 +583,8 @@ private class FakeRuntime(
         private set
     var startCalls = 0
         private set
+    var stopCalls = 0
+        private set
     var detectorsRunning = false
         private set
     var appliedSensitivity: Int? = null
@@ -556,6 +600,7 @@ private class FakeRuntime(
     }
 
     override fun stopDetectors() {
+        stopCalls += 1
         detectorsRunning = false
     }
 

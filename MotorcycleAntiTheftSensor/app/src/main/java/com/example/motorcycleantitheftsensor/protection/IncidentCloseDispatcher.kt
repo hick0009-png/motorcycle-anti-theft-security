@@ -11,13 +11,13 @@ class IncidentCloseDispatcher(
     private val onPersistenceFailure: () -> Unit = {},
     private val onExternalFailure: () -> Unit = {},
 ) {
-    suspend fun persistAndDispatch(update: IncidentUpdate.Closed) {
+    suspend fun persistAndDispatch(update: IncidentUpdate.Closed): Boolean {
         try {
             persistLocal(update.incident)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             onPersistenceFailure()
-            return
+            return false
         }
         scope.launch {
             try {
@@ -27,5 +27,6 @@ class IncidentCloseDispatcher(
                 onExternalFailure()
             }
         }
+        return true
     }
 }

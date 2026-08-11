@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.protection
 
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +21,7 @@ class ProtectionCoordinator(
     private val armingDelay: ArmingDelay,
     private val clock: ProtectionClock,
     private val healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
-    private val incidentCloser: suspend (String) -> Unit = { },
+    private val incidentCloser: suspend (String) -> Boolean = { true },
     private val durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
@@ -33,7 +34,7 @@ class ProtectionCoordinator(
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
     @Volatile private var baseDegradationReasons: Set<String> = initialSnapshot.degradationReasons
-    @Volatile private var persistenceUnavailable = false
+    private val unavailablePersistence = AtomicReference<Set<PersistenceSource>>(emptySet())
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -111,7 +112,7 @@ class ProtectionCoordinator(
             val finalDegradations = armingDegradations +
                 unhealthySensorReasons(health) +
                 telegramDegradationReasons(snapshot.value) +
-                if (persistenceUnavailable) setOf(PERSISTENCE_DEGRADATION) else emptySet()
+                persistenceDegradations()
             val finalState = if (finalDegradations.isEmpty()) {
                 ProtectionState.ARMED_HEALTHY
             } else {
@@ -151,20 +152,31 @@ class ProtectionCoordinator(
                 if (!explicitOwnerCommand) armingEpoch.incrementAndGet()
                 incidentEpoch.incrementAndGet()
                 runtime.stopDetectors()
-                incidentCloser("owner disarmed")
+                val incidentHistoryPersisted = incidentCloser("owner disarmed")
+                if (!incidentHistoryPersisted) {
+                    recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+                }
                 stateBeforeAlert = null
                 stateBeforeOffline = null
                 transition(
                     state = ProtectionState.DISARMED_ONLINE,
                     blockers = emptySet(),
-                    degradations = emptySet(),
+                    degradations = persistenceDegradations(),
                 )
                 try {
                     durableSnapshotWriter(snapshot.value)
-                    result(commandId, CommandOutcome.APPLIED, "Protection disarmed; remote control remains online")
+                    if (incidentHistoryPersisted) {
+                        result(commandId, CommandOutcome.APPLIED, "Protection disarmed; remote control remains online")
+                    } else {
+                        result(
+                            commandId,
+                            CommandOutcome.UNKNOWN,
+                            "Protection stopped, but incident history could not be confirmed",
+                        )
+                    }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    recordPersistenceFailure()
+                    recordPersistenceFailure(PersistenceSource.SNAPSHOT)
                     result(
                         commandId,
                         CommandOutcome.UNKNOWN,
@@ -201,36 +213,34 @@ class ProtectionCoordinator(
         updateSnapshot { current -> current.copy(serviceRunning = true) }
     }
 
-    fun recordPersistenceFailure() {
-        persistenceUnavailable = true
-        updateSnapshot { current ->
-            current.copy(
-                state = if (current.state == ProtectionState.ARMED_HEALTHY) {
-                    ProtectionState.ARMED_DEGRADED
-                } else {
-                    current.state
-                },
-                degradationReasons = current.degradationReasons + PERSISTENCE_DEGRADATION,
-            )
+    fun recordPersistenceFailure(source: PersistenceSource) {
+        if (updatePersistenceSources { current -> current + source }) {
+            refreshPersistenceDegradations()
         }
     }
 
-    fun recordPersistenceRecovered() {
-        if (!persistenceUnavailable) return
-        persistenceUnavailable = false
+    fun recordPersistenceRecovered(source: PersistenceSource) {
+        if (updatePersistenceSources { current -> current - source }) {
+            refreshPersistenceDegradations()
+        }
+    }
+
+    private fun refreshPersistenceDegradations() {
+        val persistenceReasons = persistenceDegradations()
         updateSnapshot { current ->
-            val remaining = current.degradationReasons - PERSISTENCE_DEGRADATION
+            val remaining = current.degradationReasons - PERSISTENCE_REASON_LABELS
+            val updated = remaining + persistenceReasons
             current.copy(
-                state = if (
+                state = when {
+                    current.state == ProtectionState.ARMED_HEALTHY && updated.isNotEmpty() ->
+                        ProtectionState.ARMED_DEGRADED
                     current.state == ProtectionState.ARMED_DEGRADED &&
-                    remaining.isEmpty() &&
-                    current.sensorHealth[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY
-                ) {
-                    ProtectionState.ARMED_HEALTHY
-                } else {
-                    current.state
+                        updated.isEmpty() &&
+                        current.sensorHealth[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY ->
+                        ProtectionState.ARMED_HEALTHY
+                    else -> current.state
                 },
-                degradationReasons = remaining,
+                degradationReasons = updated,
             )
         }
     }
@@ -368,7 +378,7 @@ class ProtectionCoordinator(
             val degradations = baseDegradationReasons +
                 unhealthySensorReasons(evaluatedSensors) +
                 (if (current.state in ARMED_STATES) telegramDegradationReasons(evaluatedChannels) else emptySet()) +
-                (if (persistenceUnavailable) setOf(PERSISTENCE_DEGRADATION) else emptySet())
+                persistenceDegradations()
             val liveState = if (current.state == ProtectionState.OFFLINE) {
                 stateBeforeOffline ?: ProtectionState.DISARMED_ONLINE
             } else {
@@ -438,6 +448,25 @@ class ProtectionCoordinator(
     ): Boolean = origin != CommandOrigin.RECOVERY ||
         (token != null && token.value == recoveryGeneration.get())
 
+    private fun updatePersistenceSources(
+        transform: (Set<PersistenceSource>) -> Set<PersistenceSource>,
+    ): Boolean {
+        while (true) {
+            val current = unavailablePersistence.get()
+            val updated = transform(current)
+            if (updated == current) return false
+            if (unavailablePersistence.compareAndSet(current, updated)) return true
+        }
+    }
+
+    private fun persistenceDegradations(): Set<String> = unavailablePersistence.get()
+        .mapTo(mutableSetOf()) { source ->
+            when (source) {
+                PersistenceSource.SNAPSHOT -> SNAPSHOT_PERSISTENCE_DEGRADATION
+                PersistenceSource.INCIDENT_HISTORY -> INCIDENT_PERSISTENCE_DEGRADATION
+            }
+        }
+
     private fun armedStateFrom(snapshot: ProtectionSnapshot): ProtectionState = if (
         snapshot.degradationReasons.isEmpty() &&
         snapshot.sensorHealth[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY
@@ -465,6 +494,11 @@ class ProtectionCoordinator(
             ProtectionState.ARMED_DEGRADED,
         )
         val ACTIVE_INCIDENT_STATES = ARMED_STATES + ProtectionState.ALERT_ACTIVE
-        const val PERSISTENCE_DEGRADATION = "LOCAL persistence unavailable"
+        const val SNAPSHOT_PERSISTENCE_DEGRADATION = "SNAPSHOT persistence unavailable"
+        const val INCIDENT_PERSISTENCE_DEGRADATION = "INCIDENT history unavailable"
+        val PERSISTENCE_REASON_LABELS = setOf(
+            SNAPSHOT_PERSISTENCE_DEGRADATION,
+            INCIDENT_PERSISTENCE_DEGRADATION,
+        )
     }
 }
