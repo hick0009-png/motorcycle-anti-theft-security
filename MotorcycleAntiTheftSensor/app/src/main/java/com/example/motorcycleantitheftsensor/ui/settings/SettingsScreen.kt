@@ -3,7 +3,9 @@ package com.example.motorcycleantitheftsensor.ui.settings
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Bitmap
 import android.view.WindowManager
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -17,8 +19,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +45,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -61,6 +68,8 @@ import com.example.motorcycleantitheftsensor.ui.AuthenticatorSetupDetails
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -81,6 +90,10 @@ fun SettingsScreen(
     var verificationCode by remember { mutableStateOf("") }
     var authenticatorError by remember { mutableStateOf<String?>(null) }
     var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var authenticatorQrRequested by remember { mutableStateOf(false) }
+    var authenticatorQrLoading by remember { mutableStateOf(false) }
+    var authenticatorQrImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var authenticatorQrError by remember { mutableStateOf<String?>(null) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
 
     fun clearAuthenticatorUi() {
@@ -91,6 +104,10 @@ fun SettingsScreen(
         authenticatorSecretRevealed = false
         verificationCode = ""
         authenticatorError = null
+        authenticatorQrRequested = false
+        authenticatorQrLoading = false
+        authenticatorQrImage = null
+        authenticatorQrError = null
     }
 
     DisposableEffect(Unit) {
@@ -308,10 +325,18 @@ fun SettingsScreen(
                         cancelAuthenticatorRequest = null
                         verificationCode = ""
                         authenticatorError = null
+                        authenticatorQrRequested = false
+                        authenticatorQrLoading = false
+                        authenticatorQrImage = null
+                        authenticatorQrError = null
                         cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { setup ->
                             cancelAuthenticatorRequest = null
                             authenticatorSetup = setup
                             authenticatorSecretRevealed = false
+                            authenticatorQrRequested = false
+                            authenticatorQrLoading = false
+                            authenticatorQrImage = null
+                            authenticatorQrError = null
                             if (setup == null) {
                                 authenticatorError = "Unable to start authenticator setup"
                             }
@@ -360,12 +385,47 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(authenticatorSetup?.uri, authenticatorQrRequested) {
+        val setup = authenticatorSetup
+        if (setup == null || !authenticatorQrRequested) {
+            authenticatorQrLoading = false
+            authenticatorQrImage = null
+            authenticatorQrError = null
+            return@LaunchedEffect
+        }
+        authenticatorQrLoading = true
+        authenticatorQrImage = null
+        authenticatorQrError = null
+        val encoded = withContext(Dispatchers.Default) {
+            AuthenticatorQrCodeEncoder.encode(setup.uri).map { qr ->
+                Bitmap.createBitmap(
+                    qr.argb,
+                    qr.sizePx,
+                    qr.sizePx,
+                    Bitmap.Config.ARGB_8888,
+                ).asImageBitmap()
+            }
+        }
+        if (authenticatorSetup?.uri == setup.uri && authenticatorQrRequested) {
+            authenticatorQrLoading = false
+            encoded.fold(
+                onSuccess = { authenticatorQrImage = it },
+                onFailure = {
+                    authenticatorQrError = "Unable to create QR code. Use the secret instead."
+                },
+            )
+        }
+    }
+
     authenticatorSetup?.let { setup ->
         AlertDialog(
             onDismissRequest = ::clearAuthenticatorUi,
             title = { Text("Authenticator setup") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Text("Enter this secret in your authenticator:")
                     Text(
                         text = if (authenticatorSecretRevealed) setup.secret else "••••••••",
@@ -387,6 +447,32 @@ fun SettingsScreen(
                     ) {
                         Text(if (authenticatorSecretRevealed) "Hide secret" else "Reveal secret")
                     }
+                    TextButton(
+                        onClick = {
+                            authenticatorQrRequested = !authenticatorQrRequested
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text(if (authenticatorQrRequested) "Hide QR code" else "Show QR code")
+                    }
+                    if (authenticatorQrLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.semantics {
+                                contentDescription = "Creating authenticator QR code"
+                            },
+                        )
+                    }
+                    authenticatorQrImage?.let { image ->
+                        Image(
+                            bitmap = image,
+                            contentDescription = "Authenticator setup QR code",
+                            modifier = Modifier
+                                .size(220.dp)
+                                .align(Alignment.CenterHorizontally)
+                                .testTag(AUTHENTICATOR_QR_TAG),
+                        )
+                    }
+                    authenticatorQrError?.let { Text(it) }
                     OutlinedTextField(
                         value = verificationCode,
                         onValueChange = { verificationCode = it },
@@ -503,6 +589,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 private const val AUTHENTICATOR_SECRET_TAG = "authenticator_secret"
+private const val AUTHENTICATOR_QR_TAG = "authenticator_qr_code"
 private const val SENSITIVITY_SLIDER_TAG = "sensitivity_slider"
 
 @Composable

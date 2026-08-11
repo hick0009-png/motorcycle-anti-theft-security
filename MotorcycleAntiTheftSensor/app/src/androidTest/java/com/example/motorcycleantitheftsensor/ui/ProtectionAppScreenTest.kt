@@ -507,6 +507,86 @@ class ProtectionAppScreenTest {
         }
     }
 
+    @Test
+    fun authenticatorQrRequiresExplicitActionAndClearsOnCancel() {
+        val secret = "JBSWY3DPEHPK3PXP"
+        val uri = "otpauth://totp/MotorcycleGuard:VehicleOwner" +
+            "?secret=$secret&issuer=MotorcycleGuard&algorithm=SHA1&digits=6&period=30"
+        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
+        val actions = fakeActions().copy(
+            beginAuthenticatorSetup = { onComplete ->
+                setupCompletion = onComplete
+                {}
+            },
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.DISARMED_ONLINE).copy(
+                    destination = ProtectionDestination.SETTINGS,
+                ),
+                actions,
+            )
+        }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
+        compose.onNodeWithText("Set up authenticator").performClick()
+        compose.runOnIdle {
+            requireNotNull(setupCompletion)(AuthenticatorSetupDetails(secret, uri))
+        }
+
+        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
+        compose.onNodeWithText("Show QR code").performClick()
+        compose.onNodeWithTag("authenticator_qr_code").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Authenticator setup QR code").assertExists()
+        compose.onAllNodes(hasText(uri, substring = true)).assertCountEquals(0)
+        compose.onAllNodes(hasText(secret, substring = true)).assertCountEquals(0)
+        compose.runOnIdle {
+            assertTrue(
+                compose.activity.window.attributes.flags and
+                    WindowManager.LayoutParams.FLAG_SECURE != 0,
+            )
+        }
+
+        compose.onNodeWithText("Hide QR code").performClick()
+        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
+        compose.onNodeWithText("Show QR code").performClick()
+        compose.onNodeWithTag("authenticator_qr_code").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
+    }
+
+    @Test
+    fun authenticatorQrFailureKeepsManualSecretFallback() {
+        val secret = "TEST-ONLY-SECRET"
+        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
+        val actions = fakeActions().copy(
+            beginAuthenticatorSetup = { onComplete ->
+                setupCompletion = onComplete
+                {}
+            },
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.DISARMED_ONLINE).copy(
+                    destination = ProtectionDestination.SETTINGS,
+                ),
+                actions,
+            )
+        }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
+        compose.onNodeWithText("Set up authenticator").performClick()
+        compose.runOnIdle {
+            requireNotNull(setupCompletion)(AuthenticatorSetupDetails(secret, uri = "invalid"))
+        }
+        compose.onNodeWithText("Show QR code").performClick()
+
+        compose.onNodeWithText("Unable to create QR code. Use the secret instead.").assertExists()
+        compose.onNodeWithText("Reveal secret").assertExists()
+        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
+        compose.onAllNodes(hasText("invalid", substring = true)).assertCountEquals(0)
+    }
+
     private fun showWithLocalNavigation(
         initialState: ProtectionUiState,
         initialActions: ProtectionAppActions = fakeActions(),
