@@ -13,6 +13,23 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProtectionCoordinatorTest {
     @Test
+    fun authoritativeMutationsIncrementSnapshotRevision() {
+        val coordinator = coordinator(
+            runtime = FakeRuntime(
+                readiness = ReadinessReport(emptySet(), emptySet()),
+                health = healthyVibration(),
+            ),
+            armingDelay = ArmingDelay { },
+        )
+        val initialRevision = coordinator.snapshot.value.revision
+
+        coordinator.recordServiceHeartbeat(1_000L)
+        coordinator.recordTelegramPolling(true)
+
+        assertEquals(initialRevision + 2L, coordinator.snapshot.value.revision)
+    }
+
+    @Test
     fun armRejectsNamedBlockerWithoutStartingDetectors() = runTest {
         val runtime = FakeRuntime(
             readiness = ReadinessReport(setOf("POST_NOTIFICATIONS"), emptySet()),

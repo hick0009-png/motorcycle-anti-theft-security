@@ -164,12 +164,12 @@ class ProtectionCoordinator(
 
     fun recordServiceHeartbeat(atMs: Long) {
         lastServiceHeartbeatAtMs = atMs
-        mutableSnapshot.update { current -> current.copy(serviceRunning = true) }
+        updateSnapshot { current -> current.copy(serviceRunning = true) }
     }
 
     fun recordPersistenceFailure() {
         persistenceUnavailable = true
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 state = if (current.state == ProtectionState.ARMED_HEALTHY) {
                     ProtectionState.ARMED_DEGRADED
@@ -184,7 +184,7 @@ class ProtectionCoordinator(
     fun recordPersistenceRecovered() {
         if (!persistenceUnavailable) return
         persistenceUnavailable = false
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             val remaining = current.degradationReasons - PERSISTENCE_DEGRADATION
             current.copy(
                 state = if (
@@ -202,7 +202,7 @@ class ProtectionCoordinator(
     }
 
     fun recordTelegramContact(atMs: Long) {
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 telegramReachable = true,
                 lastTelegramContactAtMs = atMs,
@@ -211,7 +211,7 @@ class ProtectionCoordinator(
     }
 
     fun recordTelegramPolling(active: Boolean) {
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 telegramPolling = active,
                 telegramReachable = if (active) current.telegramReachable else false,
@@ -225,7 +225,7 @@ class ProtectionCoordinator(
         stateBeforeAlert = null
         stateBeforeOffline = null
         baseDegradationReasons = emptySet()
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 state = ProtectionState.OFFLINE,
                 lastTransitionAtMs = clock.nowMs(),
@@ -242,7 +242,7 @@ class ProtectionCoordinator(
         detail: String? = null,
         normalizedValue: Double? = null,
     ) {
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 sensorHealth = current.sensorHealth + (
                     kind to SensorHealth(
@@ -281,7 +281,7 @@ class ProtectionCoordinator(
 
     @Synchronized
     fun recordIncident(incident: SecurityIncident) {
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             val canChangeProtectionState = current.state in ARMED_STATES ||
                 current.state == ProtectionState.ALERT_ACTIVE
             val nextState = if (!canChangeProtectionState) {
@@ -318,7 +318,7 @@ class ProtectionCoordinator(
     }
 
     fun evaluateFreshness(nowMs: Long) {
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             val evaluatedSensors = current.sensorHealth.mapValues { (_, health) ->
                 health.copy(state = healthPolicy.sensorState(health, nowMs))
             }
@@ -370,7 +370,7 @@ class ProtectionCoordinator(
         baseDegradations: Set<String> = degradations,
     ) {
         baseDegradationReasons = baseDegradations
-        mutableSnapshot.update { current ->
+        updateSnapshot { current ->
             current.copy(
                 state = state,
                 lastTransitionAtMs = clock.nowMs(),
@@ -391,6 +391,12 @@ class ProtectionCoordinator(
         resultingState = snapshot.value.state,
         reason = reason,
     )
+
+    private inline fun updateSnapshot(transform: (ProtectionSnapshot) -> ProtectionSnapshot) {
+        mutableSnapshot.update { current ->
+            transform(current).copy(revision = current.revision + 1L)
+        }
+    }
 
     private fun armedStateFrom(snapshot: ProtectionSnapshot): ProtectionState = if (
         snapshot.degradationReasons.isEmpty() &&

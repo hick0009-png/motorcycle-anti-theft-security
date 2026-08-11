@@ -99,6 +99,7 @@ data class ProtectionSnapshot(
     val lastIncident: IncidentSummary?,
     val lastDeliveryState: DeliveryState?,
     val demoModeEnabled: Boolean,
+    val revision: Long = 0L,
 ) {
     companion object {
         fun offline(nowMs: Long): ProtectionSnapshot = ProtectionSnapshot(
