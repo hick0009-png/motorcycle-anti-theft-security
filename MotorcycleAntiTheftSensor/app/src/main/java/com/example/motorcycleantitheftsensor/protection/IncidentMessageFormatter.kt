@@ -45,10 +45,11 @@ class IncidentMessageFormatter(
     private fun formatEvidence(evidence: IncidentEvidence): String = when (evidence.kind) {
         SensorKind.VIBRATION -> "Vibration delta: %.2f m/s²".format(Locale.US, evidence.baselineDelta)
         SensorKind.LIGHT -> "Light change: %.1f lux".format(Locale.US, evidence.baselineDelta)
-        SensorKind.POWER_THERMAL -> if (evidence.diagnostic == "charger_disconnected") {
-            "Charger disconnected"
-        } else {
-            "Temperature: %.1f C".format(Locale.US, evidence.normalizedValue)
+        SensorKind.POWER_THERMAL -> when (evidence.diagnostic) {
+            "charger_disconnected" -> "Charger disconnected"
+            "temperature_celsius" ->
+                "Temperature: %.1f C".format(Locale.US, evidence.normalizedValue)
+            else -> "Power/thermal evidence unavailable"
         }
         SensorKind.MICROPHONE -> "Relative audio amplitude: %.2f".format(Locale.US, evidence.normalizedValue)
         SensorKind.LOCATION -> error("Location is formatted separately")

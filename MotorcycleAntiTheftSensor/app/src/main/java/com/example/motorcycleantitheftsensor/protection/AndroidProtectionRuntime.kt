@@ -69,6 +69,7 @@ class AndroidProtectionRuntime(
             observation.diagnostic,
             observation.normalizedValue,
         )
+        if (observation.diagnostic == "battery_level_percent") return
         when (
             val decision = observationProcessor.accept(
                 observation = observation,

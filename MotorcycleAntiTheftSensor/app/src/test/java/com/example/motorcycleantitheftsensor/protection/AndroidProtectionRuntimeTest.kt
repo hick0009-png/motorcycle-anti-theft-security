@@ -162,12 +162,37 @@ class AndroidProtectionRuntimeTest {
             runtime.currentSensorHealth()[SensorKind.MICROPHONE]?.state,
         )
     }
+
+    @Test
+    fun batteryPercentageUpdatesStatusWithoutOpeningIncident() {
+        val recorded = mutableListOf<String?>()
+        val incidents = mutableListOf<IncidentObservationBatch>()
+        lateinit var detectors: RecordingDetectorSet
+        val runtime = runtime(
+            processor = powerProcessor(),
+            state = ProtectionState.ARMED_HEALTHY,
+            sensorSampleRecorder = { _, _, diagnostic, _ -> recorded += diagnostic },
+            incidentConsumer = incidents::add,
+            detectorCapture = { detectors = it },
+        )
+
+        detectors.emit(powerObservation(74.0, "battery_level_percent"))
+
+        assertEquals(listOf("battery_level_percent"), recorded)
+        assertTrue(incidents.isEmpty())
+    }
 }
 
 private fun processor(): SensorObservationProcessor = SensorObservationProcessor(
     staleAfterMs = 5_000L,
     debounceSamples = mapOf(SensorKind.VIBRATION to 1),
     thresholdDeltas = mapOf(SensorKind.VIBRATION to 1.0),
+)
+
+private fun powerProcessor(): SensorObservationProcessor = SensorObservationProcessor(
+    staleAfterMs = 5_000L,
+    debounceSamples = emptyMap(),
+    thresholdDeltas = emptyMap(),
 )
 
 private fun runtime(
@@ -225,6 +250,16 @@ private fun microphoneObservation(): SensorObservation = SensorObservation(
     baselineDelta = 0.0,
     valid = true,
     diagnostic = "audio_peak_normalized",
+)
+
+private fun powerObservation(value: Double, diagnostic: String): SensorObservation = SensorObservation(
+    kind = SensorKind.POWER_THERMAL,
+    eventElapsedMs = 900L,
+    wallClockMs = 5_000L,
+    normalizedValue = value,
+    baselineDelta = 0.0,
+    valid = true,
+    diagnostic = diagnostic,
 )
 
 private fun vibrationObservation(

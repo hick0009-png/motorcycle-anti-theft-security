@@ -53,7 +53,37 @@ class IncidentMessageFormatterTest {
         assertFalse(message.contains("dB"))
         assertFalse(message.contains("power cutoff", ignoreCase = true))
     }
+
+    @Test
+    fun temperaturePowerEvidenceUsesTemperatureLabel() {
+        val message = formatter.format(powerIncident("temperature_celsius", 46.5))
+
+        assertTrue(message.contains("Temperature: 46.5 C"))
+    }
+
+    @Test
+    fun unknownPowerDiagnosticUsesNeutralUnavailableLabel() {
+        val message = formatter.format(powerIncident("battery_level_percent", 74.0))
+
+        assertTrue(message.contains("Power/thermal evidence unavailable"))
+        assertFalse(message.contains("Temperature:"))
+    }
 }
+
+private fun powerIncident(diagnostic: String, value: Double): SecurityIncident =
+    warningRealIncident().copy(
+        type = IncidentType.POWER,
+        evidence = listOf(
+            IncidentEvidence(
+                kind = SensorKind.POWER_THERMAL,
+                eventElapsedMs = 1_000L,
+                wallClockMs = 1_000L,
+                normalizedValue = value,
+                baselineDelta = 0.0,
+                diagnostic = diagnostic,
+            ),
+        ),
+    )
 
 private fun criticalDemoIncident(): SecurityIncident = incident(
     id = "demo-1",
