@@ -22,11 +22,14 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.launch
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
@@ -34,6 +37,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProtectionViewModelTest {
@@ -289,11 +293,9 @@ class ProtectionViewModelTest {
         try {
             assertTrue(repository.clearStarted.await(2, TimeUnit.SECONDS))
             viewModel.disarm()
-            Thread.sleep(100)
-            assertEquals(
-                ProtectionState.DISARMED_ONLINE,
-                viewModel.uiState.value.protection.state,
-            )
+            awaitCondition {
+                viewModel.uiState.value.protection.state == ProtectionState.DISARMED_ONLINE
+            }
         } finally {
             repository.allowClear.countDown()
         }
@@ -327,6 +329,39 @@ class ProtectionViewModelTest {
         assertFalse(viewModel.uiState.value.settingsLoaded)
         allowRead.complete(Unit)
         advanceUntilIdle()
+    }
+
+    @Test
+    fun initialSettingsLoadNeverEmitsUnableToLoadSettingsStateBeforeReadStarts() = runTest {
+        val readStarted = CompletableDeferred<Unit>()
+        val allowRead = CompletableDeferred<Unit>()
+        val dispatcher = InitialSettingsReadBarrierDispatcher()
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(
+                firstSettingsReadStarted = readStarted,
+                allowFirstSettingsRead = allowRead,
+            ),
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        val emittedSettingsStates = mutableListOf<Pair<Boolean, Boolean>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { state ->
+                emittedSettingsStates += state.settingsLoaded to state.settingsLoading
+            }
+        }
+
+        assertFalse(
+            "Initial settings loading must not emit the Unable to load settings state",
+            emittedSettingsStates.any { (loaded, loading) -> !loaded && !loading },
+        )
+        dispatcher.startInitialSettingsRead()
+        assertTrue(readStarted.isCompleted)
+        allowRead.complete(Unit)
     }
 
     @Test
@@ -586,6 +621,32 @@ private fun awaitCondition(condition: () -> Boolean) {
         Thread.sleep(10)
     }
     assertTrue("Timed out waiting for condition", condition())
+}
+
+private class InitialSettingsReadBarrierDispatcher : CoroutineDispatcher() {
+    private var rootDispatchCount = 0
+    private var dispatchDepth = 0
+    private var initialSettingsRead: Runnable? = null
+
+    override fun isDispatchNeeded(context: CoroutineContext): Boolean = true
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        if (dispatchDepth == 0 && ++rootDispatchCount == 3) {
+            initialSettingsRead = block
+            return
+        }
+
+        dispatchDepth += 1
+        try {
+            block.run()
+        } finally {
+            dispatchDepth -= 1
+        }
+    }
+
+    fun startInitialSettingsRead() {
+        checkNotNull(initialSettingsRead).run()
+    }
 }
 
 private class FakeProtectionSettingsGateway(

@@ -54,7 +54,7 @@ class ProtectionViewModel(
     private val settingsReadVersion = AtomicLong(0L)
     private val destination = MutableStateFlow(ProtectionDestination.PROTECTION)
     private val settingsSummary = MutableStateFlow(emptySettingsSummary())
-    private val presentation = MutableStateFlow(PresentationInputs())
+    private val presentation = MutableStateFlow(PresentationInputs(settingsLoading = true))
     private val currentTimeMs = MutableStateFlow(nowMs())
 
     val uiState: StateFlow<ProtectionUiState> = combine(
