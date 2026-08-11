@@ -64,6 +64,28 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun repeatedOwnerArmDoesNotCancelTheOwnerArmingAlreadyInProgress() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { gate.await() })
+        val firstArm = async { coordinator.arm("first", CommandOrigin.LOCAL) }
+        runCurrent()
+
+        val repeatedArm = coordinator.arm("repeat", CommandOrigin.TELEGRAM)
+        gate.complete(Unit)
+
+        assertEquals(CommandOutcome.REJECTED, repeatedArm.outcome)
+        assertEquals(CommandOutcome.APPLIED, firstArm.await().outcome)
+        assertTrue(coordinator.snapshot.value.state in setOf(
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+        ))
+    }
+
+    @Test
     fun armIsDegradedWhileTelegramPollingHasNotStarted() = runTest {
         val runtime = FakeRuntime(
             readiness = ReadinessReport(emptySet(), emptySet()),
@@ -568,6 +590,24 @@ class ProtectionCoordinatorTest {
         assertEquals(ProtectionState.DISARMED_ONLINE, result.resultingState)
         assertTrue(result.reason.contains("incident history", ignoreCase = true))
         assertEquals(1, runtime.stopCalls)
+    }
+
+    @Test
+    fun recoveredIncidentPersistenceDoesNotReturnDuringFreshnessEvaluation() = runTest {
+        val coordinator = coordinator(
+            runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet())),
+            armingDelay = ArmingDelay { },
+            incidentCloser = { false },
+        )
+        coordinator.disarm("owner", CommandOrigin.LOCAL)
+        coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+        coordinator.recordServiceHeartbeat(1_000L)
+
+        coordinator.evaluateFreshness(1_000L)
+
+        assertFalse(
+            coordinator.snapshot.value.degradationReasons.contains("INCIDENT history unavailable"),
+        )
     }
 }
 

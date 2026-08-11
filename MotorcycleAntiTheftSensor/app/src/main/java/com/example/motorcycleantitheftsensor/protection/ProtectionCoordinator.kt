@@ -104,6 +104,18 @@ class ProtectionCoordinator(
 
         armingDelay.await()
         return commandMutex.withLock {
+            if (!recoveryIsCurrent(origin, recoveryToken)) {
+                runtime.stopDetectors()
+                if (snapshot.value.state == ProtectionState.ARMING) {
+                    transition(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        blockers = emptySet(),
+                        degradations = persistenceDegradations(),
+                        baseDegradations = emptySet(),
+                    )
+                }
+                return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
+            }
             if (epoch != armingEpoch.get() || snapshot.value.state != ProtectionState.ARMING) {
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
@@ -162,6 +174,7 @@ class ProtectionCoordinator(
                     state = ProtectionState.DISARMED_ONLINE,
                     blockers = emptySet(),
                     degradations = persistenceDegradations(),
+                    baseDegradations = emptySet(),
                 )
                 try {
                     durableSnapshotWriter(snapshot.value)
@@ -194,7 +207,6 @@ class ProtectionCoordinator(
 
     fun invalidateRecovery() {
         recoveryGeneration.incrementAndGet()
-        armingEpoch.incrementAndGet()
     }
 
     fun changeSensitivity(
