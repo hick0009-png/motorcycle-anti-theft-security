@@ -1,0 +1,170 @@
+{
+  "$schema": "../schema/hcp-checkpoint.schema.json",
+  "id": "CKP-20260811-0751-OAI1PJ",
+  "timestamp": "2026-08-11T07:51:54.0702713+07:00",
+  "phase": "P6",
+  "task_id": "UI-03",
+  "status": "IN_PROGRESS",
+  "description": "Task 5 implementation is committed and host verification passes; independent task review, whole-branch review, and real-device acceptance remain pending.",
+  "progress": 96,
+  "scope": "MotorcycleAntiTheftSensor demo-free authoritative UI Task 5 final state, recovery, shell message, and confirmed re-pair fixes.",
+  "knowledge": [
+    "Task 5 is committed as 1d15c5c with exactly nine UI, navigation, and test files.",
+    "ViewModel operations now use independent protection, settings, and events mutexes so unrelated work does not disable emergency disarm.",
+    "The app shell owns one-shot Snackbar/live-region messages and consumes them by ID after presentation.",
+    "Settings exposes truthful initial loading, retained-success refresh failure, retry, and confirmed pairing reset states.",
+    "Compose API RED and initial-settings-state RED were observed before production changes; focused ViewModel and Compose compilation reached GREEN."
+  ],
+  "assumptions": [
+    {
+      "assumption": "Accepted Task 4 navigation, slider, TOTP, timestamp, permission, SMS, and Demo-free behavior must remain unchanged through review fixes.",
+      "confidence": "high",
+      "needsValidation": true
+    },
+    {
+      "assumption": "Unrelated dirty and untracked files belong to the user and must not be staged, reset, deleted, or included in later commits.",
+      "confidence": "high",
+      "needsValidation": false
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Task 5 has not yet received its independent task-scoped spec and quality review.",
+      "impact": "high",
+      "mitigation": "Generate a Windows-safe review package for 0c2f5fb..1d15c5c and dispatch the Task 5 reviewer before marking the task complete."
+    },
+    {
+      "risk": "Compose/device behavior has not been executed after Task 5.",
+      "impact": "high",
+      "mitigation": "After review is clean, release the device guard and run instrumentation plus focused Huawei acceptance for Snackbar, Settings retry, reset pairing, and disarm concurrency."
+    },
+    {
+      "risk": "The Bash review-package helper cannot run because bash resolves to WSL and no WSL distribution is installed.",
+      "impact": "medium",
+      "mitigation": "Create the same package with a Windows-safe repository script or exact git log, stat, and diff capture without changing source."
+    },
+    {
+      "risk": "HCP automatic Git staging/commit cannot create .git/index.lock under the normal sandbox.",
+      "impact": "medium",
+      "mitigation": "Keep checkpoint artifacts uncommitted unless an exact-path elevated HCP commit is explicitly needed; do not broadly stage the dirty tree."
+    }
+  ],
+  "memory_snapshot": [
+    {
+      "key": "branch_head",
+      "value": "feature/motorcycle-guard-protection at 1d15c5c41aa19c2d4d58aa50779730d27a78c631"
+    },
+    {
+      "key": "task5_brief",
+      "value": "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/task-5-final-state-brief.md"
+    },
+    {
+      "key": "task5_report",
+      "value": "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/task-5-final-state-report.md"
+    },
+    {
+      "key": "sdd_ledger",
+      "value": "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/progress.md"
+    }
+  ],
+  "dependencies": [
+    "Use a Windows-safe method to generate the Task 5 review package from base 0c2f5fb to head 1d15c5c.",
+    "Do not run overlapping Gradle or ADB processes; verify the Huawei device is awake, unlocked, and authorized before connected tests."
+  ],
+  "error_info": null,
+  "agent": {
+    "conversation_id": "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+    "name": "Codex",
+    "model": "GPT-5.6"
+  },
+  "snapshot": {
+    "build_status": "SUCCESS",
+    "build_output_snippet": "Fresh controller verification on 2026-08-11: BUILD SUCCESSFUL in 17s; 48 actionable tasks up-to-date. XML results: 32 suites, 121 tests, 0 failures, 0 errors, 0 skipped. assembleDebug and compileDebugAndroidTestKotlin completed; device tests were not run.",
+    "test_results": {
+      "passed": 121,
+      "failed": 0,
+      "skipped": 0
+    },
+    "files_changed": [
+      { "path": "MotorcycleAntiTheftSensor/app/src/androidTest/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreenTest.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreen.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionUiModels.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModel.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/events/EventsScreen.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/protection/ProtectionScreen.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt", "action": "MODIFIED" },
+      { "path": "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModelTest.kt", "action": "MODIFIED" }
+    ]
+  },
+  "decisions": [
+    {
+      "question": "Pause now or continue through independent review and device acceptance?",
+      "decision": "Create a durable checkpoint now and resume later.",
+      "rationale": "The user explicitly requested a checkpoint after Task 5 implementation and host verification.",
+      "decided_by": "user"
+    },
+    {
+      "question": "What is the exact resume boundary?",
+      "decision": "Resume at the pending independent Task 5 review; do not repeat implementation or claim device acceptance.",
+      "rationale": "Commit 1d15c5c and host verification are complete, while task review and device checks are not.",
+      "decided_by": "Codex"
+    }
+  ],
+  "open_tasks": [
+    {
+      "task_id": "UI-03",
+      "description": "Generate a Windows-safe review package for 0c2f5fb..1d15c5c and run the independent Task 5 spec and code-quality review.",
+      "priority": 1,
+      "blocked_by": "Bash helper cannot run because WSL has no installed distribution; use a Windows-safe equivalent."
+    },
+    {
+      "task_id": "UI-03",
+      "description": "Fix and re-review any Critical or Important Task 5 findings, then mark Task 5 complete in the SDD ledger.",
+      "priority": 1,
+      "blocked_by": "Independent Task 5 review."
+    },
+    {
+      "task_id": "UI-03",
+      "description": "Run final whole-branch review and resolve its findings according to the SDD workflow.",
+      "priority": 2,
+      "blocked_by": "Task 5 review must be clean."
+    },
+    {
+      "task_id": "UI-03",
+      "description": "Run Compose instrumentation and controlled Huawei acceptance, then refresh audit evidence and final verification documentation.",
+      "priority": 2,
+      "blocked_by": "Device guard must be explicitly released and the Huawei target must be awake, unlocked, and authorized."
+    }
+  ],
+  "context": {
+    "summary": "Task 5 implementation is committed at 1d15c5c. Fresh host verification passes 121 unit tests plus APK and Android-test compilation. Independent review and every Task 5 real-device check remain pending.",
+    "next_steps": [
+      "Read the SDD ledger, Task 5 brief, and Task 5 report before acting.",
+      "Confirm HEAD is 1d15c5c and inspect the mixed dirty worktree without resetting or staging unrelated files.",
+      "Generate the Task 5 review package using a Windows-safe method and dispatch an independent reviewer.",
+      "If review is clean, update the ledger; otherwise run the bounded fix and re-review loop.",
+      "Only after review is clean, run final whole-branch review and request/release device testing for the Huawei acceptance matrix."
+    ],
+    "warnings": [
+      "Do not rerun Task 5 implementation from scratch; commit 1d15c5c already contains it.",
+      "Do not claim Compose/device acceptance from compilation or unit tests.",
+      "Do not reset, clean, broadly stage, or overwrite unrelated dirty/untracked files.",
+      "No live Snackbar/TalkBack, Telegram re-pair, SMS/TOTP, or armed/alert sensor acceptance has been performed after Task 5."
+    ]
+  },
+  "git": {
+    "branch": "feature/motorcycle-guard-protection",
+    "remote_url": "",
+    "dirty": true,
+    "commit_hash": "1d15c5c"
+  },
+  "parent_checkpoint_id": "CKP-20260809-0955-4I1V0U",
+  "tags": [
+    "motorcycle-guard",
+    "demo-free-ui",
+    "task5",
+    "review-pending",
+    "checkpoint"
+  ]
+}
