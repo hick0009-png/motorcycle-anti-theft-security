@@ -339,11 +339,10 @@ fun captureRecoveryToken(): RecoveryGenerationToken =
 
 fun invalidateRecovery() {
     recoveryGeneration.incrementAndGet()
-    armingEpoch.incrementAndGet()
 }
 ```
 
-Explicit `LOCAL` and `TELEGRAM` commands call `invalidateRecovery()` before waiting for `commandMutex`. Recovery commands require a non-null token and re-check `token.value == recoveryGeneration.get()` inside `commandMutex` immediately before readiness, detector startup, or Disarm transition.
+Explicit `LOCAL` and `TELEGRAM` commands call `invalidateRecovery()` before waiting for `commandMutex`. Recovery commands require a non-null token and re-check `token.value == recoveryGeneration.get()` inside `commandMutex` immediately before readiness, detector startup, or Disarm transition. Recovery Arm checks the token again after the grace period and stops detectors before returning to Disarmed if superseded; recovery invalidation does not cancel an unrelated owner Arm already in progress.
 
 `SensorService` captures the token when recovery begins, calls `coordinator.invalidateRecovery()` as soon as an explicit action is observed, and passes the captured token to the recovery command. Keep `ProtectionRecoveryGate` responsible only for lifecycle completion/persistence gating, not the final authorization decision.
 

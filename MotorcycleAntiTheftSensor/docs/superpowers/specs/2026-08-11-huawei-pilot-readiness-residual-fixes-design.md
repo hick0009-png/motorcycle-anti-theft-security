@@ -56,7 +56,7 @@ Owner commands always outrank recovery:
 
 - Disarm invalidates recovery before waiting for any command lock.
 - Arm invalidates recovery before readiness evaluation.
-- A recovery operation already in the arming grace period is cancelled by the existing arming epoch.
+- A recovery operation already in the arming grace period rechecks its generation token before final publication; if stale, it stops detectors and returns to Disarmed.
 - A recovery operation that has not entered the coordinator cannot pass a stale-token check later.
 
 This closes the gap between a service-level `shouldApplyRecovery()` check and a later coordinator call.
