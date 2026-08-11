@@ -20,6 +20,7 @@ data class ProtectionRecoveryHints(
     val lastTelegramContactAtMs: Long?,
     val demoModeEnabled: Boolean,
     val lastIncidentId: String?,
+    val revision: Long = 0L,
 )
 
 data class ProtectionRecoveryState(
@@ -78,6 +79,7 @@ class ProtectionSnapshotStore(
                 KEY_TELEGRAM_CONTACT_AT_MS to snapshot.lastTelegramContactAtMs,
                 KEY_DEMO_ENABLED to snapshot.demoModeEnabled,
                 KEY_LAST_INCIDENT_ID to snapshot.lastIncident?.id,
+                KEY_REVISION to snapshot.revision,
             ),
         )
     }
@@ -95,6 +97,7 @@ class ProtectionSnapshotStore(
                 lastTelegramContactAtMs = preferences.getLong(KEY_TELEGRAM_CONTACT_AT_MS),
                 demoModeEnabled = preferences.getBoolean(KEY_DEMO_ENABLED) ?: false,
                 lastIncidentId = preferences.getString(KEY_LAST_INCIDENT_ID),
+                revision = preferences.getLong(KEY_REVISION) ?: 0L,
             ),
         )
     }
@@ -107,6 +110,7 @@ class ProtectionSnapshotStore(
         const val KEY_TELEGRAM_CONTACT_AT_MS = "telegram_contact_at_ms"
         const val KEY_DEMO_ENABLED = "demo_enabled"
         const val KEY_LAST_INCIDENT_ID = "last_incident_id"
+        const val KEY_REVISION = "revision"
     }
 }
 

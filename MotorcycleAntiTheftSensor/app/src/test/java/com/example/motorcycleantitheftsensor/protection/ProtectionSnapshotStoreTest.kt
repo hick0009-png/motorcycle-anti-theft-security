@@ -80,6 +80,7 @@ class ProtectionSnapshotStoreTest {
                     deliveryState = DeliveryState.SENT,
                 ),
                 demoModeEnabled = true,
+                revision = 42L,
             ),
             lastServiceHeartbeatAtMs = 2_500L,
         )
@@ -91,6 +92,7 @@ class ProtectionSnapshotStoreTest {
         assertEquals(3_000L, recovery.hints.lastTelegramContactAtMs)
         assertEquals("incident-1", recovery.hints.lastIncidentId)
         assertTrue(recovery.hints.demoModeEnabled)
+        assertEquals(42L, recovery.hints.revision)
         assertEquals(ProtectionState.OFFLINE, recovery.liveSnapshot.state)
         assertEquals(9_000L, recovery.liveSnapshot.lastTransitionAtMs)
         assertTrue(recovery.liveSnapshot.sensorHealth.isEmpty())

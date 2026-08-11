@@ -20,6 +20,8 @@ import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryPolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryGate
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryHints
+import com.example.motorcycleantitheftsensor.protection.ProtectionPersistenceOutcome
+import com.example.motorcycleantitheftsensor.protection.ProtectionPersistenceRequest
 import com.example.motorcycleantitheftsensor.protection.ProtectionRuntimeGraph
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
@@ -224,11 +226,12 @@ class SensorService : Service(), ServiceEnvironment {
             ProtectionState.ALERT_ACTIVE,
         )
         try {
-            withContext(Dispatchers.IO) {
-                preferences.setSystemArmed(armed)
-                graph.snapshotStore.save(snapshot, lastServiceHeartbeatAtMs)
+            val outcome = graph.statePersistence.persist(
+                ProtectionPersistenceRequest(snapshot, lastServiceHeartbeatAtMs),
+            )
+            if (outcome == ProtectionPersistenceOutcome.COMMITTED) {
+                graph.coordinator.recordPersistenceRecovered()
             }
-            graph.coordinator.recordPersistenceRecovered()
         } catch (error: RuntimeException) {
             graph.coordinator.recordPersistenceFailure()
             Log.e(TAG, "Unable to persist protection snapshot", error)
@@ -249,9 +252,12 @@ class SensorService : Service(), ServiceEnvironment {
     override suspend fun stopForegroundAndSelf() {
         if (recoveryGate.shouldPersistSnapshot()) {
             try {
-                withContext(Dispatchers.IO) {
-                    graph.snapshotStore.save(graph.coordinator.snapshot.value, lastServiceHeartbeatAtMs)
-                }
+                graph.statePersistence.persist(
+                    ProtectionPersistenceRequest(
+                        graph.coordinator.snapshot.value,
+                        lastServiceHeartbeatAtMs,
+                    ),
+                )
             } catch (error: RuntimeException) {
                 graph.coordinator.recordPersistenceFailure()
                 Log.e(TAG, "Unable to persist final protection snapshot", error)

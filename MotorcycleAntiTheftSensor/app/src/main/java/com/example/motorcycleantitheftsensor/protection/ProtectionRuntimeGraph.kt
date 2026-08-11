@@ -32,6 +32,7 @@ object ProtectionRuntimeGraph {
         val delivery: IncidentDeliveryCoordinator,
         val runtime: ProtectionRuntime,
         val snapshotStore: ProtectionSnapshotStore,
+        val statePersistence: ProtectionStatePersistenceArbiter,
         val scope: CoroutineScope,
     )
 
@@ -45,6 +46,20 @@ object ProtectionRuntimeGraph {
             maxRecords = 200,
         )
         val preferences = EncryptedPrefsManager(context)
+        val statePersistence = ProtectionStatePersistenceArbiter(
+            writeCompatibilityArmed = { armed ->
+                withContext(Dispatchers.IO) {
+                    check(preferences.commitSystemArmed(armed)) {
+                        "Unable to persist armed compatibility state"
+                    }
+                }
+            },
+            writeSnapshot = { snapshot, heartbeat ->
+                withContext(Dispatchers.IO) {
+                    snapshotStore.save(snapshot, heartbeat)
+                }
+            },
+        )
         val telegram = TelegramBotClient(
             context = context,
             prefsManager = preferences,
@@ -214,9 +229,9 @@ object ProtectionRuntimeGraph {
                 closed?.let { incidentCloseDispatcher.persistAndDispatch(it) }
             },
             durableSnapshotWriter = { snapshot ->
-                withContext(Dispatchers.IO) {
-                    snapshotStore.save(snapshot, wallClock.nowMs())
-                }
+                statePersistence.persist(
+                    ProtectionPersistenceRequest(snapshot, wallClock.nowMs()),
+                )
             },
         )
         runtime.applySensitivity(preferences.getSensitivity())
@@ -226,6 +241,7 @@ object ProtectionRuntimeGraph {
             delivery = delivery,
             runtime = runtime,
             snapshotStore = snapshotStore,
+            statePersistence = statePersistence,
             scope = scope,
         )
     }

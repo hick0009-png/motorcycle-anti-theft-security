@@ -109,6 +109,56 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun disarmWaitsBehindOlderWriteAndRemainsLastCommitted() = runTest {
+        val oldWriteEntered = CompletableDeferred<Unit>()
+        val releaseOldWrite = CompletableDeferred<Unit>()
+        val committedSnapshots = mutableListOf<ProtectionSnapshot>()
+        val compatibilityArmedValues = mutableListOf<Boolean>()
+        val armedSnapshot = ProtectionSnapshot.offline(1L).copy(
+            revision = 4L,
+            state = ProtectionState.ARMED_HEALTHY,
+            serviceRunning = true,
+        )
+        val arbiter = ProtectionStatePersistenceArbiter(
+            writeCompatibilityArmed = { armed -> compatibilityArmedValues += armed },
+            writeSnapshot = { snapshot, _ ->
+                if (snapshot.revision == armedSnapshot.revision) {
+                    oldWriteEntered.complete(Unit)
+                    releaseOldWrite.await()
+                }
+                committedSnapshots += snapshot
+            },
+        )
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = armedSnapshot,
+            runtime = FakeRuntime(
+                readiness = ReadinessReport(emptySet(), emptySet()),
+                health = healthyVibration(),
+            ),
+            armingDelay = ArmingDelay { },
+            clock = ProtectionClock { 2_000L },
+            durableSnapshotWriter = { snapshot ->
+                arbiter.persist(ProtectionPersistenceRequest(snapshot, 2_000L))
+            },
+        )
+
+        val oldWrite = async {
+            arbiter.persist(ProtectionPersistenceRequest(armedSnapshot, 1_000L))
+        }
+        oldWriteEntered.await()
+        val disarm = async { coordinator.disarm("owner", CommandOrigin.LOCAL) }
+        runCurrent()
+        assertFalse(disarm.isCompleted)
+
+        releaseOldWrite.complete(Unit)
+        oldWrite.await()
+
+        assertEquals(CommandOutcome.APPLIED, disarm.await().outcome)
+        assertEquals(ProtectionState.DISARMED_ONLINE, committedSnapshots.last().state)
+        assertFalse(compatibilityArmedValues.last())
+    }
+
+    @Test
     fun sensitivityIsValidatedAndAppliedToRunningRuntime() {
         val runtime = FakeRuntime(
             readiness = ReadinessReport(emptySet(), emptySet()),
@@ -419,6 +469,7 @@ private fun coordinator(
     armingDelay: ArmingDelay,
     healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
     incidentCloser: suspend (String) -> Unit = { },
+    durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -432,6 +483,7 @@ private fun coordinator(
     clock = ProtectionClock { 1_000L },
     healthPolicy = healthPolicy,
     incidentCloser = incidentCloser,
+    durableSnapshotWriter = durableSnapshotWriter,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(

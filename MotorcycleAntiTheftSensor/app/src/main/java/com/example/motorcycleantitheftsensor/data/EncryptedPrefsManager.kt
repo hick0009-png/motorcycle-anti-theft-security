@@ -148,6 +148,9 @@ class EncryptedPrefsManager(context: Context) {
         prefs.edit().putBoolean(KEY_SYSTEM_ARMED, armed).apply()
     }
 
+    fun commitSystemArmed(armed: Boolean): Boolean =
+        prefs.edit().putBoolean(KEY_SYSTEM_ARMED, armed).commit()
+
     fun isSystemArmed(): Boolean {
         return prefs.getBoolean(KEY_SYSTEM_ARMED, false)
     }
