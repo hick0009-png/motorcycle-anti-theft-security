@@ -19,13 +19,14 @@ class ProtectionHealthPolicy(
         current: ProtectionState,
         lastServiceHeartbeatAtMs: Long?,
         nowMs: Long,
-    ): ProtectionState = if (
-        lastServiceHeartbeatAtMs == null || nowMs - lastServiceHeartbeatAtMs > serviceFreshnessMs
-    ) {
+    ): ProtectionState = if (!serviceIsFresh(lastServiceHeartbeatAtMs, nowMs)) {
         ProtectionState.OFFLINE
     } else {
         current
     }
+
+    fun serviceIsFresh(lastServiceHeartbeatAtMs: Long?, nowMs: Long): Boolean =
+        lastServiceHeartbeatAtMs != null && nowMs - lastServiceHeartbeatAtMs <= serviceFreshnessMs
 
     fun telegramReachable(
         lastContactAtMs: Long?,

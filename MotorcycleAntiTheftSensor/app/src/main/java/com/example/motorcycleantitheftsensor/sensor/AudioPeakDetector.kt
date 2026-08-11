@@ -12,8 +12,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * SEN-04: AudioPeakDetector
- * Listens to ambient sound level using AudioRecord.
- * Triggers alert when sound decibels exceed threshold (default 85 dB), detecting metal cutting or hammering.
+ * Reports normalized relative microphone amplitude using AudioRecord.
  */
 class AudioPeakDetector(
     @Suppress("UNUSED_PARAMETER") context: Context,
@@ -35,11 +34,11 @@ class AudioPeakDetector(
 
     @SuppressLint("MissingPermission")
     @Synchronized
-    fun startListening() {
-        if (isRecording || recordingThread?.isAlive == true) return
+    fun startListening(): Boolean {
+        if (isRecording || recordingThread?.isAlive == true) return true
 
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, ENCODING)
-        if (minBufferSize <= 0) return
+        if (minBufferSize <= 0) return false
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
@@ -52,14 +51,14 @@ class AudioPeakDetector(
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
             audioRecord?.release()
             audioRecord = null
-            return
+            return false
         }
 
         audioRecord?.startRecording()
         val epoch = sessionEpoch.incrementAndGet()
         isRecording = true
 
-        val recorder = audioRecord ?: return
+        val recorder = audioRecord ?: return false
         recordingThread = Thread {
             val buffer = ShortArray(minBufferSize)
             try {
@@ -99,6 +98,7 @@ class AudioPeakDetector(
             }
         }
         recordingThread?.start()
+        return true
     }
 
     @Synchronized

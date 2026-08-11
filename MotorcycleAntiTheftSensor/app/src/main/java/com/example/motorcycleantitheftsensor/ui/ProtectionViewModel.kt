@@ -47,10 +47,10 @@ class ProtectionViewModel(
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val armDisarmMutex = Mutex()
     private val settingsMutex = Mutex()
     private val eventsMutex = Mutex()
     private val commandSequence = AtomicLong(0L)
+    private val activeProtectionOperations = AtomicLong(0L)
     private val settingsReadVersion = AtomicLong(0L)
     private val destination = MutableStateFlow(ProtectionDestination.PROTECTION)
     private val settingsSummary = MutableStateFlow(emptySettingsSummary())
@@ -217,15 +217,16 @@ class ProtectionViewModel(
 
     private fun runProtectionCommand(failureMessage: String, action: suspend () -> Unit) {
         scope.launch {
-            armDisarmMutex.withLock {
-                presentation.update { it.copy(protectionOperationInFlight = true) }
-                try {
-                    action()
-                } catch (exception: CancellationException) {
-                    throw exception
-                } catch (exception: Throwable) {
-                    publishMessage(failureMessage, isError = true)
-                } finally {
+            activeProtectionOperations.incrementAndGet()
+            presentation.update { it.copy(protectionOperationInFlight = true) }
+            try {
+                action()
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Throwable) {
+                publishMessage(failureMessage, isError = true)
+            } finally {
+                if (activeProtectionOperations.decrementAndGet() == 0L) {
                     presentation.update { it.copy(protectionOperationInFlight = false) }
                 }
             }

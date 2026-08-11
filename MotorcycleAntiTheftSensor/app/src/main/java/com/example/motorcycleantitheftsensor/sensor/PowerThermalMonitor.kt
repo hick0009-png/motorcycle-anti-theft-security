@@ -6,22 +6,18 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.SystemClock
+import android.util.Log
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorObservation
 
 /**
  * SEN-03: PowerThermalMonitor
- * Monitors battery temperature and charger disconnection events (ACTION_POWER_DISCONNECTED).
- * Triggers automatic thermal safety cutoff when battery temperature exceeds 45°C.
+ * Reports battery level, measured temperature, and charger disconnection observations.
  */
 class PowerThermalMonitor(
     private val context: Context,
     private val onObservation: (SensorObservation) -> Unit,
 ) {
-
-    companion object {
-        const val CRITICAL_TEMP_THRESHOLD_CELSIUS = 45.0f
-    }
 
     private var isRegistered = false
 
@@ -49,6 +45,16 @@ class PowerThermalMonitor(
                             valid = rawTemp != 0,
                         ),
                     )
+                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    if (level >= 0 && scale > 0) {
+                        onObservation(
+                            observation(
+                                normalizedValue = level * 100.0 / scale,
+                                diagnostic = "battery_level_percent",
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -69,8 +75,8 @@ class PowerThermalMonitor(
         if (!isRegistered) return
         try {
             context.unregisterReceiver(powerReceiver)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
+            Log.w(TAG, "Power/thermal receiver was already unavailable")
         }
         isRegistered = false
     }
@@ -97,4 +103,8 @@ class PowerThermalMonitor(
         valid = valid && normalizedValue.isFinite(),
         diagnostic = diagnostic,
     )
+
+    private companion object {
+        const val TAG = "PowerThermalMonitor"
+    }
 }

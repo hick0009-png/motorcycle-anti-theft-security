@@ -37,7 +37,7 @@ class AndroidProtectionRuntime(
     private val observationProcessor: SensorObservationProcessor,
     private val elapsedClock: ProtectionClock,
     private val stateProvider: () -> ProtectionState,
-    private val sensorSampleRecorder: (SensorKind, Long, String?) -> Unit,
+    private val sensorSampleRecorder: (SensorKind, Long, String?, Double) -> Unit,
     private val incidentConsumer: (IncidentObservationBatch) -> Unit,
 ) : ProtectionRuntime {
     private val detectors = detectorFactory(::handleObservation)
@@ -67,6 +67,7 @@ class AndroidProtectionRuntime(
             observation.kind,
             observation.wallClockMs,
             observation.diagnostic,
+            observation.normalizedValue,
         )
         when (
             val decision = observationProcessor.accept(
@@ -100,7 +101,10 @@ class AndroidProtectionRuntime(
     }
 }
 
-class AndroidRuntimeReadiness(context: Context) {
+class AndroidRuntimeReadiness(
+    context: Context,
+    private val remoteControlReadiness: () -> RemoteControlReadiness,
+) {
     private val applicationContext = context.applicationContext
     private val sensorManager = applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val packageManager = applicationContext.packageManager
@@ -108,6 +112,7 @@ class AndroidRuntimeReadiness(context: Context) {
     fun report(): ReadinessReport {
         val blockers = mutableSetOf<String>()
         val degradations = mutableSetOf<String>()
+        blockers += remoteControlReadiness().blockers()
         if (sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) == null) {
             blockers += "ACCELEROMETER unavailable"
         }
@@ -121,6 +126,9 @@ class AndroidRuntimeReadiness(context: Context) {
         val missingPermissions = buildSet {
             if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
                 add(ProtectionPermissionPolicy.RECORD_AUDIO)
+            }
+            if (!hasPermission(Manifest.permission.SEND_SMS)) {
+                add(ProtectionPermissionPolicy.SEND_SMS)
             }
             if (
                 Build.VERSION.SDK_INT >= 33 &&
@@ -215,6 +223,11 @@ class PlatformAndroidDetectorSet(
                 sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) != null && light.startListening()
             }
             startOptional(SensorKind.POWER_THERMAL, powerThermal::startMonitoring)
+            startOptional(SensorKind.MICROPHONE) {
+                packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) &&
+                    hasAudioPermission() &&
+                    audio.startListening()
+            }
             try {
                 record(location.currentObservation())
             } catch (error: RuntimeException) {

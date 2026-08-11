@@ -37,4 +37,39 @@ class ProtectionPermissionPolicyTest {
             ProtectionPermissionPolicy.requiredPermissions(sdkInt = 33),
         )
     }
+
+    @Test
+    fun deniedSmsPermissionIsManagedAsFallbackDegradation() {
+        val readiness = ProtectionPermissionPolicy.readiness(
+            missingPermissions = setOf(ProtectionPermissionPolicy.SEND_SMS),
+            sdkInt = 36,
+        )
+
+        assertTrue(readiness.canArm)
+        assertEquals(emptySet<String>(), readiness.blockers)
+        assertEquals(setOf("SEND_SMS unavailable"), readiness.degradations)
+        assertTrue(ProtectionPermissionPolicy.optionalPermissions().contains(ProtectionPermissionPolicy.SEND_SMS))
+    }
+
+    @Test
+    fun locationPermissionsAreManagedAsOptionalCapabilities() {
+        assertTrue(
+            ProtectionPermissionPolicy.optionalPermissions().containsAll(
+                setOf(
+                    ProtectionPermissionPolicy.ACCESS_FINE_LOCATION,
+                    ProtectionPermissionPolicy.ACCESS_COARSE_LOCATION,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun eitherGrantedLocationPermissionMakesLocationCapabilityAvailable() {
+        val readiness = ProtectionPermissionPolicy.readiness(
+            missingPermissions = setOf(ProtectionPermissionPolicy.ACCESS_FINE_LOCATION),
+            sdkInt = 36,
+        )
+
+        assertFalse(readiness.degradations.any { it.contains("LOCATION") })
+    }
 }

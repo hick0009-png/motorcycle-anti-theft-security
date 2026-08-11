@@ -7,6 +7,19 @@ import org.junit.Test
 
 class TelegramBotClientSourceContractTest {
     @Test
+    fun pollingAndSendFailuresNeverPrintOrLogRawExceptions() {
+        val source = File(
+            "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
+        ).readText()
+
+        assertFalse(source.contains("printStackTrace"))
+        assertFalse(
+            Regex("""Log\.\w+\([^)]*,\s*(e|error|exception)\s*\)""")
+                .containsMatchIn(source),
+        )
+    }
+
+    @Test
     fun tokenVerificationFailurePathDoesNotPrintRawExceptions() {
         val source = File(
             "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",

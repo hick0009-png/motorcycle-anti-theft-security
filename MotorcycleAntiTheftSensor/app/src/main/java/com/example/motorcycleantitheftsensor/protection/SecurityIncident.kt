@@ -18,6 +18,7 @@ data class IncidentEvidence(
 )
 
 enum class DeliveryChannel {
+    LOCAL_STORAGE,
     TELEGRAM,
     SMS,
 }

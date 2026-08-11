@@ -112,17 +112,40 @@ object ProtectionRuntimeGraph {
                         )
                     }
                     coordinator.recordIncident(delivered)
+                    if (delivered.deliveryAttempts.any { attempt ->
+                            attempt.channel == DeliveryChannel.LOCAL_STORAGE &&
+                                attempt.state == DeliveryState.FAILED
+                        }
+                    ) {
+                        coordinator.recordPersistenceFailure()
+                    }
                 }
             }
         }
+        val incidentCloseDispatcher = IncidentCloseDispatcher(
+            scope = scope,
+            persistLocal = { incident ->
+                withContext(Dispatchers.IO) { repository.upsert(incident) }
+                coordinator.recordIncident(incident)
+            },
+            deliverExternal = ::process,
+            onPersistenceFailure = { coordinator.recordPersistenceFailure() },
+            onExternalFailure = { Log.w(TAG, "Incident close delivery failed") },
+        )
         val runtime = AndroidProtectionRuntime(
-            readinessProvider = AndroidRuntimeReadiness(context)::report,
+            readinessProvider = AndroidRuntimeReadiness(context) {
+                RemoteControlReadiness(
+                    botTokenConfigured = !preferences.getBotToken().isNullOrBlank(),
+                    ownerPaired = preferences.getAllowedChatIds().isNotEmpty(),
+                    totpConfigured = !preferences.getTotpSeed().isNullOrBlank(),
+                )
+            }::report,
             detectorFactory = { callback -> PlatformAndroidDetectorSet(context, callback) },
             observationProcessor = processor,
             elapsedClock = elapsedClock,
             stateProvider = { coordinator.snapshot.value.state },
-            sensorSampleRecorder = { kind, atMs, detail ->
-                coordinator.recordSensorSample(kind, atMs, detail)
+            sensorSampleRecorder = { kind, atMs, detail, normalizedValue ->
+                coordinator.recordSensorSample(kind, atMs, detail, normalizedValue)
             },
             incidentConsumer = { batch ->
                 val sessionEpoch = coordinator.currentIncidentEpoch()
@@ -167,6 +190,7 @@ object ProtectionRuntimeGraph {
                         }
                     } catch (error: Exception) {
                         if (error is CancellationException) throw error
+                        coordinator.recordPersistenceFailure()
                         Log.e(TAG, "Incident processing failed", error)
                     }
                 }
@@ -179,13 +203,19 @@ object ProtectionRuntimeGraph {
             clock = wallClock,
             incidentCloser = { reason ->
                 incidentMutex.lock()
-                try {
+                val closed = try {
                     incidentEngine.close(
                         nowMs = wallClock.nowMs(),
                         reason = reason,
-                    )?.let { closed -> process(closed) }
+                    )
                 } finally {
                     incidentMutex.unlock()
+                }
+                closed?.let { incidentCloseDispatcher.persistAndDispatch(it) }
+            },
+            durableSnapshotWriter = { snapshot ->
+                withContext(Dispatchers.IO) {
+                    snapshotStore.save(snapshot, wallClock.nowMs())
                 }
             },
         )

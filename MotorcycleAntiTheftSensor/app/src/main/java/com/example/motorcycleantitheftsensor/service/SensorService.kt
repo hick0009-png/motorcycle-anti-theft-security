@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.motorcycleantitheftsensor.MainActivity
@@ -23,6 +24,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRuntimeGraph
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
@@ -52,6 +54,9 @@ class SensorService : Service(), ServiceEnvironment {
         private const val CHANNEL_ID = "anti_theft_sensor_service_channel"
         private const val SERVICE_HEARTBEAT_INTERVAL_MS = 5_000L
         private const val ARMING_GRACE_MS = 10_000L
+        private const val SNAPSHOT_PROJECTION_INTERVAL_MS = 5_000L
+        private const val WAKE_LOCK_LEASE_MS = 60 * 60 * 1_000L
+        private const val WAKE_LOCK_RENEW_BEFORE_MS = 5 * 60 * 1_000L
         private const val TAG = "SensorService"
         const val ACTION_START_SERVICE = "ACTION_START_SERVICE"
         const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
@@ -63,10 +68,12 @@ class SensorService : Service(), ServiceEnvironment {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val commandMutex = Mutex()
     private val initialization = CompletableDeferred<Unit>()
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var wakeLock: RenewableWakeLock? = null
     private var foregroundRunning = false
     private var telegramPolling = false
     private val recoveryStarted = AtomicBoolean(false)
+    private val notificationProjection = SnapshotProjectionGate(SNAPSHOT_PROJECTION_INTERVAL_MS)
+    private val persistenceProjection = SnapshotProjectionGate(SNAPSHOT_PROJECTION_INTERVAL_MS)
     private var lastServiceHeartbeatAtMs: Long? = null
     private var lastPublishedArmed: Boolean? = null
 
@@ -109,11 +116,12 @@ class SensorService : Service(), ServiceEnvironment {
             }
             serviceScope.launch {
                 while (currentCoroutineContext().isActive) {
+                    wakeLock?.ensureLease(SystemClock.elapsedRealtime())
                     val nowMs = System.currentTimeMillis()
                     lastServiceHeartbeatAtMs = nowMs
                     graph.coordinator.recordServiceHeartbeat(nowMs)
                     graph.coordinator.evaluateFreshness(nowMs)
-                    renderNotification(graph.coordinator.snapshot.value)
+                    handleSnapshot(graph.coordinator.snapshot.value)
                     delay(SERVICE_HEARTBEAT_INTERVAL_MS)
                 }
             }
@@ -129,19 +137,24 @@ class SensorService : Service(), ServiceEnvironment {
             initialization.await()
             lastServiceHeartbeatAtMs = System.currentTimeMillis()
             graph.coordinator.recordServiceHeartbeat(lastServiceHeartbeatAtMs!!)
-            commandMutex.withLock {
+            val shouldRunRecovery = commandMutex.withLock {
                 if (
                     !recoveryGate.shouldPersistSnapshot() &&
                     action in setOf(SensorServiceAction.Start, SensorServiceAction.Ignore)
                 ) {
-                    if (recoveryStarted.compareAndSet(false, true)) {
-                        applyRecovery()
-                        handleInitializedCommand(action, refreshTelegramPolling, "start")
-                    }
+                    recoveryStarted.compareAndSet(false, true)
                 } else {
-                    recoveryGate.markRecoveryComplete()
-                    handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
+                    if (action !in setOf(SensorServiceAction.Start, SensorServiceAction.Ignore)) {
+                        recoveryGate.supersedeRecovery()
+                    }
+                    false
                 }
+            }
+            if (shouldRunRecovery) {
+                applyRecovery()
+                handleInitializedCommand(action, refreshTelegramPolling, "start")
+            } else {
+                handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
             }
         }
         return if (action == SensorServiceAction.Stop) START_NOT_STICKY else START_STICKY
@@ -181,11 +194,13 @@ class SensorService : Service(), ServiceEnvironment {
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
+                graph.coordinator.recordPersistenceFailure()
                 Log.e(TAG, "Unable to persist interrupted incident during recovery", error)
                 null
             }
             interrupted?.let(graph.coordinator::recordIncident)
         }
+        if (!recoveryGate.shouldApplyRecovery()) return
         if (plan.restartDetectors) {
             graph.coordinator.arm(commandId("recovery-arm"), CommandOrigin.RECOVERY)
         } else {
@@ -196,8 +211,12 @@ class SensorService : Service(), ServiceEnvironment {
     }
 
     private suspend fun handleSnapshot(snapshot: ProtectionSnapshot) {
-        renderNotification(snapshot)
+        val nowMs = System.currentTimeMillis()
+        if (notificationProjection.shouldProject(snapshot, nowMs)) {
+            renderNotification(snapshot)
+        }
         if (!recoveryGate.shouldPersistSnapshot()) return
+        if (!persistenceProjection.shouldProject(snapshot, nowMs)) return
         val armed = snapshot.state in setOf(
             ProtectionState.ARMING,
             ProtectionState.ARMED_HEALTHY,
@@ -209,7 +228,9 @@ class SensorService : Service(), ServiceEnvironment {
                 preferences.setSystemArmed(armed)
                 graph.snapshotStore.save(snapshot, lastServiceHeartbeatAtMs)
             }
+            graph.coordinator.recordPersistenceRecovered()
         } catch (error: RuntimeException) {
+            graph.coordinator.recordPersistenceFailure()
             Log.e(TAG, "Unable to persist protection snapshot", error)
         }
         if (lastPublishedArmed != armed) {
@@ -232,6 +253,7 @@ class SensorService : Service(), ServiceEnvironment {
                     graph.snapshotStore.save(graph.coordinator.snapshot.value, lastServiceHeartbeatAtMs)
                 }
             } catch (error: RuntimeException) {
+                graph.coordinator.recordPersistenceFailure()
                 Log.e(TAG, "Unable to persist final protection snapshot", error)
             }
         }
@@ -326,12 +348,21 @@ class SensorService : Service(), ServiceEnvironment {
 
     private fun acquireWakeLock() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
+        val platformWakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "MotorcycleAntiTheft::SensorWakeLock",
-        ).apply {
-            acquire(24 * 60 * 60 * 1_000L)
-        }
+        ).apply { setReferenceCounted(false) }
+        wakeLock = RenewableWakeLock(
+            handle = object : WakeLockHandle {
+                override val held: Boolean get() = platformWakeLock.isHeld
+
+                override fun acquire(timeoutMs: Long) = platformWakeLock.acquire(timeoutMs)
+
+                override fun release() = platformWakeLock.release()
+            },
+            leaseDurationMs = WAKE_LOCK_LEASE_MS,
+            renewBeforeExpiryMs = WAKE_LOCK_RENEW_BEFORE_MS,
+        ).also { it.ensureLease(SystemClock.elapsedRealtime()) }
     }
 
     private fun publishArmState(isArmed: Boolean) {
@@ -348,7 +379,7 @@ class SensorService : Service(), ServiceEnvironment {
         graph.runtime.stopDetectors()
         stopTelegramPolling()
         graph.coordinator.recordServiceStopped()
-        if (wakeLock?.isHeld == true) wakeLock?.release()
+        wakeLock?.release()
         wakeLock = null
         super.onDestroy()
     }

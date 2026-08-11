@@ -302,6 +302,40 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun disarmCancelsLocalArmingWithoutWaitingForGrace() = runTest {
+        val grace = CompletableDeferred<Unit>()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = snapshot(ProtectionState.DISARMED_ONLINE, 1_000L),
+            runtime = FakeRuntime(emptySet()),
+            armingDelay = ArmingDelay { grace.await() },
+            clock = ProtectionClock { 2_000L },
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        runCurrent()
+
+        viewModel.arm()
+        runCurrent()
+        assertEquals(ProtectionState.ARMING, viewModel.uiState.value.protection.state)
+
+        viewModel.disarm()
+        runCurrent()
+
+        assertEquals(ProtectionState.DISARMED_ONLINE, viewModel.uiState.value.protection.state)
+        grace.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(ProtectionState.DISARMED_ONLINE, viewModel.uiState.value.protection.state)
+    }
+
+    @Test
     fun initialSettingsLoadExposesLoadingInsteadOfUnconfiguredDefaults() = runTest {
         val readStarted = CompletableDeferred<Unit>()
         val allowRead = CompletableDeferred<Unit>()

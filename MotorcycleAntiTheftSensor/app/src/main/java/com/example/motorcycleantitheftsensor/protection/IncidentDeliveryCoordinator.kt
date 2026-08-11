@@ -1,7 +1,9 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import kotlinx.coroutines.CancellationException
+
 fun interface IncidentTransport {
-    fun send(message: String): Boolean
+    suspend fun send(message: String): Boolean
 }
 
 data class DeliveryConfiguration(
@@ -14,12 +16,17 @@ class IncidentDeliveryCoordinator(
     private val telegram: IncidentTransport,
     private val sms: IncidentTransport,
 ) {
-    fun deliver(
+    suspend fun deliver(
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
     ): SecurityIncident {
         val pending = incident.copy(deliveryState = DeliveryState.PENDING)
-        repository.upsert(pending)
+        try {
+            repository.upsert(pending)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            return pending.withStorageFailure(DeliveryState.FAILED)
+        }
         val message = formatter.format(pending)
         val telegramSent = telegram.send(message)
         val telegramAttempt = DeliveryAttempt(
@@ -46,7 +53,22 @@ class IncidentDeliveryCoordinator(
             deliveryState = if (telegramSent || smsSent) DeliveryState.SENT else DeliveryState.FAILED,
             deliveryAttempts = attempts,
         )
-        repository.upsert(delivered)
-        return delivered
+        return try {
+            repository.upsert(delivered)
+            delivered
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            delivered.withStorageFailure(delivered.deliveryState)
+        }
     }
+
+    private fun SecurityIncident.withStorageFailure(state: DeliveryState): SecurityIncident = copy(
+        deliveryState = state,
+        deliveryAttempts = deliveryAttempts + DeliveryAttempt(
+            channel = DeliveryChannel.LOCAL_STORAGE,
+            state = DeliveryState.FAILED,
+            attemptedAtMs = updatedAtMs,
+            detail = "Incident persistence unavailable",
+        ),
+    )
 }

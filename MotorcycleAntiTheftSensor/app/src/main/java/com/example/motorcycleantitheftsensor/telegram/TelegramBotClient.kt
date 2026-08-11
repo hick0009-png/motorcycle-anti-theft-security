@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.telegram
 
 import android.content.Context
+import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.network.TlsPinningClient
 import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
@@ -25,7 +26,7 @@ import kotlinx.coroutines.withContext
 /**
  * COM-01: TelegramBotClient
  * Connects to Telegram Bot API using TLS 1.3 + Certificate Pinning.
- * Handles Long Polling, remote commands (/status, /arm, /disarm, /location, /decode),
+ * Handles long polling and the supported owner command set,
  * TOTP OTP verification for sensitive commands, and SMS Decode Engine.
  */
 class TelegramBotClient(
@@ -71,7 +72,7 @@ class TelegramBotClient(
                         pollUpdates(cleanToken, epoch)
                     } catch (e: Exception) {
                         if (!isPolling || epoch != pollingEpoch.get()) return@thread
-                        e.printStackTrace()
+                        Log.w(TRANSPORT_TAG, "Telegram polling failed")
                         try { Thread.sleep(3000) } catch (ignored: Exception) {}
                     }
                 }
@@ -226,22 +227,14 @@ class TelegramBotClient(
     }
 
     private suspend fun consumeCommands() {
-        var activeArm: Job? = null
+        val dispatcher = PrioritizedCommandDispatcher(
+            scope = commandScope,
+            isArm = { queued: QueuedCommand -> queued.command == RemoteCommand.Arm },
+            isDisarm = { queued: QueuedCommand -> queued.command is RemoteCommand.Disarm },
+            execute = ::execute,
+        )
         for (queued in commandQueue) {
-            when (queued.command) {
-                RemoteCommand.Arm -> {
-                    activeArm?.cancelAndJoin()
-                    activeArm = commandScope.launch { execute(queued) }
-                }
-
-                is RemoteCommand.Disarm -> {
-                    activeArm?.cancelAndJoin()
-                    activeArm = null
-                    execute(queued)
-                }
-
-                else -> execute(queued)
-            }
+            dispatcher.submit(queued)
         }
     }
 
@@ -284,8 +277,8 @@ class TelegramBotClient(
                     if (sent) onTelegramContact(System.currentTimeMillis())
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
+            Log.w(TRANSPORT_TAG, "Telegram send failed")
             false
         }
     }
@@ -354,6 +347,10 @@ class TelegramBotClient(
         val commandId: String,
         val command: RemoteCommand,
     )
+
+    private companion object {
+        const val TRANSPORT_TAG = "TelegramTransport"
+    }
 }
 
 internal suspend fun awaitTelegramPollingSessionShutdown(

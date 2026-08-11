@@ -22,7 +22,7 @@ class AndroidProtectionRuntimeTest {
             observationProcessor = processor,
             elapsedClock = ProtectionClock { 1_000L },
             stateProvider = { ProtectionState.ARMING },
-            sensorSampleRecorder = { kind, _, _ -> events += "health:$kind" },
+            sensorSampleRecorder = { kind, _, _, _ -> events += "health:$kind" },
             incidentConsumer = { events += "incident:${it.primary.kind}" },
         )
 
@@ -49,7 +49,7 @@ class AndroidProtectionRuntimeTest {
             observationProcessor = processor,
             elapsedClock = ProtectionClock { 1_000L },
             stateProvider = { ProtectionState.DISARMED_ONLINE },
-            sensorSampleRecorder = { _, _, _ -> },
+            sensorSampleRecorder = { _, _, _, _ -> },
             incidentConsumer = { },
         )
 
@@ -78,7 +78,7 @@ class AndroidProtectionRuntimeTest {
         val runtime = runtime(
             processor = processor(),
             elapsedNowMs = 10_000L,
-            sensorSampleRecorder = { kind, _, _ -> healthEvents += kind },
+            sensorSampleRecorder = { kind, _, _, _ -> healthEvents += kind },
             detectorCapture = { detectors = it },
         )
 
@@ -130,7 +130,7 @@ private fun runtime(
     processor: SensorObservationProcessor,
     elapsedNowMs: Long = 1_000L,
     state: ProtectionState = ProtectionState.ARMING,
-    sensorSampleRecorder: (SensorKind, Long, String?) -> Unit = { _, _, _ -> },
+    sensorSampleRecorder: (SensorKind, Long, String?, Double) -> Unit = { _, _, _, _ -> },
     incidentConsumer: (IncidentObservationBatch) -> Unit = { },
     detectorCapture: (RecordingDetectorSet) -> Unit = { },
 ): AndroidProtectionRuntime = AndroidProtectionRuntime(

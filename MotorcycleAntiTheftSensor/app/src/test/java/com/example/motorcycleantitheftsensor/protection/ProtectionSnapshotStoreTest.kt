@@ -30,6 +30,27 @@ class ProtectionSnapshotStoreTest {
     }
 
     @Test
+    fun explicitCommandSupersedesPendingRecovery() {
+        val captured = ProtectionRecoveryState(
+            liveSnapshot = ProtectionSnapshot.offline(9_000L),
+            hints = ProtectionRecoveryHints(
+                persistedState = ProtectionState.ARMED_HEALTHY,
+                lastTransitionAtMs = 1_000L,
+                lastServiceHeartbeatAtMs = 2_000L,
+                lastTelegramContactAtMs = 3_000L,
+                demoModeEnabled = false,
+                lastIncidentId = null,
+            ),
+        )
+        val gate = ProtectionRecoveryGate(captured)
+
+        gate.supersedeRecovery()
+
+        assertFalse(gate.shouldApplyRecovery())
+        assertTrue(gate.shouldPersistSnapshot())
+    }
+
+    @Test
     fun armedSnapshotLoadsAsOfflineWithRecoveryHintsAndNoFreshSensorHealth() {
         val preferences = InMemoryProtectionSnapshotPreferences()
         val store = ProtectionSnapshotStore(

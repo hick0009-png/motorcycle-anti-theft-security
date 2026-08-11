@@ -48,6 +48,29 @@ class IncidentEngineTest {
     }
 
     @Test
+    fun lightThenVibrationWithinWindowOpensOneCriticalTamperIncident() {
+        assertEquals(
+            IncidentUpdate.Ignored,
+            engine.accept(
+                accepted(SensorKind.LIGHT, 1_000L, 120.0),
+                ProtectionState.ARMED_HEALTHY,
+            ),
+        )
+
+        val update = engine.accept(
+            accepted(SensorKind.VIBRATION, 15_999L, 2.2),
+            ProtectionState.ARMED_HEALTHY,
+        ) as IncidentUpdate.Opened
+
+        assertEquals(IncidentSeverity.CRITICAL, update.incident.severity)
+        assertEquals(IncidentType.TAMPER, update.incident.type)
+        assertEquals(
+            listOf(SensorKind.LIGHT, SensorKind.VIBRATION),
+            update.incident.evidence.map { it.kind },
+        )
+    }
+
+    @Test
     fun lightOrAudioAloneDoesNotOpenRealIncident() {
         assertEquals(
             IncidentUpdate.Ignored,

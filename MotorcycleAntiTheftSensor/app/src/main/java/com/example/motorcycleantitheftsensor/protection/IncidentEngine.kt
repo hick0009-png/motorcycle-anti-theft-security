@@ -12,6 +12,7 @@ class IncidentEngine(
     )
 
     private val activeBySource = mutableMapOf<IncidentSource, ActiveIncident>()
+    private val lightPrecursorBySource = mutableMapOf<IncidentSource, IncidentEvidence>()
 
     @Synchronized
     fun accept(
@@ -25,15 +26,30 @@ class IncidentEngine(
         val evidence = observation.toEvidence()
         val active = activeBySource[observation.source]
         if (active == null) {
+            if (observation.kind == SensorKind.LIGHT) {
+                lightPrecursorBySource[observation.source] = evidence
+                return IncidentUpdate.Ignored
+            }
             val classification = initialClassification(observation) ?: return IncidentUpdate.Ignored
+            val lightPrecursor = lightPrecursorBySource.remove(observation.source)
+                ?.takeIf { light ->
+                    observation.kind == SensorKind.VIBRATION &&
+                        abs(observation.eventElapsedMs - light.eventElapsedMs) <= correlationWindowMs
+                }
+            val openingClassification = if (lightPrecursor != null) {
+                Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
+            } else {
+                classification
+            }
+            val openingEvidence = listOfNotNull(lightPrecursor, evidence)
             val incident = SecurityIncident(
                 id = idGenerator.nextId(),
-                type = classification.type,
+                type = openingClassification.type,
                 source = observation.source,
-                severity = classification.severity,
+                severity = openingClassification.severity,
                 lifecycle = IncidentLifecycle.OPEN,
-                evidence = listOf(evidence),
-                openedAtMs = observation.wallClockMs,
+                evidence = openingEvidence,
+                openedAtMs = openingEvidence.minOf(IncidentEvidence::wallClockMs),
                 updatedAtMs = observation.wallClockMs,
                 closedAtMs = null,
                 protectionState = protectionState,

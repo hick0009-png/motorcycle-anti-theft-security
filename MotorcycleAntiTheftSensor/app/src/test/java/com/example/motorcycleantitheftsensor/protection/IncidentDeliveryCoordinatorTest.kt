@@ -1,11 +1,12 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class IncidentDeliveryCoordinatorTest {
     @Test
-    fun persistsPendingBeforeTelegramAndRecordsSentOnlyAfterSuccess() {
+    fun persistsPendingBeforeTelegramAndRecordsSentOnlyAfterSuccess() = runTest {
         val events = mutableListOf<String>()
         val repository = RecordingIncidentRepository(events)
         val coordinator = IncidentDeliveryCoordinator(
@@ -27,7 +28,7 @@ class IncidentDeliveryCoordinatorTest {
     }
 
     @Test
-    fun demoNeverUsesSmsAfterTelegramFailure() {
+    fun demoNeverUsesSmsAfterTelegramFailure() = runTest {
         var smsCalls = 0
         val coordinator = coordinator(
             telegramSuccess = false,
@@ -45,7 +46,7 @@ class IncidentDeliveryCoordinatorTest {
     }
 
     @Test
-    fun warningNeverUsesSmsAfterTelegramFailure() {
+    fun warningNeverUsesSmsAfterTelegramFailure() = runTest {
         var smsCalls = 0
         val coordinator = coordinator(
             telegramSuccess = false,
@@ -62,7 +63,7 @@ class IncidentDeliveryCoordinatorTest {
     }
 
     @Test
-    fun realCriticalIncidentUsesConfiguredSmsOnlyAfterTelegramFailure() {
+    fun realCriticalIncidentUsesConfiguredSmsOnlyAfterTelegramFailure() = runTest {
         val events = mutableListOf<String>()
         val coordinator = IncidentDeliveryCoordinator(
             repository = RecordingIncidentRepository(events),
@@ -85,11 +86,34 @@ class IncidentDeliveryCoordinatorTest {
             delivered.deliveryAttempts.map { it.channel },
         )
     }
+
+    @Test
+    fun pendingPersistenceFailureReturnsTerminalFailureWithoutExternalSend() = runTest {
+        var telegramCalls = 0
+        var smsCalls = 0
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = FailingIncidentRepository(),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { telegramCalls += 1; true },
+            sms = IncidentTransport { smsCalls += 1; true },
+        )
+
+        val delivered = coordinator.deliver(
+            criticalReal(),
+            DeliveryConfiguration(smsConfigured = true),
+        )
+
+        assertEquals(DeliveryState.FAILED, delivered.deliveryState)
+        assertEquals(0, telegramCalls)
+        assertEquals(0, smsCalls)
+        assertEquals(DeliveryChannel.LOCAL_STORAGE, delivered.deliveryAttempts.single().channel)
+        assertEquals("Incident persistence unavailable", delivered.deliveryAttempts.single().detail)
+    }
 }
 
 private fun coordinator(
     telegramSuccess: Boolean,
-    onSms: (String) -> Boolean,
+    onSms: suspend (String) -> Boolean,
 ): IncidentDeliveryCoordinator = IncidentDeliveryCoordinator(
     repository = RecordingIncidentRepository(mutableListOf()),
     formatter = IncidentMessageFormatter(),
@@ -135,4 +159,16 @@ private class RecordingIncidentRepository(
     override fun clearHistory() {
         incidents.clear()
     }
+}
+
+private class FailingIncidentRepository : IncidentRepository {
+    override fun upsert(incident: SecurityIncident) {
+        error("disk unavailable")
+    }
+
+    override fun findById(id: String): SecurityIncident? = null
+
+    override fun listNewestFirst(): List<SecurityIncident> = emptyList()
+
+    override fun clearHistory() = Unit
 }

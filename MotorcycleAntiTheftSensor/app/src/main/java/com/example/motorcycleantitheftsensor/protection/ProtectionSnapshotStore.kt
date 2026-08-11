@@ -32,12 +32,21 @@ class ProtectionRecoveryGate(
 ) {
     @Volatile
     private var recoveryComplete = false
+    @Volatile
+    private var recoverySuperseded = false
 
     fun shouldPersistSnapshot(): Boolean = recoveryComplete
 
     fun markRecoveryComplete() {
         recoveryComplete = true
     }
+
+    fun supersedeRecovery() {
+        recoverySuperseded = true
+        recoveryComplete = true
+    }
+
+    fun shouldApplyRecovery(): Boolean = !recoverySuperseded
 }
 
 class ProtectionSnapshotStore(
