@@ -1,0 +1,67 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260811-2357-YD5EKY",
+    "timestamp":  "2026-08-11T23:57:45.0137562+07:00",
+    "phase":  "P6",
+    "task_id":  "UI-03",
+    "status":  "IN_PROGRESS",
+    "description":  "Authenticator QR SDD paused after Task 1 review clean and Task 2 security fix GREEN; scoped re-review, full gate, install, and two-phone scan remain.",
+    "progress":  72,
+    "scope":  "",
+    "knowledge":  [
+
+                  ],
+    "assumptions":  [
+
+                    ],
+    "risks":  [
+
+              ],
+    "memory_snapshot":  [
+
+                        ],
+    "dependencies":  [
+
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "checkpoint",
+                  "name":  "Codex",
+                  "model":  "GPT-5.6"
+              },
+    "snapshot":  {
+                     "build_status":  "NOT_RUN",
+                     "build_output_snippet":  "",
+                     "files_changed":  [
+
+                                       ]
+                 },
+    "decisions":  [
+                      {
+                          "decided_by":  "user",
+                          "rationale":  "",
+                          "question":  "User requested a durable checkpoint before continuing Authenticator QR work",
+                          "decision":  ""
+                      }
+                  ],
+    "open_tasks":  [
+
+                   ],
+    "context":  {
+                    "summary":  "Authenticator QR SDD paused after Task 1 review clean and Task 2 security fix GREEN; scoped re-review, full gate, install, and two-phone scan remain.",
+                    "next_steps":  [
+
+                                   ],
+                    "warnings":  [
+
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "3322c36"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  "authenticator"
+}
