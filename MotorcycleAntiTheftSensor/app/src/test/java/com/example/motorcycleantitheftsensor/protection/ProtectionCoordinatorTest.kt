@@ -462,6 +462,32 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun freshServiceRecoveryKeepsArmedStateDegradedWhenTelegramIsStillStale() = runTest {
+        val coordinator = coordinator(
+            runtime = FakeRuntime(
+                readiness = ReadinessReport(emptySet(), emptySet()),
+                health = healthyVibration(),
+            ),
+            armingDelay = ArmingDelay { },
+        )
+        coordinator.recordServiceHeartbeat(1_000L)
+        coordinator.recordTelegramContact(1_000L)
+        coordinator.arm("arm", CommandOrigin.LOCAL)
+        coordinator.evaluateFreshness(70_000L)
+        coordinator.recordServiceHeartbeat(70_001L)
+
+        coordinator.evaluateFreshness(70_001L)
+
+        assertEquals(ProtectionState.ARMED_DEGRADED, coordinator.snapshot.value.state)
+        assertFalse(coordinator.snapshot.value.telegramReachable)
+        assertTrue(
+            coordinator.snapshot.value.degradationReasons.any { reason ->
+                reason.contains("TELEGRAM")
+            },
+        )
+    }
+
+    @Test
     fun powerStatusSamplesPopulateBatteryLevelAndTemperature() {
         val coordinator = coordinator(
             runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet())),

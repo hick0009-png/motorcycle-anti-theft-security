@@ -375,15 +375,20 @@ class ProtectionCoordinator(
                 nowMs = nowMs,
             )
             val evaluatedChannels = current.copy(telegramReachable = telegramReachable)
-            val degradations = baseDegradationReasons +
-                unhealthySensorReasons(evaluatedSensors) +
-                (if (current.state in ARMED_STATES) telegramDegradationReasons(evaluatedChannels) else emptySet()) +
-                persistenceDegradations()
             val liveState = if (current.state == ProtectionState.OFFLINE) {
                 stateBeforeOffline ?: ProtectionState.DISARMED_ONLINE
             } else {
                 current.state
             }
+            val channelDegradations = if (liveState in ARMED_STATES) {
+                telegramDegradationReasons(evaluatedChannels)
+            } else {
+                emptySet()
+            }
+            val degradations = baseDegradationReasons +
+                unhealthySensorReasons(evaluatedSensors) +
+                channelDegradations +
+                persistenceDegradations()
             val evaluatedState = when {
                 !serviceFresh -> {
                     if (current.state != ProtectionState.OFFLINE) stateBeforeOffline = current.state
