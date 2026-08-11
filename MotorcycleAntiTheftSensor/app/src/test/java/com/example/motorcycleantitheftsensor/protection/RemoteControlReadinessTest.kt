@@ -36,4 +36,17 @@ class RemoteControlReadinessTest {
 
         assertTrue(readiness.blockers().isEmpty())
     }
+
+    @Test
+    fun availablePermittedMicrophoneHasNoPreStartDegradation() {
+        assertTrue(MicrophoneReadiness(true, true).degradations().isEmpty())
+    }
+
+    @Test
+    fun missingMicrophonePermissionRemainsDegraded() {
+        assertEquals(
+            setOf("RECORD_AUDIO permission unavailable"),
+            MicrophoneReadiness(true, false).degradations(),
+        )
+    }
 }

@@ -147,11 +147,10 @@ class AndroidRuntimeReadiness(
         if (sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) == null) {
             degradations += "LIGHT unavailable"
         }
-        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
-            degradations += "MICROPHONE unavailable"
-        } else if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
-            degradations += "MICROPHONE requires user-visible start"
-        }
+        degradations += MicrophoneReadiness(
+            hardwareAvailable = packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE),
+            permissionGranted = hasPermission(Manifest.permission.RECORD_AUDIO),
+        ).degradations()
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION)) {
             degradations += "LOCATION unavailable"
         } else if (!hasLocationPermission()) {
@@ -193,12 +192,19 @@ class PlatformAndroidDetectorSet(
             sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) != null,
         )
         health[SensorKind.POWER_THERMAL] = availability(true)
+        val microphoneHardwareAvailable =
+            packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
+        val microphonePermissionGranted = hasAudioPermission()
         health[SensorKind.MICROPHONE] = SensorHealth(
-            state = SensorHealthState.UNAVAILABLE,
+            state = if (microphoneHardwareAvailable && microphonePermissionGranted) {
+                SensorHealthState.AVAILABLE
+            } else {
+                SensorHealthState.UNAVAILABLE
+            },
             detail = when {
-                !packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) -> "hardware unavailable"
-                !hasAudioPermission() -> "permission unavailable"
-                else -> "requires user-visible start"
+                !microphoneHardwareAvailable -> "hardware unavailable"
+                !microphonePermissionGranted -> "permission unavailable"
+                else -> null
             },
         )
         health[SensorKind.LOCATION] = availability(

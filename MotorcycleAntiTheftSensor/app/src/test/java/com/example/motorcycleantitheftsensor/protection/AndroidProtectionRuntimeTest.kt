@@ -118,6 +118,50 @@ class AndroidProtectionRuntimeTest {
 
         assertEquals(listOf(SensorKind.VIBRATION, SensorKind.LOCATION), incidents.map { it.kind })
     }
+
+    @Test
+    fun successfulStartAndFreshMicrophoneSampleReportsHealthy() {
+        lateinit var detectors: RecordingDetectorSet
+        val runtime = runtime(
+            processor = processor(),
+            detectorCapture = { detectors = it },
+        )
+
+        assertTrue(runtime.startDetectors().started)
+        detectors.emit(microphoneObservation())
+
+        assertEquals(
+            SensorHealthState.HEALTHY,
+            runtime.currentSensorHealth()[SensorKind.MICROPHONE]?.state,
+        )
+    }
+
+    @Test
+    fun unavailableMicrophoneRemainsDegradedAfterDetectorStart() {
+        val runtime = AndroidProtectionRuntime(
+            readinessProvider = { ReadinessReport(emptySet(), emptySet()) },
+            detectorFactory = { callback ->
+                RecordingDetectorSet(
+                    callback = callback,
+                    initialHealth = mapOf(
+                        SensorKind.MICROPHONE to SensorHealth(SensorHealthState.UNAVAILABLE),
+                    ),
+                )
+            },
+            observationProcessor = processor(),
+            elapsedClock = ProtectionClock { 1_000L },
+            stateProvider = { ProtectionState.ARMING },
+            sensorSampleRecorder = { _, _, _, _ -> },
+            incidentConsumer = { },
+        )
+
+        assertTrue(runtime.startDetectors().started)
+
+        assertEquals(
+            SensorHealthState.UNAVAILABLE,
+            runtime.currentSensorHealth()[SensorKind.MICROPHONE]?.state,
+        )
+    }
 }
 
 private fun processor(): SensorObservationProcessor = SensorObservationProcessor(
@@ -145,9 +189,11 @@ private fun runtime(
 
 private class RecordingDetectorSet(
     private val callback: (SensorObservation) -> Unit,
+    initialHealth: Map<SensorKind, SensorHealth> = emptyMap(),
 ) : AndroidDetectorSet {
     var sensitivity: Int? = null
     var locationObservation: SensorObservation? = null
+    private val health = initialHealth.toMutableMap()
 
     override fun start(): DetectorStartResult = DetectorStartResult(started = true)
 
@@ -157,14 +203,29 @@ private class RecordingDetectorSet(
         sensitivity = level
     }
 
-    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = emptyMap()
+    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = health.toMap()
 
     override fun currentLocationObservation(): SensorObservation? = locationObservation
 
     fun emit(observation: SensorObservation) {
+        health[observation.kind] = SensorHealth(
+            state = if (observation.valid) SensorHealthState.HEALTHY else SensorHealthState.FAILED,
+            lastSampleAtMs = observation.wallClockMs,
+            detail = observation.diagnostic,
+        )
         callback(observation)
     }
 }
+
+private fun microphoneObservation(): SensorObservation = SensorObservation(
+    kind = SensorKind.MICROPHONE,
+    eventElapsedMs = 900L,
+    wallClockMs = 5_000L,
+    normalizedValue = 0.4,
+    baselineDelta = 0.0,
+    valid = true,
+    diagnostic = "audio_peak_normalized",
+)
 
 private fun vibrationObservation(
     value: Double,

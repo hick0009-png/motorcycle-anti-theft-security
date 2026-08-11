@@ -22,6 +22,17 @@ data class RemoteControlReadiness(
     }
 }
 
+data class MicrophoneReadiness(
+    val hardwareAvailable: Boolean,
+    val permissionGranted: Boolean,
+) {
+    fun degradations(): Set<String> = when {
+        !hardwareAvailable -> setOf("MICROPHONE unavailable")
+        !permissionGranted -> setOf("RECORD_AUDIO permission unavailable")
+        else -> emptySet()
+    }
+}
+
 fun interface ArmingDelay {
     suspend fun await()
 }
