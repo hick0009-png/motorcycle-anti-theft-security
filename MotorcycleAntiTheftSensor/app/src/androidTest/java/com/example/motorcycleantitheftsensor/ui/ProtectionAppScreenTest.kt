@@ -492,7 +492,8 @@ class ProtectionAppScreenTest {
         compose.onNode(hasTestTag("authenticator_secret")).assertExists()
         compose.onAllNodes(hasText(secret)).assertCountEquals(0)
         compose.onNodeWithText("Reveal secret").performClick()
-        compose.onNodeWithContentDescription("Authenticator secret: $secret").assertExists()
+        compose.onNodeWithContentDescription("Authenticator secret revealed").assertExists()
+        compose.onAllNodes(hasContentDescription(secret, substring = true)).assertCountEquals(0)
         compose.runOnIdle {
             assertTrue(
                 compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,

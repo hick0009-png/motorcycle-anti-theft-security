@@ -433,7 +433,7 @@ fun SettingsScreen(
                             .testTag(AUTHENTICATOR_SECRET_TAG)
                             .clearAndSetSemantics {
                                 contentDescription = if (authenticatorSecretRevealed) {
-                                    "Authenticator secret: ${setup.secret}"
+                                    "Authenticator secret revealed"
                                 } else {
                                     "Authenticator secret hidden"
                                 }
