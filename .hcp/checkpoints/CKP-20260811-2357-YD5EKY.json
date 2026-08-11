@@ -7,21 +7,81 @@
     "status":  "IN_PROGRESS",
     "description":  "Authenticator QR SDD paused after Task 1 review clean and Task 2 security fix GREEN; scoped re-review, full gate, install, and two-phone scan remain.",
     "progress":  72,
-    "scope":  "",
+    "scope":  "MotorcycleAntiTheftSensor Authenticator QR setup implemented through SDD Tasks 1-2; pause before Task 2 scoped re-review and all full/device acceptance gates.",
     "knowledge":  [
-
+                      "Approved design is docs/superpowers/specs/2026-08-11-authenticator-qr-setup-design.md at e339298; approved implementation plan is docs/superpowers/plans/2026-08-11-authenticator-qr-setup.md at af443ad.",
+                      "Task 1 commit 9898faf adds ZXing Core 3.5.4, a pure Kotlin local QR encoder, and three real encode/decode/validation unit tests. Independent task review approved it with no findings.",
+                      "Task 2 commit 3ace729 adds explicit Show/Hide QR UI, off-main encoding plus bitmap allocation, transient cleanup, scrollability, generic semantics, and two Huawei UI tests.",
+                      "Task 2 review found one Critical inherited secret-bearing accessibility contentDescription. Fix commit 3322c36 replaces it with a fixed non-secret description and passed a RED/GREEN cycle plus all three focused Huawei dialog/QR tests.",
+                      "Task 2 fix commit 3322c36 has not received its required scoped re-review. Do not mark Task 2 complete until that review is clean.",
+                      "The last full pre-QR gate passed 163 unit tests and 26 Huawei UI tests at fd7962a. The QR branch has only focused Task 1 and Task 2 test evidence so far; no fresh full suite or APK install has run after QR changes.",
+                      "The APK currently installed on Huawei JUCDU18811013149 predates the QR commits. The QR feature is not yet installed or live-scan accepted."
                   ],
     "assumptions":  [
-
+                        {
+                            "assumption":  "A second phone with a TOTP-compatible authenticator will be available for the final live scan.",
+                            "confidence":  "high",
+                            "needsValidation":  true
+                        },
+                        {
+                            "assumption":  "Fix commit 3322c36 fully addresses the reviewer finding because the revised regression failed before production change and all three focused tests then passed.",
+                            "confidence":  "medium",
+                            "needsValidation":  true
+                        }
                     ],
     "risks":  [
-
+                  {
+                      "risk":  "C: reached zero free bytes during Task 2 D8 work.",
+                      "impact":  "high",
+                      "mitigation":  "Unused generated Gradle caches 9.4.1 and 8.14.2 were removed, recovering about 3.27 GB. Re-check C: free space before full clean build; do not delete user files or the active 9.1.0 cache."
+                  },
+                  {
+                      "risk":  "app/build.gradle.kts was pre-existing but untracked at the Task 1 base, so 9898faf records it as a complete new file.",
+                      "impact":  "medium",
+                      "mitigation":  "Task 1 reviewer explicitly assessed this and approved the resulting project configuration; preserve the commit and do not rewrite unrelated Gradle settings."
+                  },
+                  {
+                      "risk":  "Authenticator QR and secret are security-sensitive and FLAG_SECURE prevents useful screenshots while the dialog is open.",
+                      "impact":  "high",
+                      "mitigation":  "Do not capture or dump the authenticator dialog. Record only non-secret test counts and the manual scan/verification outcome."
+                  },
+                  {
+                      "risk":  "Installing a new APK can change permission/app-op state.",
+                      "impact":  "high",
+                      "mitigation":  "Immediately revoke SEND_SMS and set appops SEND_SMS deny after install, then verify the printed state before opening the QR flow."
+                  }
               ],
     "memory_snapshot":  [
-
+                            {
+                                "key":  "branch_head_before_checkpoint_commit",
+                                "value":  "feature/motorcycle-guard-protection at 3322c36"
+                            },
+                            {
+                                "key":  "sdd_ledger",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-11-authenticator-qr-setup/progress.md"
+                            },
+                            {
+                                "key":  "task2_brief",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-11-authenticator-qr-setup/task-2-brief.md"
+                            },
+                            {
+                                "key":  "task2_report",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-11-authenticator-qr-setup/task-2-report.md"
+                            },
+                            {
+                                "key":  "task2_fix_review_range",
+                                "value":  "3ace729..3322c36"
+                            },
+                            {
+                                "key":  "task3_brief_status",
+                                "value":  "Not yet generated; extract Task 3 from the committed implementation plan when Task 2 review is clean."
+                            }
                         ],
     "dependencies":  [
-
+                         "Resume the SDD ledger first and do not redispatch completed Task 1.",
+                         "Generate a scoped review package for 3ace729..3322c36 and re-review only the Task 2 Critical accessibility finding plus fix-diff breakage.",
+                         "Do not run overlapping Gradle or ADB processes; inspect exact stale PIDs before stopping any process.",
+                         "Huawei JUCDU18811013149 must be awake/unlocked for connected tests and two-phone manual acceptance."
                      ],
     "error_info":  null,
     "agent":  {
@@ -31,29 +91,92 @@
               },
     "snapshot":  {
                      "build_status":  "NOT_RUN",
-                     "build_output_snippet":  "",
+                     "build_output_snippet":  "QR-focused evidence only: Task 1 RED unresolved encoder then GREEN 3 tests; Task 2 RED 2 missing-UI failures then GREEN 2 QR tests; security fix RED 1 semantics failure then GREEN 3 Huawei dialog/QR tests. Full QR suite/build/install not run.",
                      "files_changed":  [
-
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/build.gradle.kts",
+                                               "action":  "CREATED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/AuthenticatorQrCodeEncoder.kt",
+                                               "action":  "CREATED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/settings/AuthenticatorQrCodeEncoderTest.kt",
+                                               "action":  "CREATED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/androidTest/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreenTest.kt",
+                                               "action":  "MODIFIED"
+                                           }
                                        ]
                  },
     "decisions":  [
                       {
                           "decided_by":  "user",
-                          "rationale":  "",
-                          "question":  "User requested a durable checkpoint before continuing Authenticator QR work",
-                          "decision":  ""
+                          "rationale":  "The authenticator app will run on a second phone and scan the Huawei display.",
+                          "question":  "How should Authenticator enrollment avoid manual secret entry?",
+                          "decision":  "Generate a local standards-compatible QR with ZXing Core 3.5.4 and show it only after the user selects Show QR code."
+                      },
+                      {
+                          "decided_by":  "user",
+                          "rationale":  "The user explicitly selected fresh implementers plus independent task reviews.",
+                          "question":  "How should the QR implementation plan be executed?",
+                          "decision":  "Use Subagent-Driven Development."
+                      },
+                      {
+                          "decided_by":  "user",
+                          "rationale":  "The user requested a durable stopping point before continuing.",
+                          "question":  "Pause now or continue Task 2 review and Task 3?",
+                          "decision":  "Create and validate an HCP checkpoint now."
                       }
                   ],
     "open_tasks":  [
-
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Run Task 2 scoped re-review for finding: secret-bearing accessibility semantics, using FIX_BASE 3ace729 and HEAD 3322c36; if clean, mark Task 2 complete in the SDD ledger.",
+                           "priority":  1,
+                           "blocked_by":  ""
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Generate Task 3 brief and run clean testDebugUnitTest connectedDebugAndroidTest assembleDebug with the low-memory profile; record exact counts and SHA-256.",
+                           "priority":  1,
+                           "blocked_by":  "Task 2 scoped re-review must be clean."
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Install the QR APK on Huawei, re-apply and verify SEND_SMS deny, then perform the live two-phone QR scan and six-digit verification without screenshots or UI dumps.",
+                           "priority":  1,
+                           "blocked_by":  "Fresh full gate and APK assembly must pass."
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Run the required final whole-branch review, resolve any load-bearing finding through one fix wave, then use the branch-finishing workflow.",
+                           "priority":  2,
+                           "blocked_by":  "Task 3 automated and manual acceptance."
+                       }
                    ],
     "context":  {
-                    "summary":  "Authenticator QR SDD paused after Task 1 review clean and Task 2 security fix GREEN; scoped re-review, full gate, install, and two-phone scan remain.",
+                    "summary":  "Authenticator QR SDD is paused at HEAD 3322c36 plus checkpoint commit. Task 1 is review-clean. Task 2 implementation and its Critical accessibility redaction fix have focused GREEN evidence, but the required scoped re-review has not run. Task 3 full gate, APK install, SMS re-denial, and live two-phone scan remain.",
                     "next_steps":  [
-
+                                       "Read this checkpoint, the QR SDD ledger, task-2-brief.md, and the appended fix section in task-2-report.md.",
+                                       "Do not rerun or redispatch Task 1.",
+                                       "Create the fix review package for 3ace729..3322c36 and dispatch a scoped re-review of the single Critical accessibility finding.",
+                                       "If addressed with no new Critical/Important breakage, append Task 2 complete to progress.md and generate the Task 3 brief.",
+                                       "Run Task 3 full automated gate, install, SEND_SMS deny verification, and user-assisted two-phone scan.",
+                                       "Run final whole-branch review before any completion claim."
                                    ],
                     "warnings":  [
-
+                                      "Do not claim Task 2 review-clean or the QR feature device-accepted yet.",
+                                      "Do not capture screenshots, UI hierarchy, logs, clipboard, or saved state while the authenticator dialog or secret/QR is present.",
+                                      "Do not send SMS or emergency calls. Re-verify SEND_SMS deny immediately after APK installation.",
+                                      "C: disk space was exhausted once; check free space before clean Gradle work and preserve active Gradle 9.1.0/module caches.",
+                                      "Preserve all unrelated untracked workspace files and exact-stage only plan files."
                                  ]
                 },
     "git":  {
@@ -62,6 +185,13 @@
                 "dirty":  true,
                 "commit_hash":  "3322c36"
             },
-    "parent_checkpoint_id":  null,
-    "tags":  "authenticator"
+    "parent_checkpoint_id":  "CKP-20260811-0751-OAI1PJ",
+    "tags":  [
+                 "authenticator",
+                 "qr",
+                 "zxing",
+                 "sdd",
+                 "huawei",
+                 "checkpoint"
+             ]
 }
