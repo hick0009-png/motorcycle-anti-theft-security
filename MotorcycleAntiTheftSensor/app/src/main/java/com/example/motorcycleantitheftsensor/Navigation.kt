@@ -119,6 +119,9 @@ fun MainNavigation() {
             cancelAuthenticatorSetup = protectionViewModel::cancelAuthenticatorSetup,
             verifyAuthenticator = protectionViewModel::verifyAuthenticator,
             retry = protectionViewModel::retry,
+            retrySettings = protectionViewModel::retrySettings,
+            resetPairing = protectionViewModel::resetPairing,
+            consumeMessage = protectionViewModel::consumeMessage,
         ),
     )
 }

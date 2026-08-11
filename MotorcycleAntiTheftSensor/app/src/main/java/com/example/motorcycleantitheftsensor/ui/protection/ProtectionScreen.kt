@@ -41,7 +41,7 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ARMED_HEALTHY ||
         protection.state == ProtectionState.ARMED_DEGRADED ||
         protection.state == ProtectionState.ALERT_ACTIVE
-    val actionEnabled = !state.operationInFlight &&
+    val actionEnabled = !state.protectionOperationInFlight &&
         (disarmAction || protection.state == ProtectionState.DISARMED_ONLINE)
     val blockingPermissionIssues = protection.permissionBlockers
         .map(::friendlyPermissionExplanation)
@@ -104,7 +104,7 @@ fun ProtectionScreen(
                         onClick = {
                             actions.selectDestination(ProtectionDestination.SETTINGS)
                         },
-                        enabled = !state.operationInFlight,
+                        enabled = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
@@ -125,7 +125,7 @@ fun ProtectionScreen(
                         onClick = {
                             actions.selectDestination(ProtectionDestination.SETTINGS)
                         },
-                        enabled = !state.operationInFlight,
+                        enabled = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
@@ -221,13 +221,6 @@ fun ProtectionScreen(
             }
         }
 
-        state.message?.let { message ->
-            item(key = "message-${message.id}") {
-                StatusCard(title = if (message.isError) "Action failed" else "Action complete") {
-                    Text(message.text)
-                }
-            }
-        }
     }
 }
 

@@ -80,7 +80,7 @@ fun EventsScreen(
                     )
                     OutlinedButton(
                         onClick = { confirmClear = true },
-                        enabled = !state.operationInFlight,
+                        enabled = !state.eventsOperationInFlight,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),

@@ -85,6 +85,12 @@ data class ProtectionUiState(
     val eventsError: String?,
     val operationInFlight: Boolean,
     val message: ProtectionUiMessage?,
+    val settingsLoading: Boolean = false,
+    val settingsLoaded: Boolean = true,
+    val settingsError: String? = null,
+    val protectionOperationInFlight: Boolean = false,
+    val settingsOperationInFlight: Boolean = false,
+    val eventsOperationInFlight: Boolean = false,
 ) {
     companion object {
         fun from(
@@ -97,6 +103,12 @@ data class ProtectionUiState(
             eventsError: String? = null,
             operationInFlight: Boolean = false,
             message: ProtectionUiMessage? = null,
+            settingsLoading: Boolean = false,
+            settingsLoaded: Boolean = true,
+            settingsError: String? = null,
+            protectionOperationInFlight: Boolean = false,
+            settingsOperationInFlight: Boolean = false,
+            eventsOperationInFlight: Boolean = false,
         ): ProtectionUiState = ProtectionUiState(
             destination = destination,
             protection = snapshot.toStatusUiState(),
@@ -112,6 +124,12 @@ data class ProtectionUiState(
             eventsError = eventsError,
             operationInFlight = operationInFlight,
             message = message,
+            settingsLoading = settingsLoading,
+            settingsLoaded = settingsLoaded,
+            settingsError = settingsError,
+            protectionOperationInFlight = protectionOperationInFlight,
+            settingsOperationInFlight = settingsOperationInFlight,
+            eventsOperationInFlight = eventsOperationInFlight,
         )
     }
 }

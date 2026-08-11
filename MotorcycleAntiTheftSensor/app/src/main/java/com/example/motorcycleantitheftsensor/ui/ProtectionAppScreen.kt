@@ -18,10 +18,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,6 +34,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.events.EventsScreen
@@ -48,6 +55,9 @@ data class ProtectionAppActions(
     val cancelAuthenticatorSetup: () -> Unit,
     val verifyAuthenticator: (String, (Boolean) -> Unit) -> (() -> Unit),
     val retry: () -> Unit,
+    val retrySettings: () -> Unit,
+    val resetPairing: () -> Unit,
+    val consumeMessage: (Long) -> Unit,
 )
 
 @Composable
@@ -56,10 +66,30 @@ fun ProtectionAppScreen(
     actions: ProtectionAppActions,
     modifier: Modifier = Modifier,
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val message = state.message
+    LaunchedEffect(message?.id) {
+        if (message != null) {
+            snackbarHostState.showSnackbar(
+                message = message.text,
+                duration = SnackbarDuration.Short,
+            )
+            actions.consumeMessage(message.id)
+        }
+    }
+
     MaterialTheme(colorScheme = ProtectionMonochromeColorScheme) {
         Scaffold(
             modifier = modifier.safeDrawingPadding(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.semantics {
+                        liveRegion = LiveRegionMode.Polite
+                    },
+                )
+            },
             bottomBar = {
                 Surface(
                     modifier = Modifier

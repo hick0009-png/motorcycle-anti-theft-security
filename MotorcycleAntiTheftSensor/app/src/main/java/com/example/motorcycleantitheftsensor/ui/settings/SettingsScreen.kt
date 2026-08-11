@@ -22,7 +22,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -75,6 +77,7 @@ fun SettingsScreen(
     var verificationCode by remember { mutableStateOf("") }
     var authenticatorError by remember { mutableStateOf<String?>(null) }
     var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
 
     fun clearAuthenticatorUi() {
         val cancelRequest = cancelAuthenticatorRequest
@@ -107,6 +110,17 @@ fun SettingsScreen(
         sensitivityDraft = state.settings.sensitivity
     }
 
+    if (!state.settingsLoaded) {
+        SettingsLoadState(
+            loading = state.settingsLoading,
+            error = state.settingsError,
+            retry = actions.retrySettings,
+            contentPadding = contentPadding,
+            modifier = modifier,
+        )
+        return
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -115,11 +129,24 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "settings-header") {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.semantics { heading() },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Settings",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.semantics { heading() },
+                )
+                if (state.settingsLoading) Text("Refreshing settings")
+                state.settingsError?.let { error ->
+                    Text(error)
+                    Button(
+                        onClick = actions.retrySettings,
+                        enabled = !state.settingsOperationInFlight,
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Text("Retry settings")
+                    }
+                }
+            }
         }
 
         item(key = "telegram-settings") {
@@ -150,12 +177,21 @@ fun SettingsScreen(
                         actions.replaceBotToken(newToken)
                         replacementToken = ""
                     },
-                    enabled = replacementToken.isNotBlank() && !state.operationInFlight,
+                    enabled = replacementToken.isNotBlank() && !state.settingsOperationInFlight,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
                     Text("Save bot token")
+                }
+                OutlinedButton(
+                    onClick = { confirmResetPairing = true },
+                    enabled = !state.settingsOperationInFlight,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text("Reset pairing")
                 }
             }
         }
@@ -180,7 +216,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = actions.requestPermissions,
-                        enabled = !state.operationInFlight,
+                        enabled = !state.settingsOperationInFlight,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
@@ -198,7 +234,7 @@ fun SettingsScreen(
                     value = sensitivityDraft,
                     onValueChange = { sensitivityDraft = it },
                     onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
-                    enabled = !state.operationInFlight,
+                    enabled = !state.settingsOperationInFlight,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -241,7 +277,7 @@ fun SettingsScreen(
                         smsKey = ""
                     },
                     enabled = smsDestination.isNotBlank() && smsKey.isNotBlank() &&
-                        !state.operationInFlight,
+                        !state.settingsOperationInFlight,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
@@ -275,7 +311,7 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    enabled = !state.operationInFlight,
+                    enabled = !state.settingsOperationInFlight,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
@@ -368,7 +404,7 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    enabled = verificationCode.isNotBlank() && !state.operationInFlight,
+                    enabled = verificationCode.isNotBlank() && !state.settingsOperationInFlight,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text("Verify")
@@ -383,6 +419,74 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+
+    if (confirmResetPairing) {
+        AlertDialog(
+            onDismissRequest = { confirmResetPairing = false },
+            title = { Text("Reset pairing?") },
+            text = {
+                Text("Existing Telegram owners will need to pair again with a new code.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmResetPairing = false
+                        actions.resetPairing()
+                    },
+                    enabled = !state.settingsOperationInFlight,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Confirm reset")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmResetPairing = false },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SettingsLoadState(
+    loading: Boolean,
+    error: String?,
+    retry: () -> Unit,
+    contentPadding: PaddingValues,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (loading) CircularProgressIndicator()
+            Text(
+                text = if (loading) "Loading settings" else "Unable to load settings",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
+            )
+            error?.let { Text(it) }
+            if (!loading) {
+                Button(
+                    onClick = retry,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Retry settings")
+                }
+            }
+        }
     }
 }
 

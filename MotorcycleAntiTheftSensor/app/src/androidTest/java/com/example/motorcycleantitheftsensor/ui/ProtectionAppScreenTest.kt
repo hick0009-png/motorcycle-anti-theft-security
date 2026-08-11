@@ -290,6 +290,81 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun settingsInitialLoadDoesNotShowUnconfiguredDefaults() {
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.DISARMED_ONLINE).copy(
+                    destination = ProtectionDestination.SETTINGS,
+                    settingsLoading = true,
+                    settingsLoaded = false,
+                ),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("Loading settings").assertExists()
+        compose.onNodeWithText("Token not configured").assertDoesNotExist()
+    }
+
+    @Test
+    fun settingsLoadFailureOffersRetry() {
+        var retrySettingsCalls = 0
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.DISARMED_ONLINE).copy(
+                    destination = ProtectionDestination.SETTINGS,
+                    settingsLoaded = false,
+                    settingsError = "Settings unavailable",
+                ),
+                fakeActions().copy(retrySettings = { retrySettingsCalls += 1 }),
+            )
+        }
+
+        compose.onNodeWithText("Settings unavailable").assertExists()
+        compose.onNodeWithText("Retry settings").performClick()
+        compose.runOnIdle { assertEquals(1, retrySettingsCalls) }
+    }
+
+    @Test
+    fun pairingResetRequiresConfirmation() {
+        var resetPairingCalls = 0
+        compose.setContent {
+            ProtectionAppScreen(
+                configuredSettingsState().copy(destination = ProtectionDestination.SETTINGS),
+                fakeActions().copy(resetPairing = { resetPairingCalls += 1 }),
+            )
+        }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Reset pairing"))
+        compose.onNodeWithText("Reset pairing").performClick()
+        compose.runOnIdle { assertEquals(0, resetPairingCalls) }
+        compose.onNodeWithText("Confirm reset").performClick()
+        compose.runOnIdle { assertEquals(1, resetPairingCalls) }
+    }
+
+    @Test
+    fun shellShowsOneShotMessageOnSettingsAndConsumesItsId() {
+        var consumedMessageId: Long? = null
+        compose.setContent {
+            ProtectionAppScreen(
+                configuredSettingsState().copy(
+                    destination = ProtectionDestination.SETTINGS,
+                    message = ProtectionUiMessage(
+                        id = 42L,
+                        text = "Pairing reset",
+                        isError = false,
+                    ),
+                ),
+                fakeActions().copy(consumeMessage = { consumedMessageId = it }),
+            )
+        }
+
+        compose.onNodeWithText("Pairing reset").assertIsDisplayed()
+        compose.waitUntil(timeoutMillis = 10_000L) { consumedMessageId != null }
+        compose.runOnIdle { assertEquals(42L, consumedMessageId) }
+    }
+
+    @Test
     fun eventsEmptyStateIsExplicit() {
         compose.setContent {
             ProtectionAppScreen(
@@ -526,6 +601,9 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
     cancelAuthenticatorSetup = {},
     verifyAuthenticator = { _, _ -> {} },
     retry = {},
+    retrySettings = {},
+    resetPairing = {},
+    consumeMessage = {},
 )
 
 private const val TEST_ONLY_TOKEN = "123456:TEST_ONLY_NOT_A_REAL_TOKEN"

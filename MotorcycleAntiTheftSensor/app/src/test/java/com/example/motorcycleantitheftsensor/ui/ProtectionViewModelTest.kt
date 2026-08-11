@@ -272,6 +272,110 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun disarmDoesNotWaitForBlockedEventHistoryWork() = runTest {
+        val repository = BlockingClearIncidentRepository()
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY),
+            incidents = repository,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = Dispatchers.Default,
+            callbackDispatcher = Dispatchers.Default,
+        )
+        awaitCondition { !viewModel.uiState.value.eventsLoading }
+
+        viewModel.clearHistory()
+        try {
+            assertTrue(repository.clearStarted.await(2, TimeUnit.SECONDS))
+            viewModel.disarm()
+            Thread.sleep(100)
+            assertEquals(
+                ProtectionState.DISARMED_ONLINE,
+                viewModel.uiState.value.protection.state,
+            )
+        } finally {
+            repository.allowClear.countDown()
+        }
+    }
+
+    @Test
+    fun initialSettingsLoadExposesLoadingInsteadOfUnconfiguredDefaults() = runTest {
+        val readStarted = CompletableDeferred<Unit>()
+        val allowRead = CompletableDeferred<Unit>()
+        val settings = FakeProtectionSettingsGateway(
+            firstSettingsReadStarted = readStarted,
+            allowFirstSettingsRead = allowRead,
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = settings,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+
+        assertTrue(viewModel.uiState.value.settingsLoading)
+        assertFalse(viewModel.uiState.value.settingsLoaded)
+        runCurrent()
+
+        assertTrue(readStarted.isCompleted)
+        assertTrue(viewModel.uiState.value.settingsLoading)
+        assertFalse(viewModel.uiState.value.settingsLoaded)
+        allowRead.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun failedInitialSettingsLoadIsRetryable() = runTest {
+        val settings = FakeProtectionSettingsGateway(settingsReadFailuresRemaining = 1)
+        val fixture = fixture(testScheduler, settings = settings)
+
+        advanceUntilIdle()
+
+        assertFalse(fixture.viewModel.uiState.value.settingsLoaded)
+        assertEquals("settings unavailable", fixture.viewModel.uiState.value.settingsError)
+        fixture.viewModel.retrySettings()
+        advanceUntilIdle()
+
+        assertTrue(fixture.viewModel.uiState.value.settingsLoaded)
+        assertNull(fixture.viewModel.uiState.value.settingsError)
+    }
+
+    @Test
+    fun failedSettingsRefreshRetainsLastSuccessfulSummary() = runTest {
+        val settings = FakeProtectionSettingsGateway(settingsReadFailuresRemainingAfterFirst = 1)
+        val fixture = fixture(testScheduler, settings = settings)
+        advanceUntilIdle()
+        val loadedSettings = fixture.viewModel.uiState.value.settings
+
+        fixture.viewModel.updateMissingPermissions(setOf("LATEST_PERMISSION"))
+        advanceUntilIdle()
+
+        assertTrue(fixture.viewModel.uiState.value.settingsLoaded)
+        assertEquals(loadedSettings, fixture.viewModel.uiState.value.settings)
+        assertEquals("settings unavailable", fixture.viewModel.uiState.value.settingsError)
+    }
+
+    @Test
+    fun resetPairingPublishesResultAndRefreshesSettings() = runTest {
+        val settings = FakeProtectionSettingsGateway()
+        val fixture = fixture(testScheduler, settings = settings)
+        advanceUntilIdle()
+        val readsBeforeReset = settings.settingsReadCount
+
+        fixture.viewModel.resetPairing()
+        advanceUntilIdle()
+
+        assertEquals(1, settings.resetPairingCalls)
+        assertEquals("Pairing reset", fixture.viewModel.uiState.value.message?.text)
+        assertEquals(readsBeforeReset + 1, settings.settingsReadCount)
+    }
+
+    @Test
     fun retryClearsRepositoryFailureAfterLoadingEventsAgain() = runTest {
         val repository = FakeIncidentRepository(
             incidents = listOf(realIncident("i-1", 1L)),
@@ -492,6 +596,8 @@ private class FakeProtectionSettingsGateway(
     private val authenticatorVerification: CompletableDeferred<Boolean>? = null,
     private val firstSettingsReadStarted: CompletableDeferred<Unit>? = null,
     private val allowFirstSettingsRead: CompletableDeferred<Unit>? = null,
+    private var settingsReadFailuresRemaining: Int = 0,
+    private var settingsReadFailuresRemainingAfterFirst: Int = 0,
 ) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
     var tokenReplaceCalls = 0
@@ -502,13 +608,24 @@ private class FakeProtectionSettingsGateway(
         private set
     var authenticatorCancelCalls = 0
         private set
-    private var settingsReadCount = 0
+    var resetPairingCalls = 0
+        private set
+    var settingsReadCount = 0
+        private set
 
     override suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary {
         settingsReadCount += 1
         if (settingsReadCount == 1 && allowFirstSettingsRead != null) {
             firstSettingsReadStarted?.complete(Unit)
             allowFirstSettingsRead.await()
+        }
+        if (settingsReadFailuresRemaining > 0) {
+            settingsReadFailuresRemaining -= 1
+            error("settings unavailable")
+        }
+        if (settingsReadCount > 1 && settingsReadFailuresRemainingAfterFirst > 0) {
+            settingsReadFailuresRemainingAfterFirst -= 1
+            error("settings unavailable")
         }
         return settingsSummary().copy(
             authenticatorConfigured = authenticatorConfigured,
@@ -528,8 +645,10 @@ private class FakeProtectionSettingsGateway(
         return SettingsOperationResult(applied = true, message = "Bot token updated")
     }
 
-    override suspend fun resetPairing(): SettingsOperationResult =
-        SettingsOperationResult(applied = true, message = "Pairing reset")
+    override suspend fun resetPairing(): SettingsOperationResult {
+        resetPairingCalls += 1
+        return SettingsOperationResult(applied = true, message = "Pairing reset")
+    }
 
     override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
         smsFallbackFailure?.let(::error)

@@ -47,7 +47,9 @@ class ProtectionViewModel(
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val commandMutex = Mutex()
+    private val armDisarmMutex = Mutex()
+    private val settingsMutex = Mutex()
+    private val eventsMutex = Mutex()
     private val commandSequence = AtomicLong(0L)
     private val settingsReadVersion = AtomicLong(0L)
     private val destination = MutableStateFlow(ProtectionDestination.PROTECTION)
@@ -70,8 +72,14 @@ class ProtectionViewModel(
             destination = selectedDestination,
             eventsLoading = inputs.eventsLoading,
             eventsError = inputs.eventsError,
-            operationInFlight = inputs.operationInFlight,
+            operationInFlight = inputs.anyOperationInFlight,
             message = inputs.message,
+            settingsLoading = inputs.settingsLoading,
+            settingsLoaded = inputs.settingsLoaded,
+            settingsError = inputs.settingsError,
+            protectionOperationInFlight = inputs.protectionOperationInFlight,
+            settingsOperationInFlight = inputs.settingsOperationInFlight,
+            eventsOperationInFlight = inputs.eventsOperationInFlight,
         )
     }.stateIn(
         scope = scope,
@@ -81,6 +89,8 @@ class ProtectionViewModel(
             incidents = emptyList(),
             settings = settingsSummary.value,
             nowMs = currentTimeMs.value,
+            settingsLoading = true,
+            settingsLoaded = false,
         ),
     )
 
@@ -96,15 +106,15 @@ class ProtectionViewModel(
         this.destination.value = destination
     }
 
-    fun arm() = runCommand("Unable to arm protection") {
+    fun arm() = runProtectionCommand("Unable to arm protection") {
         publishResult(coordinator.arm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun disarm() = runCommand("Unable to disarm protection") {
+    fun disarm() = runProtectionCommand("Unable to disarm protection") {
         publishResult(coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun changeSensitivity(level: Int) = runCommand("Unable to change sensitivity") {
+    fun changeSensitivity(level: Int) = runSettingsCommand("Unable to change sensitivity") {
         val result = coordinator.changeSensitivity(nextCommandId(), level)
         publishResult(result)
         if (result.outcome == CommandOutcome.APPLIED) {
@@ -113,7 +123,7 @@ class ProtectionViewModel(
         }
     }
 
-    fun clearHistory() = runCommand("Unable to clear event history") {
+    fun clearHistory() = runEventsCommand("Unable to clear event history") {
         presentation.update { it.copy(eventsLoading = true, eventsError = null) }
         try {
             withContext(dispatcher) { incidents.clearHistory() }
@@ -127,7 +137,7 @@ class ProtectionViewModel(
         }
     }
 
-    fun updateMissingPermissions(permissions: Set<String>) = runCommand("Unable to update permissions") {
+    fun updateMissingPermissions(permissions: Set<String>) = runSettingsCommand("Unable to update permissions") {
         readSettings(permissions)
     }
 
@@ -136,19 +146,19 @@ class ProtectionViewModel(
             publishMessage("Bot token is required", isError = true)
             return
         }
-        runCommand("Unable to update bot token") {
+        runSettingsCommand("Unable to update bot token") {
             publishSettingsResult(settings.replaceBotToken(token))
         }
     }
 
-    fun configureSmsFallback(destination: String, aesKey: String) = runCommand(
+    fun configureSmsFallback(destination: String, aesKey: String) = runSettingsCommand(
         "Unable to configure SMS fallback",
     ) {
         publishSettingsResult(settings.saveSmsFallback(destination, aesKey))
     }
 
     fun beginAuthenticatorSetup(onComplete: (AuthenticatorSetupDetails?) -> Unit): () -> Unit {
-        val cancelJob = runSensitiveCommand(
+        val cancelJob = runSensitiveSettingsCommand(
             failureMessage = "Unable to start authenticator setup",
             failureValue = null,
             onComplete = onComplete,
@@ -162,7 +172,7 @@ class ProtectionViewModel(
     }
 
     fun verifyAuthenticator(code: String, onComplete: (Boolean) -> Unit): () -> Unit {
-        val cancelJob = runSensitiveCommand(
+        val cancelJob = runSensitiveSettingsCommand(
             failureMessage = "Unable to verify authenticator code",
             failureValue = false,
             onComplete = onComplete,
@@ -181,8 +191,16 @@ class ProtectionViewModel(
         settings.cancelAuthenticatorSetup()
     }
 
-    fun retry() = runCommand("Unable to refresh event history") {
+    fun retry() = runEventsCommand("Unable to refresh event history") {
         refreshEvents()
+    }
+
+    fun retrySettings() = runSettingsCommand("Unable to refresh settings") {
+        readSettings(settingsSummary.value.missingPermissions)
+    }
+
+    fun resetPairing() = runSettingsCommand("Unable to reset pairing") {
+        publishSettingsResult(settings.resetPairing())
     }
 
     fun consumeMessage(id: Long) {
@@ -197,10 +215,10 @@ class ProtectionViewModel(
         super.onCleared()
     }
 
-    private fun runCommand(failureMessage: String, action: suspend () -> Unit) {
+    private fun runProtectionCommand(failureMessage: String, action: suspend () -> Unit) {
         scope.launch {
-            commandMutex.withLock {
-                presentation.update { it.copy(operationInFlight = true) }
+            armDisarmMutex.withLock {
+                presentation.update { it.copy(protectionOperationInFlight = true) }
                 try {
                     action()
                 } catch (exception: CancellationException) {
@@ -208,21 +226,55 @@ class ProtectionViewModel(
                 } catch (exception: Throwable) {
                     publishMessage(failureMessage, isError = true)
                 } finally {
-                    presentation.update { it.copy(operationInFlight = false) }
+                    presentation.update { it.copy(protectionOperationInFlight = false) }
                 }
             }
         }
     }
 
-    private fun <T> runSensitiveCommand(
+    private fun runSettingsCommand(failureMessage: String, action: suspend () -> Unit) {
+        scope.launch {
+            settingsMutex.withLock {
+                presentation.update { it.copy(settingsOperationInFlight = true) }
+                try {
+                    action()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    publishMessage(failureMessage, isError = true)
+                } finally {
+                    presentation.update { it.copy(settingsOperationInFlight = false) }
+                }
+            }
+        }
+    }
+
+    private fun runEventsCommand(failureMessage: String, action: suspend () -> Unit) {
+        scope.launch {
+            eventsMutex.withLock {
+                presentation.update { it.copy(eventsOperationInFlight = true) }
+                try {
+                    action()
+                } catch (exception: CancellationException) {
+                    throw exception
+                } catch (exception: Throwable) {
+                    publishMessage(failureMessage, isError = true)
+                } finally {
+                    presentation.update { it.copy(eventsOperationInFlight = false) }
+                }
+            }
+        }
+    }
+
+    private fun <T> runSensitiveSettingsCommand(
         failureMessage: String,
         failureValue: T,
         onComplete: (T) -> Unit,
         action: suspend () -> T,
     ): () -> Unit {
         val job = scope.launch {
-            val result = commandMutex.withLock {
-                presentation.update { it.copy(operationInFlight = true) }
+            val result = settingsMutex.withLock {
+                presentation.update { it.copy(settingsOperationInFlight = true) }
                 try {
                     action()
                 } catch (exception: CancellationException) {
@@ -231,7 +283,7 @@ class ProtectionViewModel(
                     publishMessage(failureMessage, isError = true)
                     failureValue
                 } finally {
-                    presentation.update { it.copy(operationInFlight = false) }
+                    presentation.update { it.copy(settingsOperationInFlight = false) }
                 }
             }
             withContext(callbackDispatcher) { onComplete(result) }
@@ -260,9 +312,29 @@ class ProtectionViewModel(
 
     private suspend fun readSettings(missingPermissions: Set<String>) {
         val requestVersion = settingsReadVersion.incrementAndGet()
-        val summary = withContext(dispatcher) { settings.read(missingPermissions) }
-        if (settingsReadVersion.get() == requestVersion) {
-            settingsSummary.value = summary
+        presentation.update { it.copy(settingsLoading = true, settingsError = null) }
+        try {
+            val summary = withContext(dispatcher) { settings.read(missingPermissions) }
+            if (settingsReadVersion.get() == requestVersion) {
+                settingsSummary.value = summary
+                presentation.update {
+                    it.copy(settingsLoading = false, settingsLoaded = true, settingsError = null)
+                }
+            }
+        } catch (exception: CancellationException) {
+            if (settingsReadVersion.get() == requestVersion) {
+                presentation.update { it.copy(settingsLoading = false) }
+            }
+            throw exception
+        } catch (exception: Throwable) {
+            if (settingsReadVersion.get() == requestVersion) {
+                presentation.update {
+                    it.copy(
+                        settingsLoading = false,
+                        settingsError = exception.message ?: "Unable to load settings",
+                    )
+                }
+            }
         }
     }
 
@@ -294,9 +366,17 @@ private data class PresentationInputs(
     val incidents: List<SecurityIncident> = emptyList(),
     val eventsLoading: Boolean = false,
     val eventsError: String? = null,
-    val operationInFlight: Boolean = false,
+    val protectionOperationInFlight: Boolean = false,
+    val settingsOperationInFlight: Boolean = false,
+    val eventsOperationInFlight: Boolean = false,
+    val settingsLoading: Boolean = false,
+    val settingsLoaded: Boolean = false,
+    val settingsError: String? = null,
     val message: ProtectionUiMessage? = null,
-)
+) {
+    val anyOperationInFlight: Boolean
+        get() = protectionOperationInFlight || settingsOperationInFlight || eventsOperationInFlight
+}
 
 private fun emptySettingsSummary(): ProtectionSettingsSummary = ProtectionSettingsSummary(
     tokenConfigured = false,
