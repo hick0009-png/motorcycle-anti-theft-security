@@ -25,4 +25,12 @@ class PairingCodePolicyTest {
             policy.validate("654321", PairingCode("123456", 2_000L), 1_000L)
         )
     }
+
+    @Test
+    fun expirationUsesTheSameInclusiveBoundaryAsValidation() {
+        val pairingCode = PairingCode("123456", 1_000L)
+
+        assertEquals(false, policy.isExpired(pairingCode, nowMs = 999L))
+        assertEquals(true, policy.isExpired(pairingCode, nowMs = 1_000L))
+    }
 }

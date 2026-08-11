@@ -20,9 +20,12 @@ class PairingCodePolicy(
         return PairingCode(value, nowMs + validityMs)
     }
 
+    fun isExpired(stored: PairingCode, nowMs: Long = System.currentTimeMillis()): Boolean =
+        nowMs >= stored.expiresAtMs
+
     fun validate(submitted: String, stored: PairingCode?, nowMs: Long): PairingResult = when {
         stored == null || submitted != stored.value -> PairingResult.Rejected
-        nowMs >= stored.expiresAtMs -> PairingResult.Expired
+        isExpired(stored, nowMs) -> PairingResult.Expired
         else -> PairingResult.Accepted
     }
 
