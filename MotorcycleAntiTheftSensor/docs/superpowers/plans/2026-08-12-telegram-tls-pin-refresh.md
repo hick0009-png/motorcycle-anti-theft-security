@@ -4,7 +4,7 @@
 
 **Goal:** Restore Telegram bot verification, polling, and outbound messages on Huawei while preserving HTTPS-only transport, certificate pinning, token secrecy, and the existing secure pairing model.
 
-**Architecture:** Android Network Security Config remains the single certificate-pinning authority and receives a verified leaf plus intermediate-CA backup pin. A small pure Kotlin `TelegramBotVerifier` owns `getMe` request execution and maps authenticated rejection separately from TLS/transport failure; the settings gateway persists and activates only a verified token.
+**Architecture:** Android Network Security Config remains the single certificate-pinning authority and receives a verified leaf plus intermediate-CA backup pin. A small pure Kotlin `TelegramBotVerifier` owns `getMe` request execution and maps authenticated rejection separately from TLS/transport failure. Task 2 introduces its result callback alongside the pre-existing three-value callback; Task 3 moves the settings gateway to the result callback and removes the compatibility callback in the same commit, so every task compiles independently.
 
 **Tech Stack:** Kotlin 2.2, Android Network Security Config, OkHttp 4.12.0, `org.json`, JUnit 4, kotlinx-coroutines-test, Android Studio JBR 17, ADB.
 
@@ -21,6 +21,7 @@
 - Before Gradle, require at least 4 GiB free on C:. If not available, stop and obtain approval for exact-path cache cleanup; never delete user files or the active Gradle 9.1.0 cache.
 - Use `$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'`, `$env:GRADLE_OPTS='-Xmx192m -XX:+UseSerialGC -XX:MaxMetaspaceSize=320m'`, `$env:JAVA_TOOL_OPTIONS='-Xms16m -Xmx96m -XX:+UseSerialGC -XX:MaxMetaspaceSize=256m'`, `--no-daemon`, `--max-workers=1`, and in-process Kotlin compilation.
 - Exact-stage only the files named by each task; preserve every unrelated tracked or untracked file.
+- Approved sequencing correction: Task 2 adds `verifyBotTokenResult(token, onResult)` without changing the existing `verifyBotToken(token, onResult)` callback; Task 3 migrates every remaining caller and then removes the compatibility callback. This prevents the Task 2 commit from breaking the unchanged settings gateway before its own task.
 
 ## File Structure
 
@@ -141,7 +142,7 @@ git commit -m "fix(network): refresh Telegram TLS pins"
 
 **Interfaces:**
 - Consumes: `normalizeTelegramBotToken(String): String` and `TlsPinningClient.client`.
-- Produces: `TelegramBotVerificationResult`, `TelegramVerificationHttpResponse`, and `TelegramBotVerifier.verify(String): TelegramBotVerificationResult`.
+- Produces: `TelegramBotVerificationResult`, `TelegramVerificationHttpResponse`, `TelegramBotVerifier.verify(String): TelegramBotVerificationResult`, and `TelegramBotClient.verifyBotTokenResult(String, (TelegramBotVerificationResult) -> Unit)`.
 
 - [ ] **Step 1: Write failing verifier tests**
 
@@ -279,12 +280,12 @@ internal class TelegramBotVerifier(
 }
 ```
 
-- [ ] **Step 4: Delegate `TelegramBotClient.verifyBotToken` to the verifier**
+- [ ] **Step 4: Add a result callback while retaining the compatibility callback**
 
-Add `private val botVerifier = TelegramBotVerifier()` beside the existing client fields. Replace the current callback signature and body with:
+Add `private val botVerifier = TelegramBotVerifier()` beside the existing client fields. Add this result callback:
 
 ```kotlin
-fun verifyBotToken(
+internal fun verifyBotTokenResult(
     token: String,
     onResult: (TelegramBotVerificationResult) -> Unit,
 ) {
@@ -301,11 +302,27 @@ fun verifyBotToken(
 }
 ```
 
+Retain the existing public three-value callback until Task 3, and implement it only as a mapping over the result callback:
+
+```kotlin
+fun verifyBotToken(
+    token: String,
+    onResult: (isValid: Boolean, botUsername: String?, botId: String?) -> Unit,
+) = verifyBotTokenResult(token) { result ->
+    when (result) {
+        is TelegramBotVerificationResult.Verified -> onResult(true, result.username, result.botId)
+        TelegramBotVerificationResult.Rejected,
+        TelegramBotVerificationResult.ConnectionFailure,
+        -> onResult(false, null, null)
+    }
+}
+```
+
 Do not log `Throwable`, request URLs, response bodies, or token values.
 
 - [ ] **Step 5: Strengthen the existing source redaction contract**
 
-In `TelegramBotClientSourceContractTest.kt`, replace the old callback-shape-specific verification test with assertions that the `verifyBotToken` section delegates to `botVerifier.verify(cleanToken)` and does not contain `printStackTrace`, `response.body`, `Log.`, or token interpolation in any log statement.
+In `TelegramBotClientSourceContractTest.kt`, replace the old callback-shape-specific verification test with assertions that the `verifyBotTokenResult` section delegates to `botVerifier.verify(cleanToken)` and does not contain `printStackTrace`, `response.body`, `Log.`, or token interpolation in any log statement. Also assert that the compatibility `verifyBotToken` body delegates to `verifyBotTokenResult(token)` and contains no network request construction.
 
 - [ ] **Step 6: Run focused Telegram tests and verify GREEN**
 
@@ -332,7 +349,7 @@ git commit -m "fix(telegram): classify bot verification failures"
 - Modify: `app/src/test/java/com/example/motorcycleantitheftsensor/ui/AndroidProtectionSettingsGatewayTest.kt`
 
 **Interfaces:**
-- Consumes: `TelegramBotVerificationResult` from Task 2.
+- Consumes: `TelegramBotVerificationResult` and `TelegramBotClient.verifyBotTokenResult` from Task 2.
 - Produces: `replaceBotToken(String): SettingsOperationResult` with distinct rejected/connection messages and no state mutation on failure.
 
 - [ ] **Step 1: Extend the fake operations and write failing gateway tests**
@@ -432,14 +449,16 @@ override suspend fun replaceBotToken(token: String): SettingsOperationResult {
 }
 ```
 
-In `EncryptedAndroidProtectionSettingsOperations`, forward the result directly:
+In `EncryptedAndroidProtectionSettingsOperations`, forward the result callback directly to the new API:
 
 ```kotlin
 override fun verifyBotToken(
     token: String,
     onResult: (TelegramBotVerificationResult) -> Unit,
-) = telegram.verifyBotToken(token, onResult)
+) = telegram.verifyBotTokenResult(token, onResult)
 ```
+
+After this migration, remove the compatibility `TelegramBotClient.verifyBotToken(token, (Boolean, String?, String?) -> Unit)` method that Task 2 retained temporarily. Search `app/src/main` and `app/src/test` for `verifyBotToken(` before removing it; every remaining production caller must use `verifyBotTokenResult` or the gateway operation result callback.
 
 - [ ] **Step 4: Run gateway and Telegram focused suites and verify GREEN**
 
