@@ -609,6 +609,47 @@ class ProtectionCoordinatorTest {
             coordinator.snapshot.value.degradationReasons.contains("INCIDENT history unavailable"),
         )
     }
+
+    @Test
+    fun recordSensorSampleMapsReadingSummaryCorrectly() {
+        val coordinator = coordinator(
+            runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet())),
+            armingDelay = ArmingDelay { },
+        )
+
+        coordinator.recordSensorSample(SensorKind.VIBRATION, 1000L, null, 9.8)
+        coordinator.recordSensorSample(SensorKind.LIGHT, 1001L, null, 400.0)
+        coordinator.recordSensorSample(SensorKind.POWER_THERMAL, 1002L, null, 99.0)
+        coordinator.recordSensorSample(SensorKind.MICROPHONE, 1003L, null, 120.0)
+        coordinator.recordSensorSample(SensorKind.LOCATION, 1004L, null, 1.0)
+
+        val health = coordinator.snapshot.value.sensorHealth
+
+        val vib = health[SensorKind.VIBRATION]?.latestReading!!
+        assertEquals(9.8, vib.value)
+        assertEquals("m/s²", vib.unit)
+        assertEquals("Acceleration", vib.label)
+
+        val lux = health[SensorKind.LIGHT]?.latestReading!!
+        assertEquals(400.0, lux.value)
+        assertEquals("lux", lux.unit)
+        assertEquals("Ambient Light", lux.label)
+
+        val pwr = health[SensorKind.POWER_THERMAL]?.latestReading!!
+        assertEquals(null, pwr.value)
+        assertEquals(null, pwr.unit)
+        assertEquals("Power Status", pwr.label)
+
+        val mic = health[SensorKind.MICROPHONE]?.latestReading!!
+        assertEquals(null, mic.value)
+        assertEquals(null, mic.unit)
+        assertEquals("Signal Received", mic.label)
+
+        val loc = health[SensorKind.LOCATION]?.latestReading!!
+        assertEquals(null, loc.value)
+        assertEquals(null, loc.unit)
+        assertEquals("Fix Acquired", loc.label)
+    }
 }
 
 private fun coordinator(

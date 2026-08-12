@@ -41,6 +41,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SensorHealthState
+import com.example.motorcycleantitheftsensor.protection.SensorReadingSummary
 
 class ProtectionAppScreenTest {
     @get:Rule
@@ -392,6 +396,33 @@ class ProtectionAppScreenTest {
             )
         }
         compose.onNode(hasText("No protection events") and isHeading()).assertExists()
+    }
+
+    @Test
+    fun disarmedStateShowsLiveSamplesAfterArming() {
+        compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
+        compose.onAllNodes(hasText("Live samples begin after arming"))[0].assertHeightIsAtLeast(10.dp)
+    }
+
+    @Test
+    fun armedStateShowsTelemetryValues() {
+        val armedState = healthyState().copy(
+            protection = healthyState().protection.copy(
+                sensorHealth = mapOf(
+                    SensorKind.VIBRATION to SensorHealth(
+                        state = SensorHealthState.HEALTHY,
+                        lastSampleAtMs = TEST_TIMESTAMP_MS,
+                        latestReading = SensorReadingSummary(9.8, "m/s²", "Acceleration")
+                    )
+                )
+            )
+        )
+        compose.setContent { ProtectionAppScreen(armedState, fakeActions()) }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
+        compose.onNodeWithText("Acceleration: 9.8 m/s²").assertExists()
     }
 
     @Test

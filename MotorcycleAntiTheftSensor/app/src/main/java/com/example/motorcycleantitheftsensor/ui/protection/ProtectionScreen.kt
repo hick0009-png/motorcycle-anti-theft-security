@@ -175,10 +175,25 @@ fun ProtectionScreen(
         items(SensorKind.entries, key = { "sensor-${it.name}" }) { sensor ->
             val health = protection.sensorHealth[sensor]
             StatusCard(title = sensor.displayName()) {
-                Text(health.healthText())
-                health?.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
-                health?.lastSampleAtMs?.let { lastSample ->
-                    Text("Last sample: ${formatProtectionTimestamp(lastSample)}")
+                if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
+                    Text("Live samples begin after arming")
+                } else if (health == null) {
+                    Text("Unavailable")
+                } else {
+                    Text(health.healthText())
+                    health.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
+
+                    health.latestReading?.let { reading ->
+                        val valueString = if (reading.value != null) {
+                            if (reading.unit != null) "${reading.value} ${reading.unit}" else "${reading.value}"
+                        } else ""
+                        val displayString = if (valueString.isNotEmpty()) "${reading.label}: $valueString" else reading.label
+                        Text(displayString)
+                    }
+
+                    health.lastSampleAtMs?.let { lastSample ->
+                        Text("Last sample: ${formatProtectionTimestamp(lastSample)}")
+                    }
                 }
             }
         }

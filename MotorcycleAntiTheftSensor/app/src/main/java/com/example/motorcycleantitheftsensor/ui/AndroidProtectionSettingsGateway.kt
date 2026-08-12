@@ -5,6 +5,7 @@ import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
+import com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult
 import com.example.motorcycleantitheftsensor.telegram.normalizeTelegramBotToken
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -67,12 +68,20 @@ class AndroidProtectionSettingsGateway internal constructor(
         if (candidate.isBlank()) {
             return SettingsOperationResult(applied = false, message = "Bot token is required")
         }
-        if (!verifyBotToken(candidate)) {
-            return SettingsOperationResult(applied = false, message = "Bot token could not be verified")
+        val result = verifyBotToken(candidate)
+        return when (result) {
+            is TelegramBotVerificationResult.Verified -> {
+                operations.saveBotToken(candidate)
+                operations.refreshControlService()
+                SettingsOperationResult(applied = true, message = "Bot @${result.username} verified and token updated")
+            }
+            TelegramBotVerificationResult.Rejected -> {
+                SettingsOperationResult(applied = false, message = "Bot token could not be verified")
+            }
+            TelegramBotVerificationResult.ConnectionFailure -> {
+                SettingsOperationResult(applied = false, message = "Telegram connection could not be established")
+            }
         }
-        operations.saveBotToken(candidate)
-        operations.refreshControlService()
-        return SettingsOperationResult(applied = true, message = "Bot token updated")
     }
 
     override suspend fun resetPairing(): SettingsOperationResult {
@@ -150,12 +159,12 @@ class AndroidProtectionSettingsGateway internal constructor(
         }
     }
 
-    private suspend fun verifyBotToken(candidate: String): Boolean = suspendCancellableCoroutine { continuation ->
+    private suspend fun verifyBotToken(candidate: String): TelegramBotVerificationResult = suspendCancellableCoroutine { continuation ->
         val completed = AtomicBoolean(false)
         continuation.invokeOnCancellation { completed.compareAndSet(false, true) }
-        operations.verifyBotToken(candidate) { isValid ->
+        operations.verifyBotToken(candidate) { result ->
             if (completed.compareAndSet(false, true) && continuation.isActive) {
-                continuation.resume(isValid)
+                continuation.resume(result)
             }
         }
     }
@@ -175,7 +184,7 @@ internal interface AndroidProtectionSettingsOperations {
     fun saveBotToken(token: String)
     fun saveSmsDestination(destination: String)
     fun saveSmsAesKey(aesKey: String)
-    fun verifyBotToken(token: String, onResult: (Boolean) -> Unit)
+    fun verifyBotToken(token: String, onResult: (TelegramBotVerificationResult) -> Unit)
     fun refreshControlService()
     fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate
     fun verifyAuthenticatorSetup(
@@ -204,8 +213,8 @@ private class EncryptedAndroidProtectionSettingsOperations(
     override fun saveBotToken(token: String) = preferences.saveBotToken(token)
     override fun saveSmsDestination(destination: String) = preferences.saveSmsDestination(destination)
     override fun saveSmsAesKey(aesKey: String) = preferences.saveSmsAesKey(aesKey)
-    override fun verifyBotToken(token: String, onResult: (Boolean) -> Unit) {
-        telegram.verifyBotToken(token) { isValid, _, _ -> onResult(isValid) }
+    override fun verifyBotToken(token: String, onResult: (TelegramBotVerificationResult) -> Unit) {
+        telegram.verifyBotTokenResult(token, onResult)
     }
     override fun refreshControlService() = refreshService()
     override fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate =

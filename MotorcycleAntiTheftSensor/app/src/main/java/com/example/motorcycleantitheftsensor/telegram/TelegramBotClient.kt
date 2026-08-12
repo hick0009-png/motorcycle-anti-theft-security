@@ -10,6 +10,7 @@ import com.example.motorcycleantitheftsensor.security.PairingResult
 import com.example.motorcycleantitheftsensor.telephony.EncryptedSmsCodec
 import okhttp3.Call
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
@@ -38,6 +39,7 @@ class TelegramBotClient(
 ) {
 
     private val pairingCodePolicy = PairingCodePolicy()
+    private val botVerifier = TelegramBotVerifier()
     private var commandJob: Job = SupervisorJob()
     private var commandScope = CoroutineScope(commandJob + Dispatchers.IO)
     private var commandQueue = Channel<QueuedCommand>(Channel.UNLIMITED)
@@ -122,15 +124,19 @@ class TelegramBotClient(
         }
 
         try {
+            android.util.Log.i(TRANSPORT_TAG, "Fetching getUpdates offset ${lastUpdateId + 1}")
             call.execute().use { response ->
+                android.util.Log.i(TRANSPORT_TAG, "getUpdates response code: ${response.code}")
                 if (!response.isSuccessful) return
                 val bodyString = response.body?.string() ?: return
-                val json = JSONObject(bodyString)
+                android.util.Log.i(TRANSPORT_TAG, "getUpdates response body: $bodyString")
+                val json = org.json.JSONObject(bodyString)
                 if (!json.optBoolean("ok", false)) return
                 if (!isPolling || epoch != pollingEpoch.get()) return
                 onTelegramContact(System.currentTimeMillis())
 
                 val resultArray = json.getJSONArray("result")
+                android.util.Log.i(TRANSPORT_TAG, "getUpdates result array length: ${resultArray.length()}")
                 for (i in 0 until resultArray.length()) {
                     if (!isPolling || epoch != pollingEpoch.get()) return
                     val update = resultArray.getJSONObject(i)
@@ -249,6 +255,7 @@ class TelegramBotClient(
     }
 
     fun sendTelegramMessage(chatId: String, textMarkdown: String) {
+        android.util.Log.i(TRANSPORT_TAG, "sendTelegramMessage called for $chatId")
         thread {
             sendTelegramMessageSync(chatId, textMarkdown)
         }
@@ -261,18 +268,26 @@ class TelegramBotClient(
     }
 
     private fun sendTelegramMessageSync(chatId: String, textMarkdown: String): Boolean {
+        android.util.Log.i(TRANSPORT_TAG, "sendTelegramMessageSync CALLED for $chatId")
         val botToken = prefsManager.getBotToken() ?: return false
+        android.util.Log.i(TRANSPORT_TAG, "botToken read: ${botToken.take(5)}...")
         return try {
             val url = "https://api.telegram.org/bot$botToken/sendMessage"
-            val body = FormBody.Builder()
-                .add("chat_id", chatId)
-                .add("text", textMarkdown)
-                .build()
-            val request = Request.Builder().url(url).post(body).build()
+            val json = org.json.JSONObject()
+            json.put("chat_id", chatId)
+            json.put("text", textMarkdown)
+            json.put("parse_mode", "Markdown")
+
+            val body = okhttp3.RequestBody.create(
+                "application/json; charset=utf-8".toMediaType(),
+                json.toString()
+            )
+            val request = okhttp3.Request.Builder().url(url).post(body).build()
             TlsPinningClient.client.newCall(request).execute().use { response ->
-                val sent = response.isSuccessful && response.body
-                    ?.string()
-                    ?.let { body -> JSONObject(body).optBoolean("ok", false) } == true
+                val bodyStr = response.body?.string()
+                android.util.Log.i(TRANSPORT_TAG, "sendMessage response: ${response.code} $bodyStr")
+                val sent = response.isSuccessful && bodyStr
+                    ?.let { body -> org.json.JSONObject(body).optBoolean("ok", false) } == true
                 sent.also {
                     if (sent) onTelegramContact(System.currentTimeMillis())
                 }
@@ -283,42 +298,19 @@ class TelegramBotClient(
         }
     }
 
-    /**
-     * Verifies Bot Token with Telegram API (getMe) and fetches Bot Username & ID.
-     * Guaranteed to return callback results on Main UI Thread.
-     */
-    fun verifyBotToken(token: String, onResult: (isValid: Boolean, botUsername: String?, botId: String?) -> Unit) {
+    internal fun verifyBotTokenResult(
+        token: String,
+        onResult: (TelegramBotVerificationResult) -> Unit,
+    ) {
         val cleanToken = normalizeTelegramBotToken(token)
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         if (cleanToken.isBlank()) {
-            mainHandler.post { onResult(false, null, null) }
+            mainHandler.post { onResult(TelegramBotVerificationResult.Rejected) }
             return
         }
         thread {
-            try {
-                val url = "https://api.telegram.org/bot$cleanToken/getMe"
-                val request = Request.Builder().url(url).build()
-                TlsPinningClient.client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: return@use
-                        val json = JSONObject(bodyString)
-                        if (json.optBoolean("ok", false)) {
-                            val res = json.getJSONObject("result")
-                            val username = res.optString("username", "UnknownBot")
-                            val botId = res.optLong("id", 0L).toString()
-                            mainHandler.post {
-                                onResult(true, username, botId)
-                            }
-                            return@thread
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                android.util.Log.w(TOKEN_VERIFICATION_TAG, "Bot token verification failed")
-            }
-            mainHandler.post {
-                onResult(false, null, null)
-            }
+            val result = botVerifier.verify(cleanToken)
+            mainHandler.post { onResult(result) }
         }
     }
 
@@ -367,5 +359,3 @@ internal fun normalizeTelegramBotToken(token: String): String {
     val trimmed = token.trim()
     return if (trimmed.startsWith("bot", ignoreCase = true)) trimmed.drop(3) else trimmed
 }
-
-private const val TOKEN_VERIFICATION_TAG = "TelegramBotClient"

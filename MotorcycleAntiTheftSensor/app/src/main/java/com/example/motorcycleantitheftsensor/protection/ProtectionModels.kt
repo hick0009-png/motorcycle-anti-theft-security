@@ -67,10 +67,17 @@ enum class PersistenceSource {
     INCIDENT_HISTORY,
 }
 
+data class SensorReadingSummary(
+    val value: Double?,
+    val unit: String?,
+    val label: String,
+)
+
 data class SensorHealth(
     val state: SensorHealthState,
     val lastSampleAtMs: Long? = null,
     val detail: String? = null,
+    val latestReading: SensorReadingSummary? = null,
 )
 
 data class IncidentSummary(

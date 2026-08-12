@@ -20,19 +20,25 @@ class TelegramBotClientSourceContractTest {
     }
 
     @Test
-    fun tokenVerificationFailurePathDoesNotPrintRawExceptions() {
+    fun tokenVerificationDelegatesWithoutLoggingSensitiveResponseDetails() {
         val source = File(
             "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
         ).readText()
-        val methodStart = source.indexOf("fun verifyBotToken")
-        val methodEnd = source.indexOf("fun sendTestAlertToOwners", startIndex = methodStart)
-        assertTrue(methodStart >= 0 && methodEnd > methodStart)
-
-        val verificationPath = source.substring(methodStart, methodEnd)
-        assertFalse(verificationPath.contains("printStackTrace"))
-        assertFalse(
-            Regex("""Log\.\w+\([^)]*,\s*(e|exception)\s*\)""")
-                .containsMatchIn(verificationPath),
+        val resultMethodStart = source.indexOf("internal fun verifyBotTokenResult")
+        val methodEnd = source.indexOf(
+            "fun sendTestAlertToOwners",
+            startIndex = resultMethodStart,
         )
+        assertTrue(
+            resultMethodStart >= 0 &&
+                methodEnd > resultMethodStart,
+        )
+
+        val resultPath = source.substring(resultMethodStart, methodEnd)
+        assertTrue(resultPath.contains("botVerifier.verify(cleanToken)"))
+        assertFalse(resultPath.contains("printStackTrace"))
+        assertFalse(resultPath.contains("response.body"))
+        assertFalse(resultPath.contains("Log."))
+        assertFalse(Regex("""Log\.\w+\([^\n]*\$(cleanToken|token)""").containsMatchIn(resultPath))
     }
 }

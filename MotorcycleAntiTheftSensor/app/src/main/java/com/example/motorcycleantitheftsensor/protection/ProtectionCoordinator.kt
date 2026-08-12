@@ -305,6 +305,7 @@ class ProtectionCoordinator(
                         state = SensorHealthState.HEALTHY,
                         lastSampleAtMs = atMs,
                         detail = detail,
+                        latestReading = createReadingSummary(kind, normalizedValue),
                     )
                 ),
                 batteryLevelPercent = if (
@@ -503,6 +504,14 @@ class ProtectionCoordinator(
     private fun telegramDegradationReasons(snapshot: ProtectionSnapshot): Set<String> = buildSet {
         if (!snapshot.telegramPolling) add("TELEGRAM polling inactive")
         if (!snapshot.telegramReachable) add("TELEGRAM unreachable")
+    }
+
+    private fun createReadingSummary(kind: SensorKind, value: Double?): SensorReadingSummary? = when (kind) {
+        SensorKind.VIBRATION -> SensorReadingSummary(value, "m/s²", "Acceleration")
+        SensorKind.LIGHT -> SensorReadingSummary(value, "lux", "Ambient Light")
+        SensorKind.POWER_THERMAL -> SensorReadingSummary(null, null, "Power Status")
+        SensorKind.MICROPHONE -> SensorReadingSummary(null, null, "Signal Received")
+        SensorKind.LOCATION -> SensorReadingSummary(null, null, "Fix Acquired")
     }
 
     private companion object {
