@@ -1,0 +1,107 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260812-1357-17OW4L",
+    "timestamp":  "2026-08-12T13:57:35.5980504+07:00",
+    "phase":  "P5",
+    "task_id":  "COM-02",
+    "status":  "DONE",
+    "description":  "Completed Telegram status and sensor runtime recovery. Unit tests are completely green. Device deployment successful.",
+    "progress":  0,
+    "scope":  "",
+    "knowledge":  [
+
+                  ],
+    "assumptions":  [
+
+                    ],
+    "risks":  [
+
+              ],
+    "memory_snapshot":  [
+
+                        ],
+    "dependencies":  [
+
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+                  "name":  "Antigravity",
+                  "model":  "gemini-3.6-flash"
+              },
+    "snapshot":  {
+                     "build_status":  "NOT_RUN",
+                     "build_output_snippet":  "",
+                     "files_changed":  [
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/build.gradle.kts",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionRuntimeGraph.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/AndroidProtectionSettingsGateway.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/RemoteCommandTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClientSourceContractTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/TelegramCommandHandlerTest.kt",
+                                               "action":  "MODIFIED"
+                                           }
+                                       ]
+                 },
+    "decisions":  [
+
+                  ],
+    "open_tasks":  [
+
+                   ],
+    "context":  {
+                    "summary":  "Completed Telegram status and sensor runtime recovery. Unit tests are completely green. Device deployment successful.",
+                    "next_steps":  [
+
+                                   ],
+                    "warnings":  [
+
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "52a8eaf"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  [
+
+             ]
+}
