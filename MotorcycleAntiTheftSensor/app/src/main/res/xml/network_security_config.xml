@@ -10,10 +10,9 @@
     <!-- Certificate Pinning Configuration for Telegram Bot API -->
     <domain-config>
         <domain includeSubdomains="true">api.telegram.org</domain>
-        <pin-set expiration="2027-01-01">
-            <!-- Primary Certificate Hash for api.telegram.org -->
-            <!-- Backup Certificate Hash -->
-            <pin digest="SHA-256">Y9mvm0exBk1JoQ557r9S1aB2cBZn6EesEARfNSc8dOf=</pin>
+        <pin-set expiration="2027-12-01">
+            <pin digest="SHA-256">AgyCmTysFOI6aQCSyQJ+QIXpnGn0v7n+D+mv6jWAtQc=</pin>
+            <pin digest="SHA-256">8Rw90Ej3Ttt8RRkrg+WYDS9n7IS03bk5bjP/UXPtaY8=</pin>
         </pin-set>
     </domain-config>
 </network-security-config>
