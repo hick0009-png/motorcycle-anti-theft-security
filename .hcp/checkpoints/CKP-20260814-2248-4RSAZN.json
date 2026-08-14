@@ -1,0 +1,255 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260814-2248-4RSAZN",
+    "timestamp":  "2026-08-14T22:48:43.1308132+07:00",
+    "phase":  "P5",
+    "task_id":  "SEN-02",
+    "status":  "DONE",
+    "description":  "Completed GPS settings verification, silent notification, state-lock I/O removal, shared location presentation, and Android 14 FGS visibility hardening",
+    "progress":  100,
+    "scope":  "",
+    "knowledge":  [
+
+                  ],
+    "assumptions":  [
+
+                    ],
+    "risks":  [
+
+              ],
+    "memory_snapshot":  [
+
+                        ],
+    "dependencies":  [
+
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+                  "name":  "Antigravity",
+                  "model":  "gemini-3.6-flash"
+              },
+    "snapshot":  {
+                     "build_status":  "NOT_RUN",
+                     "build_output_snippet":  "",
+                     "files_changed":  [
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/build.gradle.kts",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/androidTest/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreenTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/AndroidManifest.xml",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/data/EncryptedPrefsManager.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/AndroidProtectionRuntime.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/FileIncidentRepository.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentDeliveryCoordinator.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentEngine.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/IncidentMessageFormatter.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinator.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionModels.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionRuntimeGraph.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStore.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SecurityIncident.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SensorObservation.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/SnapshotProjectionGate.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/sensor/LocationObservationProvider.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/telegram/ProtectionStatusFormatter.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotVerifier.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramCommandHandler.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/AndroidProtectionSettingsGateway.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionUiModels.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModel.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/protection/ProtectionScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/AndroidProtectionRuntimeTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/FileIncidentRepositoryTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentCloseDispatcherTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentDeliveryCoordinatorTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentEngineTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentMessageFormatterTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/IncidentUpdateDeliveryPolicyTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinatorTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStoreTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/SensorObservationProcessorTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/ProtectionStatusFormatterTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/RemoteCommandTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClientSourceContractTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotVerifierTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/telegram/TelegramCommandHandlerTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/AndroidProtectionSettingsGatewayTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModelTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/docs/superpowers/specs/2026-08-08-demo-free-authoritative-ui-design.md",
+                                               "action":  "MODIFIED"
+                                           }
+                                       ]
+                 },
+    "decisions":  [
+
+                  ],
+    "open_tasks":  [
+
+                   ],
+    "context":  {
+                    "summary":  "Completed GPS settings verification, silent notification, state-lock I/O removal, shared location presentation, and Android 14 FGS visibility hardening",
+                    "next_steps":  [
+
+                                   ],
+                    "warnings":  [
+
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "c168ae9"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  [
+
+             ]
+}
