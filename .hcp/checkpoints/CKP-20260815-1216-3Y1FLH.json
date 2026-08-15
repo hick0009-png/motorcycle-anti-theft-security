@@ -7,21 +7,31 @@
     "status":  "DONE",
     "description":  "GPS pursuit, authenticator removal, Telegram settings reliability, and arm UI stability verified and committed before cleanup backup",
     "progress":  100,
-    "scope":  "",
+    "scope":  "Finalize and preserve the verified GPS Live Pursuit, Telegram owner-only disarm/authenticator removal, settings reliability, and arm UI stability work before deleting reproducible local artifacts and creating the D-drive backup archive.",
     "knowledge":  [
-
+                      "Application, source tests, plans, status evidence, and the device dashboard screenshot are committed in 2984446.",
+                      "Repository workflow documentation and HCP tooling are committed separately in 38811fe.",
+                      "Fresh host verification completed with 61 test suites, 327 tests, 0 failures, 0 errors, assembleDebug success, and compileDebugAndroidTestKotlin success.",
+                      "The verified debug APK SHA-256 before cleanup is 8DC3C9F8272650D6898730046FECBAB0D0B46538736100891BBC18A0643B462A."
                   ],
     "assumptions":  [
-
+                        "Source tests under app/src/test and app/src/androidTest are product assets and must remain in Git and in the backup.",
+                        "Gradle caches, build outputs, generated test reports, Kotlin error caches, JVM crash logs, and the black scratch screenshot are reproducible local artifacts."
                     ],
     "risks":  [
-
+                  "No Git remote named origin is configured, so the ZIP and local Git history are the available backup copies.",
+                  "The Android SDK XML version warning remains; it did not fail compilation or tests.",
+                  "No new real-device acceptance run was performed in this cleanup session; previously committed device evidence remains the device-level record."
               ],
     "memory_snapshot":  [
-
+                            "User requested a clean checkpointed repository and D:\\ป้องกันมอเตอร์ไชค์.zip backup.",
+                            "Do not restore the removed QR/TOTP authenticator flow; Telegram /disarm is authorized only by the paired owner chat ID.",
+                            "Do not delete source tests or plans during space cleanup."
                         ],
     "dependencies":  [
-
+                         "Android Studio JBR at C:\\Program Files\\Android\\Android Studio\\jbr",
+                         "Gradle wrapper 9.1.0",
+                         "Local Git repository at D:\\security"
                      ],
     "error_info":  null,
     "agent":  {
@@ -30,30 +40,50 @@
                   "model":  "GPT-5"
               },
     "snapshot":  {
-                     "build_status":  "NOT_RUN",
-                     "build_output_snippet":  "",
+                     "build_status":  "SUCCESS",
+                     "build_output_snippet":  "testDebugUnitTest + assembleDebug + compileDebugAndroidTestKotlin: BUILD SUCCESSFUL; 61 suites, 327 tests, 0 failures, 0 errors.",
+                     "test_results":  {
+                                          "passed":  327,
+                                          "failed":  0,
+                                          "skipped":  0
+                                      },
                      "files_changed":  [
-
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/docs",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  ".hcp",
+                                               "action":  "MODIFIED"
+                                           }
                                        ]
                  },
     "decisions":  [
                       {
                           "decided_by":  "user",
-                          "rationale":  "",
+                          "rationale":  "Generated artifacts can be recreated, while tests and documentation are required for verification, maintenance, and recovery.",
                           "question":  "Preserve source tests and documentation; remove only reproducible caches, build outputs, test reports, crash logs, and scratch artifacts",
-                          "decision":  ""
+                          "decision":  "Keep all source tests and documentation; delete only verified reproducible artifacts."
                       }
                   ],
     "open_tasks":  [
-
+                       "Delete only the pre-validated generated cache, build, test-output, and crash-log paths.",
+                       "Create D:\\ป้องกันมอเตอร์ไชค์.zip and verify its hash, required entries, excluded generated paths, and embedded Git integrity."
                    ],
     "context":  {
                     "summary":  "GPS pursuit, authenticator removal, Telegram settings reliability, and arm UI stability verified and committed before cleanup backup",
                     "next_steps":  [
-
+                                       "Run HCP resume, audit, and recover dry-run checks.",
+                                       "Measure and remove only approved generated artifacts.",
+                                       "Create and validate the full repository backup ZIP on D:."
                                    ],
                     "warnings":  [
-
+                                     "No origin remote is configured.",
+                                     "AI_WORKFLOW.md referenced by AGENTS.md is absent from this checkout."
                                  ]
                 },
     "git":  {
@@ -62,6 +92,12 @@
                 "dirty":  false,
                 "commit_hash":  "38811fe"
             },
-    "parent_checkpoint_id":  null,
-    "tags":  "gps"
+    "parent_checkpoint_id":  "CKP-20260814-2248-4RSAZN",
+    "tags":  [
+                 "gps",
+                 "authenticator",
+                 "ui",
+                 "cleanup",
+                 "backup"
+             ]
 }
