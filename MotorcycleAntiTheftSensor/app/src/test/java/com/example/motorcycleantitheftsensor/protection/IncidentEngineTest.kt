@@ -139,5 +139,4 @@ private fun accepted(
     baselineDelta = normalizedValue,
     valid = true,
     diagnostic = diagnostic,
-    source = IncidentSource.REAL,
 )

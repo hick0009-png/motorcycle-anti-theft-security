@@ -42,7 +42,6 @@ private data class ProjectionKey(
 
 private data class IncidentProjection(
     val id: String,
-    val source: IncidentSource,
     val severity: IncidentSeverity,
     val lifecycle: IncidentLifecycle,
     val deliveryState: DeliveryState,
@@ -61,7 +60,6 @@ private fun ProtectionSnapshot.projectionKey(): ProjectionKey = ProjectionKey(
     lastIncident = lastIncident?.let { incident ->
         IncidentProjection(
             id = incident.id,
-            source = incident.source,
             severity = incident.severity,
             lifecycle = incident.lifecycle,
             deliveryState = incident.deliveryState,

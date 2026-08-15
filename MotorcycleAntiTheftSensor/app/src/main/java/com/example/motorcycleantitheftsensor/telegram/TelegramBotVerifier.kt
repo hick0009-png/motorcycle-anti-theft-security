@@ -2,7 +2,18 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import com.example.motorcycleantitheftsensor.network.TlsPinningClient
 import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 
 internal sealed interface TelegramBotVerificationResult {
@@ -16,14 +27,56 @@ internal data class TelegramVerificationHttpResponse(
     val body: String?,
 )
 
-internal class TelegramBotVerifier(
-    private val execute: (Request) -> TelegramVerificationHttpResponse = { request ->
-        TlsPinningClient.client.newCall(request).execute().use { response ->
-            TelegramVerificationHttpResponse(response.code, response.body?.string())
+internal fun interface TelegramVerificationTransport {
+    suspend fun execute(request: Request): TelegramVerificationHttpResponse
+}
+
+internal class OkHttpTelegramVerificationTransport(
+    pinnedClient: OkHttpClient = TlsPinningClient.client,
+    callTimeoutSeconds: Long = 10L,
+) : TelegramVerificationTransport {
+    private val client = pinnedClient.newBuilder()
+        .callTimeout(callTimeoutSeconds, TimeUnit.SECONDS)
+        .build()
+
+    override suspend fun execute(request: Request): TelegramVerificationHttpResponse =
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation {
+                call.cancel()
+            }
+            call.enqueue(object : Callback {
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val httpResponse = response.use { resp ->
+                            TelegramVerificationHttpResponse(
+                                code = resp.code,
+                                body = resp.body?.string(),
+                            )
+                        }
+                        if (continuation.isActive) {
+                            continuation.resume(httpResponse)
+                        }
+                    } catch (e: Throwable) {
+                        if (continuation.isActive) {
+                            continuation.resumeWithException(e)
+                        }
+                    }
+                }
+
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) {
+                        continuation.resumeWithException(e)
+                    }
+                }
+            })
         }
-    },
+}
+
+internal class TelegramBotVerifier(
+    private val transport: TelegramVerificationTransport = OkHttpTelegramVerificationTransport(),
 ) {
-    fun verify(rawToken: String): TelegramBotVerificationResult {
+    suspend fun verify(rawToken: String): TelegramBotVerificationResult {
         val token = normalizeTelegramBotToken(rawToken)
         if (token.isBlank()) return TelegramBotVerificationResult.Rejected
         val request = try {
@@ -34,8 +87,13 @@ internal class TelegramBotVerifier(
             return TelegramBotVerificationResult.Rejected
         }
         val response = try {
-            execute(request)
+            transport.execute(request)
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: IOException) {
+            return TelegramBotVerificationResult.ConnectionFailure
+        } catch (e: RuntimeException) {
+            currentCoroutineContext().ensureActive()
             return TelegramBotVerificationResult.ConnectionFailure
         }
         if (response.code !in 200..299) return TelegramBotVerificationResult.Rejected

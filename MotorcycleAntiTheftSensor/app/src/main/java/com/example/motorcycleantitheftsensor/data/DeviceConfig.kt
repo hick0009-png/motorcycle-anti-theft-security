@@ -9,6 +9,5 @@ data class DeviceConfig(
     val isArmed: Boolean,
     val sensitivityLevel: Int,
     val hasBotToken: Boolean,
-    val hasTotpSeed: Boolean,
-    val allowedChatCount: Int
+    val allowedChatCount: Int,
 )

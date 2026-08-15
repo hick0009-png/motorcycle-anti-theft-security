@@ -1,6 +1,5 @@
 package com.example.motorcycleantitheftsensor.ui
 
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -372,8 +371,14 @@ class ProtectionAppScreenTest {
                     destination = ProtectionDestination.SETTINGS,
                     message = ProtectionUiMessage(
                         id = 42L,
-                        text = "Pairing reset",
-                        isError = false,
+                        content = com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                            titleTh = "Pairing reset",
+                            bodyTh = "Pairing reset",
+                            telegramTh = null,
+                            severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.INFO,
+                            action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.NONE,
+                            persistent = false,
+                        ),
                     ),
                 ),
                 fakeActions().copy(consumeMessage = { consumedMessageId = it }),
@@ -494,129 +499,17 @@ class ProtectionAppScreenTest {
     }
 
     @Test
-    fun authenticatorSecretAppearsOnlyAfterAsyncCompletionAndClearsOnCancel() {
-        val secret = "TRANSIENT-SETUP-SECRET"
-        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
-        val actions = fakeActions().copy(
-            beginAuthenticatorSetup = { onComplete ->
-                setupCompletion = onComplete
-                {}
-            },
-        )
-        compose.setContent {
-            ProtectionAppScreen(
-                baseState(ProtectionState.DISARMED_ONLINE).copy(
-                    destination = ProtectionDestination.SETTINGS,
-                ),
-                actions,
-            )
-        }
+    fun settingsRendersNoAuthenticatorOrQrControls() {
+        showWithLocalNavigation(configuredSettingsState())
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
-        compose.onNodeWithText("Set up authenticator").performClick()
-        compose.onAllNodes(hasText(secret)).assertCountEquals(0)
-        compose.runOnIdle {
-            requireNotNull(setupCompletion)(
-                AuthenticatorSetupDetails(secret = secret, uri = "otpauth://transient"),
-            )
-        }
-        compose.onNode(hasTestTag("authenticator_secret")).assertExists()
-        compose.onAllNodes(hasText(secret)).assertCountEquals(0)
-        compose.onNodeWithText("Reveal secret").performClick()
-        compose.onNodeWithContentDescription("Authenticator secret revealed").assertExists()
-        compose.onAllNodes(hasContentDescription(secret, substring = true)).assertCountEquals(0)
-        compose.runOnIdle {
-            assertTrue(
-                compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,
-            )
-        }
-        compose.onNodeWithText("Cancel").performClick()
-        compose.onAllNodes(hasTestTag("authenticator_secret")).assertCountEquals(0)
-        compose.runOnIdle {
-            assertFalse(
-                compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0,
-            )
-        }
-    }
+        openSettings()
 
-    @Test
-    fun authenticatorQrRequiresExplicitActionAndClearsOnCancel() {
-        val secret = "JBSWY3DPEHPK3PXP"
-        val uri = "otpauth://totp/MotorcycleGuard:VehicleOwner" +
-            "?secret=$secret&issuer=MotorcycleGuard&algorithm=SHA1&digits=6&period=30"
-        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
-        val actions = fakeActions().copy(
-            beginAuthenticatorSetup = { onComplete ->
-                setupCompletion = onComplete
-                {}
-            },
-        )
-        compose.setContent {
-            ProtectionAppScreen(
-                baseState(ProtectionState.DISARMED_ONLINE).copy(
-                    destination = ProtectionDestination.SETTINGS,
-                ),
-                actions,
-            )
-        }
-
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
-        compose.onNodeWithText("Set up authenticator").performClick()
-        compose.runOnIdle {
-            requireNotNull(setupCompletion)(AuthenticatorSetupDetails(secret, uri))
-        }
-
+        compose.onAllNodes(hasText("Authenticator", substring = true, ignoreCase = true))
+            .assertCountEquals(0)
+        compose.onAllNodes(hasText("Set up authenticator")).assertCountEquals(0)
+        compose.onAllNodes(hasText("Replace authenticator")).assertCountEquals(0)
+        compose.onAllNodes(hasText("Show QR code")).assertCountEquals(0)
         compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
-        compose.onNodeWithText("Show QR code").performClick()
-        compose.onNodeWithTag("authenticator_qr_code").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Authenticator setup QR code").assertExists()
-        compose.onAllNodes(hasText(uri, substring = true)).assertCountEquals(0)
-        compose.onAllNodes(hasText(secret, substring = true)).assertCountEquals(0)
-        compose.runOnIdle {
-            assertTrue(
-                compose.activity.window.attributes.flags and
-                    WindowManager.LayoutParams.FLAG_SECURE != 0,
-            )
-        }
-
-        compose.onNodeWithText("Hide QR code").performClick()
-        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
-        compose.onNodeWithText("Show QR code").performClick()
-        compose.onNodeWithTag("authenticator_qr_code").assertIsDisplayed()
-        compose.onNodeWithText("Cancel").performClick()
-        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
-    }
-
-    @Test
-    fun authenticatorQrFailureKeepsManualSecretFallback() {
-        val secret = "TEST-ONLY-SECRET"
-        var setupCompletion: ((AuthenticatorSetupDetails?) -> Unit)? = null
-        val actions = fakeActions().copy(
-            beginAuthenticatorSetup = { onComplete ->
-                setupCompletion = onComplete
-                {}
-            },
-        )
-        compose.setContent {
-            ProtectionAppScreen(
-                baseState(ProtectionState.DISARMED_ONLINE).copy(
-                    destination = ProtectionDestination.SETTINGS,
-                ),
-                actions,
-            )
-        }
-
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Set up authenticator"))
-        compose.onNodeWithText("Set up authenticator").performClick()
-        compose.runOnIdle {
-            requireNotNull(setupCompletion)(AuthenticatorSetupDetails(secret, uri = "invalid"))
-        }
-        compose.onNodeWithText("Show QR code").performClick()
-
-        compose.onNodeWithText("Unable to create QR code. Use the secret instead.").assertExists()
-        compose.onNodeWithText("Reveal secret").assertExists()
-        compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
-        compose.onAllNodes(hasText("invalid", substring = true)).assertCountEquals(0)
     }
 
     private fun showWithLocalNavigation(
@@ -663,7 +556,6 @@ private fun configuredSettingsState(): ProtectionUiState =
             tokenConfigured = true,
             pairedOwnerCount = 1,
             pairingCode = null,
-            authenticatorConfigured = true,
             smsFallbackConfigured = true,
         ),
     )
@@ -705,7 +597,6 @@ private fun baseState(protectionState: ProtectionState): ProtectionUiState = Pro
         tokenConfigured = false,
         pairedOwnerCount = 0,
         pairingCode = "271828",
-        authenticatorConfigured = false,
         sensitivity = 5,
         smsFallbackConfigured = false,
         missingPermissions = emptySet(),
@@ -726,9 +617,6 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
     requestPermissions = {},
     replaceBotToken = {},
     configureSmsFallback = { _, _ -> },
-    beginAuthenticatorSetup = { _ -> {} },
-    cancelAuthenticatorSetup = {},
-    verifyAuthenticator = { _, _ -> {} },
     retry = {},
     retrySettings = {},
     resetPairing = {},

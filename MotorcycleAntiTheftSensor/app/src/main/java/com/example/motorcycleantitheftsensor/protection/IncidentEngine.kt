@@ -11,41 +11,42 @@ class IncidentEngine(
         val lastEvidenceElapsedMs: Long,
     )
 
-    private val activeBySource = mutableMapOf<IncidentSource, ActiveIncident>()
-    private val lightPrecursorBySource = mutableMapOf<IncidentSource, IncidentEvidence>()
+    private var activeIncident: ActiveIncident? = null
+    private var lightPrecursor: IncidentEvidence? = null
 
     @Synchronized
     fun accept(
         observation: SensorObservation,
         protectionState: ProtectionState,
+        location: IncidentLocation? = null,
     ): IncidentUpdate {
-        if (observation.source == IncidentSource.REAL && protectionState !in ACTIVE_PROTECTION_STATES) {
+        if (protectionState !in ACTIVE_PROTECTION_STATES) {
             return IncidentUpdate.Ignored
         }
 
         val evidence = observation.toEvidence()
-        val active = activeBySource[observation.source]
+        val active = activeIncident
         if (active == null) {
             if (observation.kind == SensorKind.LIGHT) {
-                lightPrecursorBySource[observation.source] = evidence
+                lightPrecursor = evidence
                 return IncidentUpdate.Ignored
             }
             val classification = initialClassification(observation) ?: return IncidentUpdate.Ignored
-            val lightPrecursor = lightPrecursorBySource.remove(observation.source)
+            val priorLight = lightPrecursor
                 ?.takeIf { light ->
                     observation.kind == SensorKind.VIBRATION &&
                         abs(observation.eventElapsedMs - light.eventElapsedMs) <= correlationWindowMs
                 }
-            val openingClassification = if (lightPrecursor != null) {
+            lightPrecursor = null
+            val openingClassification = if (priorLight != null) {
                 Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
             } else {
                 classification
             }
-            val openingEvidence = listOfNotNull(lightPrecursor, evidence)
+            val openingEvidence = listOfNotNull(priorLight, evidence)
             val incident = SecurityIncident(
                 id = idGenerator.nextId(),
                 type = openingClassification.type,
-                source = observation.source,
                 severity = openingClassification.severity,
                 lifecycle = IncidentLifecycle.OPEN,
                 evidence = openingEvidence,
@@ -54,8 +55,9 @@ class IncidentEngine(
                 closedAtMs = null,
                 protectionState = protectionState,
                 deliveryState = DeliveryState.PENDING,
+                location = location,
             )
-            activeBySource[observation.source] = ActiveIncident(incident, observation.eventElapsedMs)
+            activeIncident = ActiveIncident(incident, observation.eventElapsedMs)
             return IncidentUpdate.Opened(incident)
         }
 
@@ -67,8 +69,9 @@ class IncidentEngine(
             evidence = evidenceList,
             updatedAtMs = observation.wallClockMs,
             protectionState = protectionState,
+            location = location ?: active.incident.location,
         )
-        activeBySource[observation.source] = ActiveIncident(updated, observation.eventElapsedMs)
+        activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
 
         return if (updated.severity.ordinal > active.incident.severity.ordinal) {
             IncidentUpdate.Escalated(updated)
@@ -81,9 +84,9 @@ class IncidentEngine(
     fun close(
         nowMs: Long,
         reason: String,
-        source: IncidentSource = IncidentSource.REAL,
     ): IncidentUpdate.Closed? {
-        val active = activeBySource.remove(source) ?: return null
+        val active = activeIncident ?: return null
+        activeIncident = null
         val closed = active.incident.copy(
             lifecycle = IncidentLifecycle.CLOSED,
             updatedAtMs = nowMs,
@@ -97,21 +100,20 @@ class IncidentEngine(
     fun closeIfQuiet(
         nowElapsedMs: Long,
         quietWindowMs: Long,
-        source: IncidentSource = IncidentSource.REAL,
     ): IncidentUpdate.Closed? {
-        val active = activeBySource[source] ?: return null
+        val active = activeIncident ?: return null
         val quietDurationMs = nowElapsedMs - active.lastEvidenceElapsedMs
         if (quietDurationMs < quietWindowMs) return null
         val closeWallClockMs = active.incident.updatedAtMs + quietDurationMs
-        return close(closeWallClockMs, "quiet window elapsed", source)
+        return close(closeWallClockMs, "quiet window elapsed")
     }
 
     @Synchronized
     fun interrupted(
         nowMs: Long,
-        source: IncidentSource = IncidentSource.REAL,
     ): IncidentUpdate.Closed? {
-        val active = activeBySource.remove(source) ?: return null
+        val active = activeIncident ?: return null
+        activeIncident = null
         val interrupted = active.incident.copy(
             lifecycle = IncidentLifecycle.INTERRUPTED,
             updatedAtMs = nowMs,

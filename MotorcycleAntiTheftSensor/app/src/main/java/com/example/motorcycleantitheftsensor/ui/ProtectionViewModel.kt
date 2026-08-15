@@ -7,6 +7,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
+import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -43,6 +45,8 @@ class ProtectionViewModel(
             delay(1_000L)
         }
     },
+    private val snapshotProjectionGate: SnapshotProjectionGate =
+        SnapshotProjectionGate(UI_SNAPSHOT_PROJECTION_INTERVAL_MS),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : ViewModel() {
@@ -56,9 +60,12 @@ class ProtectionViewModel(
     private val settingsSummary = MutableStateFlow(emptySettingsSummary())
     private val presentation = MutableStateFlow(PresentationInputs(settingsLoading = true))
     private val currentTimeMs = MutableStateFlow(nowMs())
+    private val projectedSnapshots = coordinator.snapshot.filter { snapshot ->
+        snapshotProjectionGate.shouldProject(snapshot, nowMs())
+    }
 
     val uiState: StateFlow<ProtectionUiState> = combine(
-        coordinator.snapshot,
+        projectedSnapshots,
         destination,
         settingsSummary,
         presentation,
@@ -106,15 +113,15 @@ class ProtectionViewModel(
         this.destination.value = destination
     }
 
-    fun arm() = runProtectionCommand("Unable to arm protection") {
+    fun arm() = runProtectionCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED) {
         publishResult(coordinator.arm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun disarm() = runProtectionCommand("Unable to disarm protection") {
+    fun disarm() = runProtectionCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED) {
         publishResult(coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL))
     }
 
-    fun changeSensitivity(level: Int) = runSettingsCommand("Unable to change sensitivity") {
+    fun changeSensitivity(level: Int) = runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN) {
         val result = coordinator.changeSensitivity(nextCommandId(), level)
         publishResult(result)
         if (result.outcome == CommandOutcome.APPLIED) {
@@ -123,7 +130,7 @@ class ProtectionViewModel(
         }
     }
 
-    fun clearHistory() = runEventsCommand("Unable to clear event history") {
+    fun clearHistory() = runEventsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN) {
         presentation.update { it.copy(eventsLoading = true, eventsError = null) }
         try {
             withContext(dispatcher) { incidents.clearHistory() }
@@ -137,70 +144,105 @@ class ProtectionViewModel(
         }
     }
 
-    fun updateMissingPermissions(permissions: Set<String>) = runSettingsCommand("Unable to update permissions") {
+    fun updateMissingPermissions(permissions: Set<String>) = runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED) {
         readSettings(permissions)
     }
 
     fun replaceBotToken(token: String) {
         if (token.isBlank()) {
-            publishMessage("Bot token is required", isError = true)
+            publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.BOT_TOKEN_INVALID))
             return
         }
-        runSettingsCommand("Unable to update bot token") {
-            publishSettingsResult(settings.replaceBotToken(token))
+        runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED) {
+            val result = settings.replaceBotToken(token)
+            if (result.applied) {
+                publishMessage(
+                    com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                        titleTh = "บันทึกและเชื่อมต่อ Bot สำเร็จ",
+                        bodyTh = result.message,
+                        telegramTh = null,
+                        severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.SUCCESS,
+                        action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.NONE,
+                        persistent = false,
+                    )
+                )
+                readSettings(settingsSummary.value.missingPermissions)
+            } else {
+                publishMessage(
+                    com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                        titleTh = "บันทึก Bot Token ไม่สำเร็จ",
+                        bodyTh = result.message,
+                        telegramTh = null,
+                        severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.WARNING,
+                        action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
+                        persistent = false,
+                    )
+                )
+            }
         }
     }
 
-    fun configureSmsFallback(destination: String, aesKey: String) = runSettingsCommand(
-        "Unable to configure SMS fallback",
-    ) {
-        publishSettingsResult(settings.saveSmsFallback(destination, aesKey))
-    }
-
-    fun beginAuthenticatorSetup(onComplete: (AuthenticatorSetupDetails?) -> Unit): () -> Unit {
-        val cancelJob = runSensitiveSettingsCommand(
-            failureMessage = "Unable to start authenticator setup",
-            failureValue = null,
-            onComplete = onComplete,
-        ) {
-            settings.beginAuthenticatorSetup()
-        }
-        return {
-            cancelJob()
-            settings.cancelAuthenticatorSetup()
-        }
-    }
-
-    fun verifyAuthenticator(code: String, onComplete: (Boolean) -> Unit): () -> Unit {
-        val cancelJob = runSensitiveSettingsCommand(
-            failureMessage = "Unable to verify authenticator code",
-            failureValue = false,
-            onComplete = onComplete,
-        ) {
-            val verified = settings.verifyAuthenticator(code)
-            if (verified) readSettings(settingsSummary.value.missingPermissions)
-            verified
-        }
-        return {
-            cancelJob()
-            settings.cancelAuthenticatorSetup()
+    fun configureSmsFallback(destination: String, aesKey: String) = runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED) {
+        val result = settings.saveSmsFallback(destination, aesKey)
+        if (result.applied) {
+            publishMessage(
+                com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                    titleTh = "บันทึก SMS สำรองสำเร็จ",
+                    bodyTh = "บันทึกเบอร์ปลายทางและคีย์เข้ารหัสเรียบร้อยแล้ว",
+                    telegramTh = null,
+                    severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.SUCCESS,
+                    action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.NONE,
+                    persistent = false,
+                )
+            )
+            readSettings(settingsSummary.value.missingPermissions)
+        } else {
+            publishMessage(
+                com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                    titleTh = "บันทึก SMS สำรองไม่สำเร็จ",
+                    bodyTh = "ตรวจสอบข้อมูลแล้วลองใหม่",
+                    telegramTh = null,
+                    severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.WARNING,
+                    action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
+                    persistent = false,
+                )
+            )
         }
     }
-
-    fun cancelAuthenticatorSetup() {
-        settings.cancelAuthenticatorSetup()
-    }
-
-    fun retry() = runEventsCommand("Unable to refresh event history") {
+    fun retry() = runEventsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN) {
         refreshEvents()
     }
 
-    fun retrySettings() = runSettingsCommand("Unable to refresh settings") {
+    fun retrySettings() = runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN) {
         readSettings(settingsSummary.value.missingPermissions)
     }
 
-    fun resetPairing() = runSettingsCommand("Unable to reset pairing") {
-        publishSettingsResult(settings.resetPairing())
+    fun resetPairing() = runSettingsCommand(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED) {
+        val result = settings.resetPairing()
+        if (result.applied) {
+            publishMessage(
+                com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                    titleTh = "รีเซ็ตการจับคู่สำเร็จ",
+                    bodyTh = "กรุณาใช้รหัสจับคู่ใหม่บน Telegram",
+                    telegramTh = null,
+                    severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.SUCCESS,
+                    action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.NONE,
+                    persistent = false,
+                )
+            )
+            readSettings(settingsSummary.value.missingPermissions)
+        } else {
+            publishMessage(
+                com.example.motorcycleantitheftsensor.protection.GuidanceContent(
+                    titleTh = "รีเซ็ตการจับคู่ไม่สำเร็จ",
+                    bodyTh = result.message,
+                    telegramTh = null,
+                    severity = com.example.motorcycleantitheftsensor.protection.GuidanceSeverity.WARNING,
+                    action = com.example.motorcycleantitheftsensor.protection.GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
+                    persistent = false,
+                )
+            )
+        }
     }
 
     fun consumeMessage(id: Long) {
@@ -210,12 +252,11 @@ class ProtectionViewModel(
     }
 
     override fun onCleared() {
-        settings.cancelAuthenticatorSetup()
         scope.cancel()
         super.onCleared()
     }
 
-    private fun runProtectionCommand(failureMessage: String, action: suspend () -> Unit) {
+    private fun runProtectionCommand(failureCode: com.example.motorcycleantitheftsensor.protection.GuidanceCode, action: suspend () -> Unit) {
         scope.launch {
             activeProtectionOperations.incrementAndGet()
             presentation.update { it.copy(protectionOperationInFlight = true) }
@@ -224,7 +265,7 @@ class ProtectionViewModel(
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Throwable) {
-                publishMessage(failureMessage, isError = true)
+                publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(failureCode))
             } finally {
                 if (activeProtectionOperations.decrementAndGet() == 0L) {
                     presentation.update { it.copy(protectionOperationInFlight = false) }
@@ -233,7 +274,7 @@ class ProtectionViewModel(
         }
     }
 
-    private fun runSettingsCommand(failureMessage: String, action: suspend () -> Unit) {
+    private fun runSettingsCommand(failureCode: com.example.motorcycleantitheftsensor.protection.GuidanceCode, action: suspend () -> Unit) {
         scope.launch {
             settingsMutex.withLock {
                 presentation.update { it.copy(settingsOperationInFlight = true) }
@@ -242,7 +283,7 @@ class ProtectionViewModel(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
-                    publishMessage(failureMessage, isError = true)
+                    publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(failureCode))
                 } finally {
                     presentation.update { it.copy(settingsOperationInFlight = false) }
                 }
@@ -250,7 +291,7 @@ class ProtectionViewModel(
         }
     }
 
-    private fun runEventsCommand(failureMessage: String, action: suspend () -> Unit) {
+    private fun runEventsCommand(failureCode: com.example.motorcycleantitheftsensor.protection.GuidanceCode, action: suspend () -> Unit) {
         scope.launch {
             eventsMutex.withLock {
                 presentation.update { it.copy(eventsOperationInFlight = true) }
@@ -259,7 +300,7 @@ class ProtectionViewModel(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
-                    publishMessage(failureMessage, isError = true)
+                    publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(failureCode))
                 } finally {
                     presentation.update { it.copy(eventsOperationInFlight = false) }
                 }
@@ -268,7 +309,7 @@ class ProtectionViewModel(
     }
 
     private fun <T> runSensitiveSettingsCommand(
-        failureMessage: String,
+        failureCode: com.example.motorcycleantitheftsensor.protection.GuidanceCode,
         failureValue: T,
         onComplete: (T) -> Unit,
         action: suspend () -> T,
@@ -281,7 +322,7 @@ class ProtectionViewModel(
                 } catch (exception: CancellationException) {
                     throw exception
                 } catch (exception: Throwable) {
-                    publishMessage(failureMessage, isError = true)
+                    publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(failureCode))
                     failureValue
                 } finally {
                     presentation.update { it.copy(settingsOperationInFlight = false) }
@@ -340,27 +381,44 @@ class ProtectionViewModel(
     }
 
     private suspend fun publishSettingsResult(result: SettingsOperationResult) {
-        publishMessage(result.message, isError = !result.applied)
+        val code = if (result.applied) com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_SUCCESS else com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED
+        publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(code))
         if (result.applied) readSettings(settingsSummary.value.missingPermissions)
     }
 
     private fun publishResult(result: ProtectionCommandResult) {
-        publishMessage(result.reason, isError = result.outcome != CommandOutcome.APPLIED)
+        val code = if (result.outcome == CommandOutcome.APPLIED) {
+            when (result.resultingState) {
+                com.example.motorcycleantitheftsensor.protection.ProtectionState.ARMING, com.example.motorcycleantitheftsensor.protection.ProtectionState.ARMED_HEALTHY, com.example.motorcycleantitheftsensor.protection.ProtectionState.ARMED_DEGRADED -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_APPLIED
+                com.example.motorcycleantitheftsensor.protection.ProtectionState.DISARMED_ONLINE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_APPLIED
+                com.example.motorcycleantitheftsensor.protection.ProtectionState.ALERT_ACTIVE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ALERT_ACTIVE
+                else -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_STATUS_SUCCESS
+            }
+        } else {
+            if (result.reason.contains("Arm", ignoreCase = true)) com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED
+            else if (result.reason.contains("Disarm", ignoreCase = true)) com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED
+            else if (result.reason.contains("Sensitivity", ignoreCase = true)) com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_INVALID
+            else com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN
+        }
+        publishMessage(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(code))
     }
 
-    private fun publishMessage(text: String, isError: Boolean) {
+    private fun publishMessage(guidanceContent: com.example.motorcycleantitheftsensor.protection.GuidanceContent) {
         presentation.update {
             it.copy(
                 message = ProtectionUiMessage(
                     id = commandSequence.incrementAndGet(),
-                    text = text,
-                    isError = isError,
+                    content = guidanceContent,
                 ),
             )
         }
     }
 
     private fun nextCommandId(): String = "ui-${UUID.randomUUID()}"
+
+    private companion object {
+        const val UI_SNAPSHOT_PROJECTION_INTERVAL_MS = 1_000L
+    }
 }
 
 private data class PresentationInputs(
@@ -383,7 +441,6 @@ private fun emptySettingsSummary(): ProtectionSettingsSummary = ProtectionSettin
     tokenConfigured = false,
     pairedOwnerCount = 0,
     pairingCode = null,
-    authenticatorConfigured = false,
     sensitivity = 1,
     smsFallbackConfigured = false,
     missingPermissions = emptySet(),

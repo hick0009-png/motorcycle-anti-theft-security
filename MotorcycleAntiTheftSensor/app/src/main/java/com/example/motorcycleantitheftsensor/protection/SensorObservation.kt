@@ -8,7 +8,6 @@ data class SensorObservation(
     val baselineDelta: Double,
     val valid: Boolean,
     val diagnostic: String? = null,
-    val source: IncidentSource = IncidentSource.REAL,
 )
 
 data class SensorBaseline(

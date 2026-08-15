@@ -1,12 +1,10 @@
 package com.example.motorcycleantitheftsensor.telegram
 
-import com.example.motorcycleantitheftsensor.security.TotpAuthenticator.VerificationResult
-
 sealed interface RemoteCommand {
     data object Help : RemoteCommand
     data object Status : RemoteCommand
     data object Arm : RemoteCommand
-    data class Disarm(val code: String?) : RemoteCommand
+    data object Disarm : RemoteCommand
     data class Sensitivity(val level: Int?) : RemoteCommand
     data class Decode(val payload: String) : RemoteCommand
     data class Pair(val code: String?) : RemoteCommand
@@ -20,15 +18,12 @@ sealed interface RemoteCommand {
                 "/start", "/help" -> if (argument == null) Help else Unknown
                 "/status" -> if (argument == null) Status else Unknown
                 "/arm" -> if (argument == null) Arm else Unknown
-                "/disarm" -> Disarm(argument)
+                "/disarm" -> if (argument == null) Disarm else Unknown
                 "/sensitivity" -> Sensitivity(argument?.toIntOrNull())
                 "/decode" -> Decode(argument.orEmpty())
                 "/pair" -> Pair(argument)
                 else -> Unknown
             }
         }
-
-        fun isDisarmAuthorized(result: VerificationResult): Boolean =
-            result == VerificationResult.SUCCESS
     }
 }

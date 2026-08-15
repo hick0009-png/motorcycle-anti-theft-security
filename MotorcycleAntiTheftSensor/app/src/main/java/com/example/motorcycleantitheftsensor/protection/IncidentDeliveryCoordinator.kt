@@ -1,5 +1,9 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.location.LocationLabelResolver
+import com.example.motorcycleantitheftsensor.location.LocationPresentation
+import com.example.motorcycleantitheftsensor.location.LocationPresentationFactory
+import com.example.motorcycleantitheftsensor.location.TrackedLocationFix
 import kotlinx.coroutines.CancellationException
 
 fun interface IncidentTransport {
@@ -15,7 +19,22 @@ class IncidentDeliveryCoordinator(
     private val formatter: IncidentMessageFormatter,
     private val telegram: IncidentTransport,
     private val sms: IncidentTransport,
+    private val presentationFactory: LocationPresentationFactory? = null,
 ) {
+    constructor(
+        repository: IncidentRepository,
+        formatter: IncidentMessageFormatter,
+        telegram: IncidentTransport,
+        sms: IncidentTransport,
+        labelResolver: LocationLabelResolver?,
+    ) : this(
+        repository = repository,
+        formatter = formatter,
+        telegram = telegram,
+        sms = sms,
+        presentationFactory = labelResolver?.let { LocationPresentationFactory(it) },
+    )
+
     suspend fun deliver(
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
@@ -27,8 +46,12 @@ class IncidentDeliveryCoordinator(
             if (error is CancellationException) throw error
             return pending.withStorageFailure(DeliveryState.FAILED)
         }
-        val message = formatter.format(pending)
-        val telegramSent = telegram.send(message)
+
+        val presentation = pending.location?.let { loc ->
+            resolvePresentation(loc)
+        }
+        val telegramMessage = formatter.formatTelegram(pending, presentation)
+        val telegramSent = telegram.send(telegramMessage)
         val telegramAttempt = DeliveryAttempt(
             channel = DeliveryChannel.TELEGRAM,
             state = if (telegramSent) DeliveryState.SENT else DeliveryState.FAILED,
@@ -36,10 +59,14 @@ class IncidentDeliveryCoordinator(
         )
 
         val smsEligible = !telegramSent &&
-            pending.source == IncidentSource.REAL &&
             pending.severity == IncidentSeverity.CRITICAL &&
             configuration.smsConfigured
-        val smsSent = smsEligible && sms.send(message)
+        val smsSent = if (smsEligible) {
+            val smsMessage = formatter.formatSms(pending)
+            sms.send(smsMessage)
+        } else {
+            false
+        }
         val attempts = if (smsEligible) {
             pending.deliveryAttempts + telegramAttempt + DeliveryAttempt(
                 channel = DeliveryChannel.SMS,
@@ -60,6 +87,18 @@ class IncidentDeliveryCoordinator(
             if (error is CancellationException) throw error
             delivered.withStorageFailure(delivered.deliveryState)
         }
+    }
+
+    private suspend fun resolvePresentation(loc: IncidentLocation): LocationPresentation? {
+        val factory = presentationFactory ?: return null
+        val fix = TrackedLocationFix(
+            latitude = loc.latitude,
+            longitude = loc.longitude,
+            elapsedRealtimeMs = 0L,
+            wallClockMs = loc.capturedAtWallClockMs,
+            accuracyMeters = loc.accuracyMeters,
+        )
+        return factory.create(fix)
     }
 
     private fun SecurityIncident.withStorageFailure(state: DeliveryState): SecurityIncident = copy(

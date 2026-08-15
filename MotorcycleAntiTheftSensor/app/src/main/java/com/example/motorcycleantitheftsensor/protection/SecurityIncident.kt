@@ -17,6 +17,13 @@ data class IncidentEvidence(
     val diagnostic: String?,
 )
 
+data class IncidentLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyMeters: Float,
+    val capturedAtWallClockMs: Long,
+)
+
 enum class DeliveryChannel {
     LOCAL_STORAGE,
     TELEGRAM,
@@ -33,7 +40,6 @@ data class DeliveryAttempt(
 data class SecurityIncident(
     val id: String,
     val type: IncidentType,
-    val source: IncidentSource,
     val severity: IncidentSeverity,
     val lifecycle: IncidentLifecycle,
     val evidence: List<IncidentEvidence>,
@@ -44,6 +50,7 @@ data class SecurityIncident(
     val deliveryState: DeliveryState,
     val deliveryAttempts: List<DeliveryAttempt> = emptyList(),
     val closeReason: String? = null,
+    val location: IncidentLocation? = null,
 )
 
 fun interface IncidentIdGenerator {

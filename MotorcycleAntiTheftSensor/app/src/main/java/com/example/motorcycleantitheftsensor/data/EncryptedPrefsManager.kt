@@ -21,7 +21,7 @@ class EncryptedPrefsManager(context: Context) {
         
         private const val KEY_BOT_TOKEN = "enc_telegram_bot_token"
         private const val KEY_ALLOWED_CHAT_IDS = "enc_allowed_chat_ids"
-        private const val KEY_TOTP_SEED = "enc_totp_seed"
+        private const val LEGACY_AUTHENTICATOR_SEED_KEY = "enc_totp_seed"
         private const val KEY_DEVICE_UUID = "enc_device_uuid"
         private const val KEY_SMS_AES_KEY = "enc_sms_aes_key"
         private const val KEY_SMS_DESTINATION = "enc_sms_destination"
@@ -30,6 +30,9 @@ class EncryptedPrefsManager(context: Context) {
         private const val KEY_PAIRING_CODE = "pairing_code"
         private const val KEY_PAIRING_EXPIRES_AT_MS = "pairing_expires_at_ms"
         private const val KEY_LAST_TELEGRAM_UPDATE_ID = "last_telegram_update_id"
+        private const val KEY_PARKING_ANCHOR = "enc_parking_anchor_json"
+        private const val KEY_LIVE_PURSUIT_SESSION = "enc_live_pursuit_session_json"
+        private const val KEY_MOVEMENT_TRACKING_STATE = "enc_movement_tracking_state_json"
     }
 
     private val secureKeyManager = SecureKeyManager(context)
@@ -108,14 +111,12 @@ class EncryptedPrefsManager(context: Context) {
         return if (committed) PairingResult.Accepted else PairingResult.Rejected
     }
 
-    // --- TOTP Seed ---
-    fun saveTotpSeed(seedBase32: String) {
-        prefs.edit().putString(KEY_TOTP_SEED, seedBase32).apply()
-    }
+    // --- Legacy Authenticator Seed Cleanup ---
+    fun containsLegacyAuthenticatorSeed(): Boolean =
+        prefs.contains(LEGACY_AUTHENTICATOR_SEED_KEY)
 
-    fun getTotpSeed(): String? {
-        return prefs.getString(KEY_TOTP_SEED, null)
-    }
+    fun removeLegacyAuthenticatorSeed(): Boolean =
+        prefs.edit().remove(LEGACY_AUTHENTICATOR_SEED_KEY).commit()
 
     // --- Device UUID ---
     fun getOrCreateDeviceUuid(): String {
@@ -164,4 +165,42 @@ class EncryptedPrefsManager(context: Context) {
     fun getSensitivity(): Int {
         return prefs.getInt(KEY_SENSITIVITY, 5)
     }
+
+    // --- Movement Tracking ---
+    fun saveMovementTrackingState(json: String?): Boolean {
+        return if (json == null) {
+            prefs.edit().remove(KEY_MOVEMENT_TRACKING_STATE).commit()
+        } else {
+            prefs.edit().putString(KEY_MOVEMENT_TRACKING_STATE, json).commit()
+        }
+    }
+
+    fun getMovementTrackingState(): String? = prefs.getString(KEY_MOVEMENT_TRACKING_STATE, null)
+
+    fun clearLegacyMovementTrackingKeys(): Boolean {
+        return prefs.edit()
+            .remove(KEY_PARKING_ANCHOR)
+            .remove(KEY_LIVE_PURSUIT_SESSION)
+            .commit()
+    }
+
+    fun saveParkingAnchor(json: String?): Boolean {
+        return if (json == null) {
+            prefs.edit().remove(KEY_PARKING_ANCHOR).commit()
+        } else {
+            prefs.edit().putString(KEY_PARKING_ANCHOR, json).commit()
+        }
+    }
+
+    fun getParkingAnchor(): String? = prefs.getString(KEY_PARKING_ANCHOR, null)
+
+    fun saveLivePursuitSession(json: String?): Boolean {
+        return if (json == null) {
+            prefs.edit().remove(KEY_LIVE_PURSUIT_SESSION).commit()
+        } else {
+            prefs.edit().putString(KEY_LIVE_PURSUIT_SESSION, json).commit()
+        }
+    }
+
+    fun getLivePursuitSession(): String? = prefs.getString(KEY_LIVE_PURSUIT_SESSION, null)
 }

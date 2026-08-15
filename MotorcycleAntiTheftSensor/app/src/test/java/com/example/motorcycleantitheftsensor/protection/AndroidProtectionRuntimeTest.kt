@@ -181,6 +181,27 @@ class AndroidProtectionRuntimeTest {
         assertEquals(listOf("battery_level_percent"), recorded)
         assertTrue(incidents.isEmpty())
     }
+
+    @Test
+    fun acceptedPrimaryObservationIncludesTypedIncidentLocationWhenAvailable() {
+        val batches = mutableListOf<IncidentObservationBatch>()
+        lateinit var detectors: RecordingDetectorSet
+        val processor = processor()
+        val runtime = runtime(
+            processor = processor,
+            state = ProtectionState.ARMED_HEALTHY,
+            incidentConsumer = batches::add,
+            detectorCapture = { detectors = it },
+        )
+        runtime.startDetectors()
+        processor.seedBaseline(SensorKind.VIBRATION, SensorBaseline(9.8, 3))
+        detectors.incidentLocation = IncidentLocation(13.7563, 100.5018, 15f, 5_000L)
+
+        detectors.emit(vibrationObservation(value = 12.0))
+
+        assertEquals(1, batches.size)
+        assertEquals(IncidentLocation(13.7563, 100.5018, 15f, 5_000L), batches.first().location)
+    }
 }
 
 private fun processor(): SensorObservationProcessor = SensorObservationProcessor(
@@ -218,6 +239,7 @@ private class RecordingDetectorSet(
 ) : AndroidDetectorSet {
     var sensitivity: Int? = null
     var locationObservation: SensorObservation? = null
+    var incidentLocation: IncidentLocation? = null
     private val health = initialHealth.toMutableMap()
 
     override fun start(): DetectorStartResult = DetectorStartResult(started = true)
@@ -231,6 +253,8 @@ private class RecordingDetectorSet(
     override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = health.toMap()
 
     override fun currentLocationObservation(): SensorObservation? = locationObservation
+
+    override fun currentIncidentLocation(): IncidentLocation? = incidentLocation
 
     fun emit(observation: SensorObservation) {
         health[observation.kind] = SensorHealth(

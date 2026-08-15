@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +8,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -15,6 +18,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.motorcycleantitheftsensor.MainActivity
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import com.example.motorcycleantitheftsensor.data.LegacyAuthenticatorMigrationResult
+import com.example.motorcycleantitheftsensor.data.removeLegacyAuthenticatorState
+import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvider
+import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
+import com.example.motorcycleantitheftsensor.location.ForegroundStartController
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
@@ -29,7 +37,6 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.RecoveryGenerationToken
 import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
-import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
 import com.example.motorcycleantitheftsensor.telegram.TelegramCommandHandler
@@ -55,7 +62,7 @@ import kotlin.math.ceil
 class SensorService : Service(), ServiceEnvironment {
     companion object {
         private const val NOTIFICATION_ID = 1001
-        private const val CHANNEL_ID = "anti_theft_sensor_service_channel"
+        private const val CHANNEL_ID = "anti_theft_protection_silent_v2"
         private const val SERVICE_HEARTBEAT_INTERVAL_MS = 5_000L
         private const val ARMING_GRACE_MS = 10_000L
         private const val SNAPSHOT_PROJECTION_INTERVAL_MS = 5_000L
@@ -80,6 +87,9 @@ class SensorService : Service(), ServiceEnvironment {
     private val persistenceProjection = SnapshotProjectionGate(SNAPSHOT_PROJECTION_INTERVAL_MS)
     private var lastServiceHeartbeatAtMs: Long? = null
     private var lastPublishedArmed: Boolean? = null
+    private var currentForegroundTypes = 0
+    private val foregroundNotificationPolicy = ForegroundNotificationPolicy()
+    private var lastPublishedFingerprint: ForegroundNotificationFingerprint? = null
 
     private lateinit var preferences: EncryptedPrefsManager
     private lateinit var graph: ProtectionRuntimeGraph.Graph
@@ -94,9 +104,7 @@ class SensorService : Service(), ServiceEnvironment {
         graph = ProtectionRuntimeGraph.from(this)
         controller = SensorServiceController(graph.coordinator, this)
         telegramClient = TelegramBotClient(
-            context = this,
             prefsManager = preferences,
-            totpAuthenticator = TotpAuthenticator(preferences),
             commandHandler = TelegramCommandHandler(
                 coordinator = graph.coordinator,
                 statusFormatter = ProtectionStatusFormatter(),
@@ -114,6 +122,12 @@ class SensorService : Service(), ServiceEnvironment {
         )
         acquireWakeLock()
         serviceScope.launch {
+            val legacyCleanup = withContext(Dispatchers.IO) {
+                preferences.removeLegacyAuthenticatorState()
+            }
+            if (legacyCleanup == LegacyAuthenticatorMigrationResult.FAILED) {
+                Log.w(TAG, "Legacy authenticator cleanup failed")
+            }
             recoveryGate = ProtectionRecoveryGate(loadRecoveryState())
             serviceScope.launch {
                 graph.coordinator.snapshot.collect(::handleSnapshot)
@@ -255,11 +269,47 @@ class SensorService : Service(), ServiceEnvironment {
     override fun ensureForeground() {
         if (foregroundRunning) return
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification(graph.coordinator.snapshot.value))
+        val snapshot = graph.coordinator.snapshot.value
+        val requestedTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (requiresLocationForeground(snapshot)) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            }
+        } else {
+            0
+        }
+        val specialUseOnly = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            0
+        }
+        val text = notificationText(snapshot)
+        val notification = createNotification(snapshot)
+
+        val result = foregroundStartController.start(
+            requestedTypes = requestedTypes,
+            specialUseOnlyTypes = specialUseOnly,
+            gateway = { types ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIFICATION_ID, notification, types)
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+            }
+        )
+        currentForegroundTypes = result.usedForegroundTypes
+        graph.coordinator.recordLocationForegroundRestriction(result.degradedReason != null)
+        lastPublishedFingerprint = ForegroundNotificationFingerprint(text, result.usedForegroundTypes)
         foregroundRunning = true
     }
 
     override suspend fun stopForegroundAndSelf() {
+        try {
+            graph.livePursuitCoordinator.prepareForStop()
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to prepare live pursuit for stop", error)
+        }
         if (recoveryGate.shouldPersistSnapshot()) {
             try {
                 val outcome = graph.statePersistence.persist(
@@ -292,7 +342,6 @@ class SensorService : Service(), ServiceEnvironment {
                 lastTransitionAtMs = null,
                 lastServiceHeartbeatAtMs = null,
                 lastTelegramContactAtMs = null,
-                demoModeEnabled = false,
                 lastIncidentId = null,
             ),
         )
@@ -317,10 +366,70 @@ class SensorService : Service(), ServiceEnvironment {
 
     override fun renderNotification(snapshot: ProtectionSnapshot) {
         if (!foregroundRunning) return
-        getSystemService(NotificationManager::class.java)?.notify(
-            NOTIFICATION_ID,
-            createNotification(snapshot),
+        val requestedTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (requiresLocationForeground(snapshot)) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            }
+        } else {
+            0
+        }
+        val specialUseOnly = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            0
+        }
+        val text = notificationText(snapshot)
+        val nextFingerprint = ForegroundNotificationFingerprint(text, requestedTypes)
+        if (!foregroundNotificationPolicy.shouldPublish(lastPublishedFingerprint, nextFingerprint)) {
+            return
+        }
+        val notification = createNotification(snapshot)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && currentForegroundTypes != requestedTypes) {
+            val result = foregroundStartController.start(
+                requestedTypes = requestedTypes,
+                specialUseOnlyTypes = specialUseOnly,
+                gateway = { types ->
+                    startForeground(NOTIFICATION_ID, notification, types)
+                }
+            )
+            currentForegroundTypes = result.usedForegroundTypes
+            graph.coordinator.recordLocationForegroundRestriction(result.degradedReason != null)
+            lastPublishedFingerprint = ForegroundNotificationFingerprint(text, result.usedForegroundTypes)
+        } else {
+            getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification)
+            lastPublishedFingerprint = nextFingerprint
+        }
+    }
+
+    private val appVisibilityProvider: AppVisibilityProvider = AndroidAppVisibilityProvider()
+    private val foregroundStartController = ForegroundStartController()
+    private val locationForegroundPolicy = LocationForegroundPolicy()
+
+    private fun requiresLocationForeground(snapshot: ProtectionSnapshot): Boolean {
+        val needsLocation = snapshot.state in setOf(
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+            ProtectionState.ALERT_ACTIVE
         )
+        if (!needsLocation) return false
+
+        val hasFine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasBg = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        } else {
+            false
+        }
+
+        val decision = locationForegroundPolicy.evaluate(
+            hasFineLocation = hasFine,
+            hasCoarseLocation = hasCoarse,
+            isAppInForeground = appVisibilityProvider.isAppProcessForeground(),
+            hasBackgroundLocation = hasBg,
+        )
+        return decision.mayUseLocationType
     }
 
     private fun createNotification(snapshot: ProtectionSnapshot): Notification {
@@ -330,14 +439,15 @@ class SensorService : Service(), ServiceEnvironment {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        val demoPrefix = if (snapshot.demoModeEnabled) "DEMO — " else ""
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Motorcycle Guard")
-            .setContentText(demoPrefix + notificationText(snapshot))
+            .setContentText(notificationText(snapshot))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
@@ -360,8 +470,13 @@ class SensorService : Service(), ServiceEnvironment {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Motorcycle Guard Protection",
-            NotificationManager.IMPORTANCE_HIGH,
-        )
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            setShowBadge(false)
+            enableLights(false)
+            enableVibration(false)
+            setSound(null, null)
+        }
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
@@ -394,6 +509,7 @@ class SensorService : Service(), ServiceEnvironment {
     private fun commandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
     override fun onDestroy() {
+        graph.livePursuitCoordinator.abortLocal()
         serviceScope.cancel()
         graph.runtime.stopDetectors()
         stopTelegramPolling()

@@ -65,15 +65,25 @@ fun ProtectionScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        val stateGuidance = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(protection.state.toGuidanceCode())
+
+        protection.persistentGuidance?.let { guidance ->
+            item(key = "persistent-guidance") {
+                StatusCard(title = guidance.titleTh) {
+                    Text(guidance.bodyTh)
+                }
+            }
+        }
+
         item(key = "protection-state") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = protection.state.title(),
+                    text = stateGuidance.titleTh,
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.semantics { heading() },
                 )
                 Text(
-                    text = protection.state.explanation(),
+                    text = stateGuidance.bodyTh,
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 state.armingSecondsRemaining?.let { seconds ->
@@ -270,25 +280,17 @@ private fun StatusRow(label: String, value: String) {
     }
 }
 
-private fun ProtectionState.title(): String = when (this) {
-    ProtectionState.SETUP_REQUIRED -> "Setup required"
-    ProtectionState.DISARMED_ONLINE -> "Protection disarmed"
-    ProtectionState.ARMING -> "Arming protection"
-    ProtectionState.ARMED_HEALTHY -> "Protection active"
-    ProtectionState.ARMED_DEGRADED -> "Protection degraded"
-    ProtectionState.ALERT_ACTIVE -> "Alert active"
-    ProtectionState.OFFLINE -> "Protection offline"
+private fun ProtectionState.toGuidanceCode(): com.example.motorcycleantitheftsensor.protection.GuidanceCode = when (this) {
+    ProtectionState.SETUP_REQUIRED -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED
+    ProtectionState.DISARMED_ONLINE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.DISARMED
+    ProtectionState.ARMING -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMING
+    ProtectionState.ARMED_HEALTHY -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_HEALTHY
+    ProtectionState.ARMED_DEGRADED -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_DEGRADED
+    ProtectionState.ALERT_ACTIVE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ALERT_ACTIVE
+    ProtectionState.OFFLINE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE
 }
 
-private fun ProtectionState.explanation(): String = when (this) {
-    ProtectionState.SETUP_REQUIRED -> "Complete required setup before arming protection."
-    ProtectionState.DISARMED_ONLINE -> "Monitoring is online and ready to arm."
-    ProtectionState.ARMING -> "Monitoring will activate when the countdown finishes."
-    ProtectionState.ARMED_HEALTHY -> "All required protection systems are active."
-    ProtectionState.ARMED_DEGRADED -> "Protection is active with reduced sensor coverage."
-    ProtectionState.ALERT_ACTIVE -> "An active incident requires attention."
-    ProtectionState.OFFLINE -> "The protection service is not available."
-}
+
 
 private fun SensorHealth?.healthText(): String = this?.state?.displayName() ?: "Unavailable"
 

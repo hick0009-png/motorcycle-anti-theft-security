@@ -18,7 +18,6 @@ import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.protection.ProtectionRuntimeGraph
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.ProtectionPermissionPolicy
-import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.service.SensorService
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.ui.AndroidProtectionSettingsGateway
@@ -33,9 +32,8 @@ fun MainNavigation() {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val preferences = remember(applicationContext) { EncryptedPrefsManager(applicationContext) }
-    val totpAuth = remember(preferences) { TotpAuthenticator(preferences) }
-    val telegram = remember(applicationContext, preferences, totpAuth) {
-        TelegramBotClient(applicationContext, preferences, totpAuth)
+    val telegram = remember(applicationContext, preferences) {
+        TelegramBotClient(preferences)
     }
     val graph = remember(applicationContext) { ProtectionRuntimeGraph.from(applicationContext) }
     val pairingCodePolicy = remember { PairingCodePolicy() }
@@ -68,7 +66,6 @@ fun MainNavigation() {
             preferences = preferences,
             telegram = telegram,
             pairingCodePolicy = pairingCodePolicy,
-            totpAuthenticator = totpAuth,
             refreshControlService = refreshControlService,
         )
     }
@@ -115,9 +112,6 @@ fun MainNavigation() {
             requestPermissions = { permissionLauncher.launch(missingPermissions.toTypedArray()) },
             replaceBotToken = protectionViewModel::replaceBotToken,
             configureSmsFallback = protectionViewModel::configureSmsFallback,
-            beginAuthenticatorSetup = protectionViewModel::beginAuthenticatorSetup,
-            cancelAuthenticatorSetup = protectionViewModel::cancelAuthenticatorSetup,
-            verifyAuthenticator = protectionViewModel::verifyAuthenticator,
             retry = protectionViewModel::retry,
             retrySettings = protectionViewModel::retrySettings,
             resetPairing = protectionViewModel::resetPairing,

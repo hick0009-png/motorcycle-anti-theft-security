@@ -19,14 +19,14 @@ class PrioritizedCommandDispatcherTest {
         val dispatcher = PrioritizedCommandDispatcher<RemoteCommand>(
             scope = this,
             isArm = { it == RemoteCommand.Arm },
-            isDisarm = { it is RemoteCommand.Disarm },
+            isDisarm = { it == RemoteCommand.Disarm },
             execute = { command ->
                 when (command) {
                     RemoteCommand.Arm -> {
                         armStarted.complete(Unit)
                         withContext(NonCancellable) { blockedReply.await() }
                     }
-                    is RemoteCommand.Disarm -> disarmApplied.complete(Unit)
+                    RemoteCommand.Disarm -> disarmApplied.complete(Unit)
                     else -> Unit
                 }
             },
@@ -34,7 +34,7 @@ class PrioritizedCommandDispatcherTest {
 
         dispatcher.submit(RemoteCommand.Arm)
         armStarted.await()
-        dispatcher.submit(RemoteCommand.Disarm("123456"))
+        dispatcher.submit(RemoteCommand.Disarm)
         runCurrent()
 
         assertTrue(disarmApplied.isCompleted)

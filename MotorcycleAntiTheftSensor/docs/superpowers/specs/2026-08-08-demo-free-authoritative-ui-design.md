@@ -8,7 +8,11 @@ Scope: Motorcycle Guard Protection System UI and presentation state
 
 The production application will not contain Demo Mode. Demo is removed from the UI and ViewModel contract rather than hidden behind a flag. There will be no demo switch, banner, trigger button, command action, fake event state, placeholder, or dormant navigation entry.
 
-This document supersedes only the Demo Mode and Task 10 UI portions of `2026-08-08-motorcycle-guard-protection-system-design.md` and `2026-08-08-motorcycle-guard-protection-system.md`. The already implemented authoritative protection runtime, incident pipeline, delivery behavior, service integration, and Telegram command behavior remain unchanged.
+This document supersedes the Demo Mode portions of `2026-08-08-motorcycle-guard-protection-system-design.md` and `2026-08-08-motorcycle-guard-protection-system.md`. The authoritative protection runtime, incident pipeline, delivery behavior, service integration, and Telegram command behavior retain their production behavior without a separate Demo path.
+
+## Runtime-removal amendment — 2026-08-13
+
+Demo Mode is removed from the complete production system, including incident models, runtime state, persistence, notification text, and normal test fixtures. The v1 incident-history reader consumes old records safely, retains only records with the legacy origin token `REAL`, and discards every other legacy origin. The legacy `demo_enabled` preference is deleted on the next snapshot save. No Demo API, mode, control, route, or presentation contract remains.
 
 ## Product structure
 
@@ -22,7 +26,7 @@ Protection status always uses text and iconography in addition to color. An acti
 
 ## Architecture
 
-`ProtectionViewModel` is the only presentation-state owner for these destinations. It observes `ProtectionRuntimeGraph.coordinator` snapshots and the incident repository, then maps only production fields into immutable UI state. The raw snapshot is not exposed because it still contains a legacy Demo-only field outside this UI scope. The ViewModel does not maintain a second armed boolean and does not write armed state directly to preferences.
+`ProtectionViewModel` is the only presentation-state owner for these destinations. It observes `ProtectionRuntimeGraph.coordinator` snapshots and the incident repository, then maps production fields into immutable UI state. The raw snapshot is not exposed. The ViewModel does not maintain a second armed boolean and does not write armed state directly to preferences.
 
 The UI sends intents to the ViewModel. Arm and disarm intents call the authoritative coordinator and render its confirmed result. Navigation owns only the selected destination and does not duplicate protection state.
 
@@ -68,7 +72,7 @@ There are no Demo-related fields, event types, callbacks, semantics tags, or tes
 ### Events
 
 - Displays incidents newest first using stable incident identifiers.
-- Each row exposes source, severity, lifecycle, evidence summary, timestamp, and delivery outcome without relying on color alone.
+- Each row exposes severity, lifecycle, evidence summary, timestamp, and delivery outcome without relying on color alone.
 - The empty state explains that no protection incidents have been recorded.
 - History loading/persistence failure is visible and retryable.
 - Clear history requires confirmation and does not delete pairing or configuration.

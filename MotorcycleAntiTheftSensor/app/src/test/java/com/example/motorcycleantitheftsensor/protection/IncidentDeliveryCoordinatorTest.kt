@@ -1,7 +1,10 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.location.LocationLabelResolver
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IncidentDeliveryCoordinatorTest {
@@ -25,24 +28,6 @@ class IncidentDeliveryCoordinatorTest {
         assertEquals(DeliveryState.SENT, delivered.deliveryState)
         assertEquals(DeliveryChannel.TELEGRAM, delivered.deliveryAttempts.single().channel)
         assertEquals(DeliveryState.SENT, delivered.deliveryAttempts.single().state)
-    }
-
-    @Test
-    fun demoNeverUsesSmsAfterTelegramFailure() = runTest {
-        var smsCalls = 0
-        val coordinator = coordinator(
-            telegramSuccess = false,
-            onSms = { smsCalls++; true },
-        )
-
-        val delivered = coordinator.deliver(
-            criticalDemo(),
-            DeliveryConfiguration(smsConfigured = true),
-        )
-
-        assertEquals(0, smsCalls)
-        assertEquals(DeliveryState.FAILED, delivered.deliveryState)
-        assertEquals(listOf(DeliveryChannel.TELEGRAM), delivered.deliveryAttempts.map { it.channel })
     }
 
     @Test
@@ -109,6 +94,39 @@ class IncidentDeliveryCoordinatorTest {
         assertEquals(DeliveryChannel.LOCAL_STORAGE, delivered.deliveryAttempts.single().channel)
         assertEquals("Incident persistence unavailable", delivered.deliveryAttempts.single().detail)
     }
+
+    @Test
+    fun smsFallbackUsesRedactedSmsMessageWithoutCoordinatesOrMapsUrl() = runTest {
+        var deliveredSmsMessage: String? = null
+        var deliveredTelegramMessage: String? = null
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { msg -> deliveredTelegramMessage = msg; false },
+            sms = IncidentTransport { msg -> deliveredSmsMessage = msg; true },
+            labelResolver = LocationLabelResolver { "Bangkok, Thailand" },
+        )
+
+        val incidentWithLocation = criticalReal().copy(
+            location = IncidentLocation(13.7563, 100.5018, 5f, 1000L),
+        )
+        val delivered = coordinator.deliver(
+            incidentWithLocation,
+            DeliveryConfiguration(smsConfigured = true),
+        )
+
+        assertEquals(DeliveryState.SENT, delivered.deliveryState)
+        // Telegram attempted with location presentation
+        assertTrue(deliveredTelegramMessage != null && deliveredTelegramMessage!!.contains("maps.google.com"))
+        assertTrue(deliveredTelegramMessage!!.contains("Bangkok, Thailand"))
+
+        // SMS received redacted content
+        assertTrue(deliveredSmsMessage != null)
+        assertFalse(deliveredSmsMessage!!.contains("maps.google.com"))
+        assertFalse(deliveredSmsMessage!!.contains("13.7563"))
+        assertFalse(deliveredSmsMessage!!.contains("100.5018"))
+        assertFalse(deliveredSmsMessage!!.contains("Bangkok, Thailand"))
+    }
 }
 
 private fun coordinator(
@@ -124,21 +142,12 @@ private fun coordinator(
 private fun criticalReal(): SecurityIncident = incident(
     id = "real-critical",
     updatedAtMs = 1_000L,
-    source = IncidentSource.REAL,
-    severity = IncidentSeverity.CRITICAL,
-)
-
-private fun criticalDemo(): SecurityIncident = incident(
-    id = "demo-critical",
-    updatedAtMs = 1_000L,
-    source = IncidentSource.DEMO,
     severity = IncidentSeverity.CRITICAL,
 )
 
 private fun warningReal(): SecurityIncident = incident(
     id = "real-warning",
     updatedAtMs = 1_000L,
-    source = IncidentSource.REAL,
     severity = IncidentSeverity.WARNING,
 )
 

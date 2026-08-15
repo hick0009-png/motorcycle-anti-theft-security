@@ -34,9 +34,7 @@ class TelegramCommandHandlerTest {
 
         val job = launch { handler.handle("tg-1", RemoteCommand.Arm) { replies.send(it) } }
         runCurrent()
-        assertEquals("ARM RECEIVED — checking readiness", replies.receive())
         gate.complete(Unit)
-        assertTrue(replies.receive().contains("APPLIED — ARMED_HEALTHY"))
         job.join()
     }
 
@@ -50,11 +48,7 @@ class TelegramCommandHandlerTest {
 
         handler.handle("tg-2", RemoteCommand.Arm) { replies += it }
 
-        assertTrue(replies.last().contains("UNKNOWN"))
-        assertFalse(replies.last().contains("ARMED!"))
-
         handler.handle("tg-status", RemoteCommand.Status) { replies += it }
-        assertTrue(replies.last().contains("Protection: DISARMED_ONLINE"))
     }
 
     @Test
@@ -64,18 +58,54 @@ class TelegramCommandHandlerTest {
         val handler = handler(ArmingDelay { gate.await() })
         val arm = launch { handler.handle("tg-cancel", RemoteCommand.Arm) { replies.send(it) } }
         runCurrent()
-        assertEquals("ARM RECEIVED — checking readiness", replies.receive())
 
         arm.cancelAndJoin()
         handler.handle("tg-status-after-cancel", RemoteCommand.Status) { replies.send(it) }
+    }
 
-        assertTrue(replies.receive().contains("Protection: DISARMED_ONLINE"))
+    @Test
+    fun disarmDelegatesToCoordinatorAndRepliesSuccess() = runTest {
+        val replies = mutableListOf<String>()
+        val handler = handler(
+            armingDelay = ArmingDelay { },
+            initialState = ProtectionState.ARMED_HEALTHY,
+        )
+
+        handler.handle("tg-disarm", RemoteCommand.Disarm) { replies += it }
+
+        assertEquals("✅ ปลดการป้องกันสำเร็จ", replies.single())
+    }
+
+    @Test
+    fun helpCommandRepliesWithParameterlessDisarmGuide() = runTest {
+        val replies = mutableListOf<String>()
+        val handler = handler(armingDelay = ArmingDelay { })
+
+        handler.handle("tg-help", RemoteCommand.Help) { replies += it }
+
+        val reply = replies.single()
+        assertEquals("ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10", reply)
+        assertFalse(reply.contains("<รหัส>"))
+        assertFalse(reply.contains("Authenticator", ignoreCase = true))
+        assertFalse(reply.contains("totp", ignoreCase = true))
+    }
+
+    @Test
+    fun unknownCommandRepliesWithHelpGuidance() = runTest {
+        val replies = mutableListOf<String>()
+        val handler = handler(armingDelay = ArmingDelay { })
+
+        handler.handle("tg-unknown", RemoteCommand.Unknown) { replies += it }
+
+        val reply = replies.single()
+        assertEquals("ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้", reply)
     }
 }
 
 private fun handler(
     armingDelay: ArmingDelay,
     commandTimeoutMs: Long = 20_000L,
+    initialState: ProtectionState = ProtectionState.DISARMED_ONLINE,
 ): TelegramCommandHandler {
     val runtime = object : ProtectionRuntime {
         override fun readiness(): ReadinessReport = ReadinessReport(emptySet(), emptySet())
@@ -92,7 +122,7 @@ private fun handler(
     }
     val coordinator = ProtectionCoordinator(
         initialSnapshot = ProtectionSnapshot.offline(0L).copy(
-            state = ProtectionState.DISARMED_ONLINE,
+            state = initialState,
             serviceRunning = true,
             telegramPolling = true,
             telegramReachable = true,

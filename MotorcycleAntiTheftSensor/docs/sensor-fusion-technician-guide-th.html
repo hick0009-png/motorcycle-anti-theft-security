@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>คู่มือช่างระบบตรวจจับเสียงและ Sensor Fusion</title>
+  <style>
+    @page { size: A4; margin: 14mm 13mm 16mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #172033;
+      font-family: "Leelawadee UI", Tahoma, Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.55;
+      background: #ffffff;
+    }
+    h1, h2, h3 { color: #10233f; page-break-after: avoid; }
+    h1 { margin: 0 0 8px; font-size: 28pt; line-height: 1.18; }
+    h2 {
+      margin: 22px 0 10px;
+      padding-bottom: 5px;
+      font-size: 18pt;
+      border-bottom: 2px solid #2f67b2;
+    }
+    h3 { margin: 16px 0 7px; font-size: 13.5pt; }
+    p { margin: 6px 0 10px; }
+    ul, ol { margin: 5px 0 11px 22px; padding: 0; }
+    li { margin: 3px 0; }
+    table {
+      width: 100%;
+      margin: 9px 0 15px;
+      border-collapse: collapse;
+      font-size: 9.7pt;
+      page-break-inside: auto;
+    }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    th, td {
+      padding: 7px 8px;
+      vertical-align: top;
+      border: 1px solid #bdc9d9;
+    }
+    th { color: #ffffff; background: #244f87; text-align: left; }
+    tbody tr:nth-child(even) { background: #f3f6fa; }
+    code {
+      padding: 1px 4px;
+      border-radius: 3px;
+      color: #143961;
+      background: #edf3fa;
+      font-family: Consolas, monospace;
+      font-size: 9.5pt;
+    }
+    .cover {
+      min-height: 244mm;
+      padding: 20mm 12mm;
+      color: #ffffff;
+      background: linear-gradient(145deg, #10233f 0%, #204f83 58%, #2b7c8e 100%);
+      page-break-after: always;
+    }
+    .cover .eyebrow { margin-bottom: 34mm; font-size: 12pt; letter-spacing: 1.4px; }
+    .cover h1 { color: #ffffff; }
+    .cover .subtitle { width: 85%; margin-top: 12px; font-size: 16pt; }
+    .cover .meta {
+      margin-top: 30mm;
+      padding: 14px 16px;
+      border: 1px solid rgba(255,255,255,.55);
+      border-radius: 8px;
+      background: rgba(255,255,255,.1);
+    }
+    .cover .status {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 6px 10px;
+      border-radius: 20px;
+      color: #10233f;
+      background: #ffdd76;
+      font-weight: 700;
+    }
+    .notice, .warning, .success, .info {
+      margin: 11px 0 14px;
+      padding: 10px 12px;
+      border-left: 5px solid;
+      border-radius: 4px;
+      page-break-inside: avoid;
+    }
+    .notice { border-color: #d59b16; background: #fff7df; }
+    .warning { border-color: #c23d3d; background: #fff0f0; }
+    .success { border-color: #2f7d58; background: #eaf7f0; }
+    .info { border-color: #2f67b2; background: #edf5ff; }
+    .flow {
+      margin: 12px 0 18px;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+    .flow .box {
+      display: block;
+      width: 76%;
+      margin: 0 auto;
+      padding: 8px 12px;
+      border: 1.6px solid #2f67b2;
+      border-radius: 6px;
+      background: #f3f8ff;
+      font-weight: 700;
+    }
+    .flow .arrow { height: 22px; color: #2f67b2; font-size: 17pt; line-height: 22px; }
+    .legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin: 10px 0 15px;
+    }
+    .legend > div {
+      padding: 9px 10px;
+      border: 1px solid #c9d3e0;
+      border-radius: 5px;
+      background: #f8fafc;
+    }
+    .message {
+      margin: 10px 0 15px;
+      padding: 12px 14px;
+      border: 1px solid #aac0d9;
+      border-radius: 7px;
+      background: #f7fbff;
+      white-space: pre-line;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    .checklist { list-style: none; margin-left: 0; }
+    .checklist li::before { content: "□ "; color: #244f87; font-weight: 700; }
+    .page-break { page-break-before: always; }
+    .small { color: #526071; font-size: 9pt; }
+    .footer {
+      position: fixed;
+      right: 0;
+      bottom: -10mm;
+      left: 0;
+      color: #6b7788;
+      font-size: 8pt;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="eyebrow">MOTORCYCLE ANTI-THEFT SENSOR</div>
+    <h1>คู่มือช่าง<br>ระบบตรวจจับเสียงและ Sensor Fusion</h1>
+    <div class="subtitle">หลักการทำงาน กติกาการยืนยันเหตุการณ์ การแจ้งเตือน และวิธีทดสอบหน้างาน</div>
+    <div class="meta">
+      <div><strong>ฉบับ:</strong> 1.0</div>
+      <div><strong>วันที่:</strong> 15 สิงหาคม 2026</div>
+      <div><strong>กลุ่มผู้อ่าน:</strong> ช่างติดตั้ง ช่างทดสอบ และผู้ดูแลระบบ</div>
+      <div class="status">สถานะ: แบบระบบที่ผู้ใช้อนุมัติ — รอการพัฒนาและตรวจรับ</div>
+    </div>
+  </section>
+
+  <div class="footer">Motorcycle Anti-Theft Sensor — Sensor Fusion Technician Guide v1.0</div>
+
+  <section>
+    <h2>1. วัตถุประสงค์ของคู่มือ</h2>
+    <p>คู่มือนี้อธิบายการทำงานของระบบตรวจจับเสียงร่วมกับเซนเซอร์อื่น โดยมีเป้าหมายให้ไมโครโฟนช่วยตรวจพฤติกรรมที่เกี่ยวข้องกับการโจรกรรม เช่น การทุบ การงัด การใช้สว่าน การทำลายชิ้นส่วน และการสตาร์ตหรือเคลื่อนย้ายรถ</p>
+    <div class="notice">
+      <strong>ขอบเขตสำคัญ:</strong> เอกสารนี้เป็นคู่มือของแบบระบบที่ได้รับอนุมัติ ไม่ใช่หลักฐานว่า APK ที่ติดตั้งอยู่ในปัจจุบันมีความสามารถทั้งหมดนี้แล้ว ช่างต้องตรวจหมายเลขรุ่นและผล Acceptance Test ก่อนระบุว่าระบบพร้อมใช้งานจริง
+    </div>
+    <p>ระบบไม่ใช้ไมโครโฟนเพื่อดักฟัง ไม่ถอดคำพูด และไม่บันทึกคลิปเสียง การวิเคราะห์ทั้งหมดเกิดบนโทรศัพท์ ข้อมูลดิบอยู่ใน RAM ชั่วคราวประมาณ 1–2 วินาทีและถูกเขียนทับอย่างต่อเนื่อง</p>
+
+    <h2>2. หลักการทำงานโดยสรุป</h2>
+    <div class="flow">
+      <div class="box">AudioRecord — รับเสียง Mono 16 kHz</div>
+      <div class="arrow">↓</div>
+      <div class="box">Audio Signal Gate — ตรวจความเปลี่ยนแปลงและเสียงกระแทก</div>
+      <div class="arrow">↓</div>
+      <div class="box">YAMNet — จำแนกประเภทเสียงเฉพาะเมื่อ Signal Gate เปิด</div>
+      <div class="arrow">↓</div>
+      <div class="box">Audio Threat Candidate — เก็บ Metadata ใน RAM 15 วินาที</div>
+      <div class="arrow">↓</div>
+      <div class="box">Sensor Fusion — รอเซนเซอร์อื่นยืนยัน</div>
+      <div class="arrow">↓</div>
+      <div class="box">Incident Engine — เปิดเหตุการณ์และส่ง Telegram</div>
+    </div>
+    <div class="success">
+      <strong>กฎหลัก:</strong> เสียงเพียงอย่างเดียวไม่ส่ง Telegram ต้องมี Vibration, Power หรือ Location ยืนยันภายในช่วงเวลาเดียวกันก่อน ส่วน Light เป็นหลักฐานประกอบและไม่ยืนยันเพียงลำพัง
+    </div>
+
+    <h2>3. ระบบรู้และไม่รู้อะไรจากเสียง</h2>
+    <table>
+      <thead><tr><th>ระบบรู้</th><th>ระบบไม่รู้</th></tr></thead>
+      <tbody>
+        <tr><td>ประเภทเสียงโดยประมาณ เช่น กระแทก สว่าน เครื่องยนต์</td><td>ตัวตนของผู้ทำให้เกิดเสียง</td></tr>
+        <tr><td>คะแนนความมั่นใจของโมเดล</td><td>เจตนาว่าเป็นเจ้าของรถหรือผู้โจรกรรม</td></tr>
+        <tr><td>ระดับเสียงเทียบกับเสียงพื้นฐาน</td><td>ระดับเดซิเบลจริง เพราะไมโครโฟนโทรศัพท์ไม่ได้สอบเทียบ</td></tr>
+        <tr><td>เวลาที่เริ่มตรวจพบและจำนวนครั้ง</td><td>ข้อความสนทนาหรือคำพูดของบุคคล</td></tr>
+      </tbody>
+    </table>
+
+    <h3>กลุ่มเสียงที่ใช้</h3>
+    <div class="legend">
+      <div><strong>IMPACT</strong><br>Knock, Bang, Thump, Whack</div>
+      <div><strong>BREAKING</strong><br>Smash, Crash, Breaking, Shatter</div>
+      <div><strong>POWER_TOOL</strong><br>Drill, Power tool, Sawing</div>
+      <div><strong>ENGINE_ACTIVITY</strong><br>Motorcycle, Engine starting, Idling, Revving</div>
+      <div><strong>METAL_TAMPER</strong><br>Scrape, Clang, Keys jangling</div>
+      <div><strong>เสียงที่ละเว้น</strong><br>เสียงพูด เพลง สุนัข ลม ฝน และเสียงทั่วไป</div>
+    </div>
+  </section>
+
+  <section class="page-break">
+    <h2>4. สถานะการทำงาน</h2>
+    <table>
+      <thead><tr><th>สถานะ</th><th>ไมโครโฟนทำอะไร</th><th>อนุญาตให้แจ้งเตือนหรือไม่</th></tr></thead>
+      <tbody>
+        <tr><td>Disarmed</td><td>หยุด AudioRecord และล้าง Candidate</td><td>ไม่อนุญาต</td></tr>
+        <tr><td>Arming / Calibrating</td><td>เก็บเสียงพื้นฐานประมาณ 10 วินาทีและตรวจสุขภาพไมค์</td><td>ไม่อนุญาต</td></tr>
+        <tr><td>Armed</td><td>เปิด Signal Gate และจำแนกเสียงเมื่อจำเป็น</td><td>อนุญาตเมื่อ Sensor Fusion ยืนยัน</td></tr>
+        <tr><td>Alert Active</td><td>เก็บหลักฐานเสียงเพิ่มในเหตุการณ์เดิม</td><td>ส่งเพิ่มเฉพาะเมื่อระดับความรุนแรงสูงขึ้น</td></tr>
+        <tr><td>Audio Degraded</td><td>เซนเซอร์อื่นทำงานต่อ แต่ไมค์ไม่ถูกใช้ตัดสิน</td><td>รายงานสถานะเสื่อมผ่าน UI และ /status</td></tr>
+      </tbody>
+    </table>
+    <p>เสียงในช่วง Calibrating ต้องไม่สร้าง Candidate เพราะเจ้าของรถอาจกำลังกด Arm จัดวางโทรศัพท์ หรือเดินออกจากรถ หลังเข้าสู่ Armed แล้วจึงเริ่มตรวจพฤติกรรมเสี่ยง</p>
+
+    <h2>5. Audio Threat Candidate</h2>
+    <p>เมื่อระบบพบเสียงต้องสงสัย จะสร้าง Candidate ชั่วคราวใน RAM โดยยังไม่ถือว่าเป็นเหตุการณ์โจรกรรม</p>
+    <table>
+      <thead><tr><th>ข้อมูล</th><th>ตัวอย่าง</th></tr></thead>
+      <tbody>
+        <tr><td>ประเภทเสียง</td><td>POWER_TOOL</td></tr>
+        <tr><td>ความมั่นใจ</td><td>82%</td></tr>
+        <tr><td>ระดับเสียงสัมพัทธ์</td><td>68%</td></tr>
+        <tr><td>สูงกว่าพื้นฐาน</td><td>46%</td></tr>
+        <tr><td>เวลาตรวจพบ</td><td>14:32:08</td></tr>
+        <tr><td>จำนวนครั้ง</td><td>2 หน้าต่างติดต่อกัน</td></tr>
+        <tr><td>เวลาหมดอายุ</td><td>14:32:23</td></tr>
+        <tr><td>รอบการ Arm</td><td>armedSessionId ของรอบปัจจุบัน</td></tr>
+      </tbody>
+    </table>
+    <p>Candidate ประเภทเดียวกันที่เกิดต่อเนื่องจะรวมเป็นรายการเดียว ระบบเก็บได้ไม่เกิน 8 รายการ และล้างทั้งหมดเมื่อ Disarm, เริ่ม Arm รอบใหม่, Service หยุด, Process เริ่มใหม่ หรือครบอายุ 15 วินาที</p>
+
+    <h2>6. ความแข็งแรงของหลักฐาน</h2>
+    <h3>หลักฐานยืนยันที่แข็งแรง</h3>
+    <ul>
+      <li><strong>Vibration:</strong> แรงสั่นสะเทือนของโทรศัพท์หรือรถผิดปกติ</li>
+      <li><strong>Location:</strong> รถเคลื่อนจากจุด Arm มากกว่าค่าคลาดเคลื่อนที่ยอมรับได้</li>
+      <li><strong>Power:</strong> สายชาร์จถูกถอดขณะระบบ Armed</li>
+    </ul>
+    <h3>หลักฐานประกอบ</h3>
+    <ul>
+      <li><strong>Light:</strong> แสงเปลี่ยน เช่น มีการเปิดเบาะหรือพื้นที่ปิด</li>
+      <li><strong>Audio:</strong> เสียงต้องสงสัยจาก YAMNet</li>
+      <li><strong>Location ขนาดเล็ก:</strong> การเปลี่ยนตำแหน่งที่ยังอยู่ในช่วงความคลาดเคลื่อน GPS</li>
+    </ul>
+    <div class="warning"><strong>ห้าม:</strong> ใช้ Light เพียงตัวเดียว หรือใช้คะแนนเสียงเพียงตัวเดียวเปิด Incident จริง</div>
+  </section>
+
+  <section class="page-break">
+    <h2>7. ตารางกติกา Sensor Fusion</h2>
+    <table>
+      <thead><tr><th>เสียงที่ตรวจพบ</th><th>ข้อมูลยืนยัน</th><th>การตัดสิน</th><th>Telegram</th></tr></thead>
+      <tbody>
+        <tr><td>ทุบ/กระแทก</td><td>ไม่มี</td><td>เก็บ Candidate 15 วินาทีแล้วลบ</td><td>ไม่ส่ง</td></tr>
+        <tr><td>ทุบ/กระแทก</td><td>Vibration</td><td>Warning</td><td>ส่งหนึ่งครั้ง</td></tr>
+        <tr><td>ทุบซ้ำหลายครั้ง</td><td>Vibration ต่อเนื่อง</td><td>Critical</td><td>ส่งหรือยกระดับ</td></tr>
+        <tr><td>กระจกแตก/ทำลาย</td><td>Vibration</td><td>Critical</td><td>ส่งทันทีหลังยืนยัน</td></tr>
+        <tr><td>สว่าน/เครื่องมือไฟฟ้า</td><td>Vibration</td><td>Critical</td><td>ส่งทันทีหลังยืนยัน</td></tr>
+        <tr><td>สว่าน/เครื่องมือไฟฟ้า</td><td>Light + Vibration</td><td>Critical พร้อมระบุความเสี่ยงงัดพื้นที่ปิด</td><td>ส่งทันทีหลังยืนยัน</td></tr>
+        <tr><td>โลหะขูด/กุญแจ</td><td>ไม่มี</td><td>เก็บ Candidate 15 วินาทีแล้วลบ</td><td>ไม่ส่ง</td></tr>
+        <tr><td>โลหะขูด/กุญแจ</td><td>Vibration</td><td>Warning</td><td>ส่งหนึ่งครั้ง</td></tr>
+        <tr><td>เครื่องยนต์สตาร์ต</td><td>Vibration</td><td>Critical</td><td>ส่งทันทีหลังยืนยัน</td></tr>
+        <tr><td>เครื่องยนต์สตาร์ต</td><td>GPS เคลื่อนจริง</td><td>Critical + Live Pursuit</td><td>ส่งและเริ่ม Live Location</td></tr>
+        <tr><td>Motorcycle/Revving</td><td>รถไม่สั่นและไม่เคลื่อน</td><td>ถือเป็นรถคันอื่นหรือเสียงแวดล้อม</td><td>ไม่ส่ง</td></tr>
+        <tr><td>เสียงต้องสงสัยชนิดใดก็ได้</td><td>ถอดสายชาร์จ</td><td>Critical พร้อมแนบหลักฐานเสียง</td><td>ส่งทันที</td></tr>
+        <tr><td>เสียงต้องสงสัยชนิดใดก็ได้</td><td>GPS เคลื่อนจริง</td><td>Critical + Live Pursuit</td><td>ส่งและเริ่มติดตาม</td></tr>
+      </tbody>
+    </table>
+
+    <h3>การจับคู่เวลา</h3>
+    <p>ระบบจับคู่หลักฐานได้ทั้งสองทิศทาง โดยใช้เวลาชนิด Monotonic/Elapsed time:</p>
+    <ul>
+      <li>เสียงเกิดก่อน แล้ว Vibration ตามมาภายใน 15 วินาที</li>
+      <li>Vibration เกิดก่อน แล้วเสียงตามมาภายใน 15 วินาที</li>
+    </ul>
+    <p>ห้ามใช้เวลาจากนาฬิกาหน้าจอเพียงอย่างเดียว เพราะผู้ใช้อาจปรับเวลาเครื่องหรือเวลาอาจเปลี่ยนจากเครือข่าย</p>
+
+    <h3>กฎตามลักษณะเสียง</h3>
+    <table>
+      <thead><tr><th>ชนิด</th><th>เงื่อนไขเสียงเบื้องต้น</th><th>เหตุผล</th></tr></thead>
+      <tbody>
+        <tr><td>เสียงสั้น: Impact/Breaking</td><td>ยอมรับหนึ่งหน้าต่างเมื่อ DSP พบ onset จริง และความมั่นใจเริ่มต้นประมาณ 70%</td><td>เสียงกระแทกอาจสั้นมาก</td></tr>
+        <tr><td>เสียงต่อเนื่อง: Power tool/Engine</td><td>พบอย่างน้อย 2 หน้าต่าง รวมประมาณ 1.5–2 วินาที ความมั่นใจเฉลี่ยเริ่มต้นประมาณ 65%</td><td>ลดการเข้าใจเสียงสั้นผิดเป็นสว่านหรือเครื่องยนต์</td></tr>
+      </tbody>
+    </table>
+    <div class="info">ค่า 70% และ 65% เป็นค่าเริ่มต้นสำหรับ Pilot เท่านั้น ต้องปรับจากผลทดสอบบน Huawei และเสียงหน้างานจริงก่อนล็อกเป็นค่า Production</div>
+  </section>
+
+  <section class="page-break">
+    <h2>8. การแจ้ง Telegram</h2>
+    <p>ไมค์ตรวจพบ Candidate เพียงอย่างเดียวจะไม่ส่งข้อความ เมื่อ Sensor Fusion ยืนยันแล้ว ข้อความต้องบอกเหตุผลอย่างตรงไปตรงมา ไม่กล่าวยืนยันว่าเป็นโจร แต่ใช้คำว่า “ตรวจพบความเสี่ยง” หรือ “อาจกำลังถูกเคลื่อนย้าย”</p>
+
+    <h3>ตัวอย่าง: เครื่องมือไฟฟ้าและแรงสั่น</h3>
+    <div class="message">🚨 ตรวจพบความเสี่ยงจากการงัดแงะ
+
+เสียงที่ตรวจพบ: เครื่องมือไฟฟ้า/สว่าน
+ความมั่นใจของเสียง: 82%
+ระดับเสียง: สูงกว่าพื้นฐาน 46%
+
+เซนเซอร์ยืนยัน:
+• ตรวจพบแรงสั่นสะเทือนต่อเนื่อง
+• ตรวจพบทั้งหมด 4 ครั้งใน 6 วินาที
+
+เวลา: 14:32:18
+สถานะ: ระบบป้องกันยังทำงานอยู่
+
+📍 ตำแหน่งรถ: ลิงก์ Google Maps
+ความแม่นยำ: ±18 เมตร
+
+/status ตรวจสอบสถานะ
+/disarm ปลดการป้องกัน</div>
+
+    <h3>ตัวอย่าง: เครื่องยนต์และการเคลื่อนที่</h3>
+    <div class="message">🚨 รถอาจกำลังถูกสตาร์ตหรือเคลื่อนย้าย
+
+เสียงที่ตรวจพบ: เครื่องยนต์กำลังสตาร์ต
+ความมั่นใจของเสียง: 87%
+
+เซนเซอร์ยืนยัน:
+• ตรวจพบแรงสั่นแบบเครื่องยนต์
+• ตำแหน่งรถเปลี่ยนจากจุดที่ Arm
+• เคลื่อนที่ประมาณ 22 เมตร
+
+เวลา: 14:35:07
+📍 เริ่มติดตามตำแหน่งรถแบบสดแล้ว</div>
+
+    <h3>กติกาป้องกันสแปม</h3>
+    <ol>
+      <li>ส่งครั้งแรกเมื่อเหตุการณ์ได้รับการยืนยัน</li>
+      <li>ส่งอัปเดตเฉพาะเมื่อระดับสูงขึ้น เช่น Warning เป็น Critical หรือเริ่มเคลื่อนที่</li>
+      <li>เสียงประเภทเดิมที่เกิดซ้ำให้รวมจำนวนใน Incident เดิม</li>
+      <li>เริ่ม Live Location เฉพาะเมื่อเข้าเงื่อนไขการเคลื่อนย้ายจริง</li>
+      <li>ส่งข้อความปิดเหตุการณ์เมื่อ Disarm หรือระบบปิดเหตุการณ์ตามกฎ</li>
+    </ol>
+
+    <h2>9. ข้อมูลที่ไม่ถูกส่งหรือบันทึก</h2>
+    <ul>
+      <li>ไม่มีไฟล์ WAV, PCM, MP3 หรือคลิปเสียง</li>
+      <li>ไม่มีการถอดคำพูด</li>
+      <li>ไม่มีบทสนทนาของบุคคล</li>
+      <li>ไม่มีเสียงดิบใน Log หรือฐานข้อมูล</li>
+      <li>ไม่มีการส่งผลจำแนกทุกครั้งไป Telegram</li>
+      <li>Candidate ที่ไม่ได้รับการยืนยันจะไม่เป็น Event ถาวร</li>
+    </ul>
+  </section>
+
+  <section class="page-break">
+    <h2>10. ขั้นตอนทดสอบหน้างาน</h2>
+    <h3>10.1 เตรียมระบบ</h3>
+    <ol>
+      <li>ตรวจว่าโทรศัพท์อนุญาตสิทธิ์ไมโครโฟนและตำแหน่ง</li>
+      <li>ตรวจว่า Telegram จับคู่กับบัญชีเจ้าของแล้ว</li>
+      <li>วางโทรศัพท์ในตำแหน่งติดตั้งจริงและเสียบสายชาร์จ</li>
+      <li>กด Arm และรักษาสภาพแวดล้อมให้เป็นปกติระหว่าง Calibrating 10 วินาที</li>
+      <li>ตรวจ UI ว่า Microphone แสดง Listening/Healthy และ Last sample เปลี่ยน</li>
+    </ol>
+
+    <h3>10.2 ทดสอบเสียงอย่างเดียว — ต้องไม่แจ้ง</h3>
+    <ol>
+      <li>เปิดเสียงรถหรือเสียงสว่านจากโทรศัพท์อีกเครื่อง โดยไม่แตะรถ</li>
+      <li>ตรวจว่า UI อาจแสดง Candidate ชั่วคราว</li>
+      <li>รอเกิน 15 วินาที</li>
+      <li>ยืนยันว่าไม่มี Telegram และไม่มี Incident ถาวร</li>
+    </ol>
+
+    <h3>10.3 ทดสอบ Impact + Vibration</h3>
+    <ol>
+      <li>สร้างเสียงเคาะที่ปลอดภัยพร้อมเขย่าหรือทำให้รถสั่นตามขั้นตอนทดสอบ</li>
+      <li>ยืนยันว่าเหตุการณ์ทั้งสองเกิดห่างกันไม่เกิน 15 วินาที</li>
+      <li>คาดหวัง Warning หนึ่งข้อความ พร้อมประเภทเสียงและ Vibration</li>
+      <li>ทำซ้ำหลายครั้งและยืนยันว่าไม่ส่งข้อความใหม่ทุกครั้ง</li>
+    </ol>
+
+    <h3>10.4 ทดสอบ Power tool + Vibration</h3>
+    <ol>
+      <li>ใช้ไฟล์เสียงหรือเครื่องมือจำลองที่ปลอดภัย ไม่สัมผัสชิ้นส่วนรถ</li>
+      <li>สร้างแรงสั่นร่วมอย่างควบคุม</li>
+      <li>คาดหวัง Critical พร้อมคำอธิบายว่าเป็นเครื่องมือไฟฟ้า/สว่าน</li>
+    </ol>
+
+    <h3>10.5 ทดสอบ Engine + Movement</h3>
+    <ol>
+      <li>ทำในพื้นที่ควบคุมและมีผู้ดูแลรถ</li>
+      <li>ตรวจ Engine activity ร่วมกับ Vibration</li>
+      <li>เคลื่อนรถเกินระยะและความแม่นยำที่นโยบาย GPS กำหนด</li>
+      <li>คาดหวัง Critical และเริ่ม Telegram Live Location</li>
+    </ol>
+
+    <h3>10.6 ทดสอบการล้างข้อมูล</h3>
+    <ol>
+      <li>สร้าง Audio Candidate โดยไม่ยืนยัน แล้วกด Disarm</li>
+      <li>Arm ใหม่และสร้าง Vibration ภายใน 15 วินาที</li>
+      <li>ต้องไม่จับคู่ Vibration รอบใหม่กับเสียงจากรอบก่อน</li>
+    </ol>
+  </section>
+
+  <section class="page-break">
+    <h2>11. การจัดการความผิดปกติ</h2>
+    <table>
+      <thead><tr><th>อาการ</th><th>พฤติกรรมที่ถูกต้อง</th><th>สิ่งที่ช่างตรวจ</th></tr></thead>
+      <tbody>
+        <tr><td>ไม่มีสิทธิ์ไมค์</td><td>แสดง Microphone unavailable; เซนเซอร์อื่นทำงานต่อ</td><td>Android Permission และ AppOps</td></tr>
+        <tr><td>AudioRecord เปิดไม่ได้</td><td>ลองใหม่แบบจำกัดจำนวน แล้วเปลี่ยนเป็น Failed/Degraded</td><td>แอปอื่นกำลังใช้ไมค์หรือไม่ และ Log ที่ไม่เปิดเผยเสียง</td></tr>
+        <tr><td>โมเดลโหลดไม่ได้</td><td>ปิด Audio classification แต่ไม่ทำให้ Service ล่ม</td><td>ไฟล์โมเดล เวอร์ชัน และ checksum</td></tr>
+        <tr><td>ประมวลผลไม่ทัน</td><td>ทิ้งเฟรมเก่า ไม่บล็อก AudioRecord หรือ Main Thread</td><td>Inference latency และจำนวน dropped frames</td></tr>
+        <tr><td>GPS ยังไม่มี fix</td><td>ส่งเหตุการณ์ที่ยืนยันแล้วโดยไม่รอที่อยู่</td><td>Location permission, accuracy และอายุ fix</td></tr>
+        <tr><td>คะแนนเสียงต่ำ</td><td>ทิ้งผล ไม่สร้าง Candidate</td><td>สภาพเสียงจริงและค่าความมั่นใจ</td></tr>
+        <tr><td>Candidate หมดอายุ</td><td>ลบจาก RAM โดยไม่สร้าง Event</td><td>นาฬิกา elapsed time และ session ID</td></tr>
+      </tbody>
+    </table>
+    <div class="warning"><strong>ห้ามระบบทำงานแบบเงียบ:</strong> ถ้า AudioRecord หรือโมเดลล้มเหลว UI และคำสั่ง <code>/status</code> ต้องระบุว่า Audio classification ใช้งานไม่ได้ ห้ามคงสถานะ Healthy จากข้อมูลเก่า</div>
+
+    <h2>12. Checklist ตรวจรับ</h2>
+    <ul class="checklist">
+      <li>ไมค์เริ่มหลัง Arm และหยุดหลัง Disarm</li>
+      <li>ช่วง Calibrating 10 วินาทีไม่สร้างเหตุการณ์</li>
+      <li>UI แสดง Listening, Last sample และสถานะโมเดลอย่างตรงไปตรงมา</li>
+      <li>เสียงอย่างเดียวไม่ส่ง Telegram</li>
+      <li>เสียงรถคันอื่นโดยไม่มีแรงสั่นหรือการเคลื่อนที่ไม่แจ้ง</li>
+      <li>Impact + Vibration เปิด Warning</li>
+      <li>Power tool + Vibration เปิด Critical</li>
+      <li>Engine + Movement เปิด Critical และ Live Location</li>
+      <li>Candidate จับคู่ได้ทั้งเสียงก่อนและเซนเซอร์ก่อน</li>
+      <li>Candidate หมดอายุภายใน 15 วินาที</li>
+      <li>Disarm/Arm รอบใหม่ไม่ใช้ Candidate เก่า</li>
+      <li>ข้อความ Telegram แสดงประเภทเสียง คะแนน และเซนเซอร์ยืนยัน</li>
+      <li>เหตุการณ์ซ้ำถูกรวมและไม่สแปม</li>
+      <li>ไม่มีไฟล์เสียงหรือ PCM ดิบใน Storage, Database และ Log</li>
+      <li>Audio failure ไม่ทำให้เซนเซอร์อื่นหรือ Service หยุด</li>
+      <li>ผ่านการทดสอบจริงบน Huawei และโทรศัพท์ Telegram อีกเครื่อง</li>
+    </ul>
+
+    <h2>13. ค่าตั้งต้นสำหรับ Pilot</h2>
+    <table>
+      <thead><tr><th>รายการ</th><th>ค่าเริ่มต้น</th><th>หมายเหตุ</th></tr></thead>
+      <tbody>
+        <tr><td>Audio sample rate</td><td>16 kHz Mono PCM16</td><td>ตรงกับอินพุต YAMNet</td></tr>
+        <tr><td>Calibration</td><td>10 วินาที</td><td>ไม่สร้าง Candidate</td></tr>
+        <tr><td>Correlation window</td><td>15 วินาที</td><td>จับคู่ได้สองทิศทาง</td></tr>
+        <tr><td>Candidate capacity</td><td>สูงสุด 8 รายการ</td><td>รวมประเภทซ้ำ</td></tr>
+        <tr><td>Transient PCM</td><td>ประมาณ 1–2 วินาทีใน RAM</td><td>เขียนทับและไม่ลง Storage</td></tr>
+        <tr><td>Impact confidence</td><td>เริ่มประมาณ 70%</td><td>ต้องมี DSP onset และเซนเซอร์ยืนยัน</td></tr>
+        <tr><td>Sustained confidence</td><td>เฉลี่ยเริ่มประมาณ 65%</td><td>อย่างน้อย 2 หน้าต่าง</td></tr>
+      </tbody>
+    </table>
+    <p class="small">ค่าทั้งหมดต้องปรับจากข้อมูลทดสอบจริง ห้ามลด Threshold เพื่อทำให้ Demo ผ่านโดยไม่มีการวัด False positive และ False negative</p>
+
+    <h2>14. สรุปสำหรับช่าง</h2>
+    <div class="success">
+      <strong>จำกฎเดียวให้ได้:</strong> ไมโครโฟนเสนอว่า “อาจมีอะไรผิดปกติ” แต่เซนเซอร์ของตัวรถต้องยืนยันก่อนระบบกล่าวว่าเป็นเหตุการณ์และส่ง Telegram
+    </div>
+    <p>เมื่อพบปัญหา ให้ตรวจตามลำดับ: Armed หรือไม่ → ไมค์ Listening หรือไม่ → โมเดล Ready หรือไม่ → มี Candidate หรือไม่ → มีเซนเซอร์ยืนยันภายใน 15 วินาทีหรือไม่ → Incident ถูกสร้างหรือไม่ → Telegram ส่งสำเร็จหรือไม่</p>
+  </section>
+</body>
+</html>

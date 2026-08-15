@@ -59,7 +59,6 @@ class IncidentCloseDispatcherTest {
 private fun closedIncident(id: String): SecurityIncident = SecurityIncident(
     id = id,
     type = IncidentType.VIBRATION,
-    source = IncidentSource.REAL,
     severity = IncidentSeverity.WARNING,
     lifecycle = IncidentLifecycle.CLOSED,
     evidence = emptyList(),

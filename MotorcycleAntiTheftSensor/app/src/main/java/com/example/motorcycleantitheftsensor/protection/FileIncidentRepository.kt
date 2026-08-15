@@ -58,8 +58,13 @@ class FileIncidentRepository(
                 val magic = input.readInt()
                 if (magic != FILE_MAGIC) throw IOException("Unsupported incident file")
                 val version = input.readInt()
-                if (version != FILE_VERSION) throw IOException("Unsupported incident version: $version")
-                List(input.readInt()) { readIncident(input) }
+                val recordCount = input.readInt()
+                when (version) {
+                    LEGACY_FILE_VERSION -> List(recordCount) { readLegacyV1Incident(input) }.mapNotNull { it }
+                    LEGACY_V2_FILE_VERSION -> List(recordCount) { readLegacyV2Incident(input) }
+                    FILE_VERSION -> List(recordCount) { readIncident(input) }
+                    else -> throw IOException("Unsupported incident version: $version")
+                }
             }
         } catch (error: EOFException) {
             throw IOException("Truncated incident file", error)
@@ -102,7 +107,6 @@ class FileIncidentRepository(
     ) {
         output.writeUTF(incident.id)
         output.writeUTF(incident.type.name)
-        output.writeUTF(incident.source.name)
         output.writeUTF(incident.severity.name)
         output.writeUTF(incident.lifecycle.name)
         output.writeInt(incident.evidence.size)
@@ -127,12 +131,65 @@ class FileIncidentRepository(
             output.writeNullableString(attempt.detail)
         }
         output.writeNullableString(incident.closeReason)
+        if (incident.location != null) {
+            output.writeBoolean(true)
+            output.writeDouble(incident.location.latitude)
+            output.writeDouble(incident.location.longitude)
+            output.writeFloat(incident.location.accuracyMeters)
+            output.writeLong(incident.location.capturedAtWallClockMs)
+        } else {
+            output.writeBoolean(false)
+        }
     }
 
-    private fun readIncident(input: DataInputStream): SecurityIncident = SecurityIncident(
+    private fun readLegacyV1Incident(input: DataInputStream): SecurityIncident? {
+        val id = input.readUTF()
+        val type = IncidentType.valueOf(input.readUTF())
+        val legacyOrigin = input.readUTF()
+        val incident = readIncidentBody(input, id, type, null)
+        return incident.takeIf { legacyOrigin == REAL_ORIGIN_TOKEN }
+    }
+
+    private fun readLegacyV2Incident(input: DataInputStream): SecurityIncident = readIncidentBody(
+        input = input,
         id = input.readUTF(),
         type = IncidentType.valueOf(input.readUTF()),
-        source = IncidentSource.valueOf(input.readUTF()),
+        location = null,
+    )
+
+    private fun readIncident(input: DataInputStream): SecurityIncident {
+        val id = input.readUTF()
+        val type = IncidentType.valueOf(input.readUTF())
+        val base = readIncidentBody(input, id, type, null)
+        val hasLocation = input.readBoolean()
+        val location = if (hasLocation) {
+            val lat = input.readDouble()
+            val lon = input.readDouble()
+            val accuracy = input.readFloat()
+            val capturedAt = input.readLong()
+            if (lat.isFinite() && lat in -90.0..90.0 &&
+                lon.isFinite() && lon in -180.0..180.0 &&
+                accuracy.isFinite() && accuracy >= 0f && accuracy <= 1500f &&
+                capturedAt >= 0L
+            ) {
+                IncidentLocation(lat, lon, accuracy, capturedAt)
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        return base.copy(location = location)
+    }
+
+    private fun readIncidentBody(
+        input: DataInputStream,
+        id: String,
+        type: IncidentType,
+        location: IncidentLocation?,
+    ): SecurityIncident = SecurityIncident(
+        id = id,
+        type = type,
         severity = IncidentSeverity.valueOf(input.readUTF()),
         lifecycle = IncidentLifecycle.valueOf(input.readUTF()),
         evidence = List(input.readInt()) {
@@ -159,6 +216,7 @@ class FileIncidentRepository(
             )
         },
         closeReason = input.readNullableString(),
+        location = location,
     )
 
     private fun temporaryFile(): File = File(file.parentFile, "${file.name}.tmp")
@@ -181,6 +239,9 @@ class FileIncidentRepository(
 
     private companion object {
         const val FILE_MAGIC = 0x4D475249
-        const val FILE_VERSION = 1
+        const val LEGACY_FILE_VERSION = 1
+        const val LEGACY_V2_FILE_VERSION = 2
+        const val FILE_VERSION = 3
+        const val REAL_ORIGIN_TOKEN = "REAL"
     }
 }

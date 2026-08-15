@@ -51,9 +51,6 @@ data class ProtectionAppActions(
     val requestPermissions: () -> Unit,
     val replaceBotToken: (String) -> Unit,
     val configureSmsFallback: (String, String) -> Unit,
-    val beginAuthenticatorSetup: ((AuthenticatorSetupDetails?) -> Unit) -> (() -> Unit),
-    val cancelAuthenticatorSetup: () -> Unit,
-    val verifyAuthenticator: (String, (Boolean) -> Unit) -> (() -> Unit),
     val retry: () -> Unit,
     val retrySettings: () -> Unit,
     val resetPairing: () -> Unit,
@@ -71,7 +68,7 @@ fun ProtectionAppScreen(
     LaunchedEffect(message?.id) {
         if (message != null) {
             snackbarHostState.showSnackbar(
-                message = message.text,
+                message = message.content.titleTh,
                 duration = SnackbarDuration.Short,
             )
             actions.consumeMessage(message.id)

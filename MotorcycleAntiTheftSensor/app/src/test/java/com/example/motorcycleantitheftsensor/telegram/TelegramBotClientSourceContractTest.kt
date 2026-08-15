@@ -13,6 +13,10 @@ class TelegramBotClientSourceContractTest {
         ).readText()
 
         assertFalse(source.contains("printStackTrace"))
+        assertFalse(source.contains("botToken.take("))
+        assertFalse(source.contains("getUpdates response body"))
+        assertFalse(source.contains("sendMessage response:"))
+        assertFalse(source.contains("\"parse_mode\", \"Markdown\""))
         assertFalse(
             Regex("""Log\.\w+\([^)]*,\s*(e|error|exception)\s*\)""")
                 .containsMatchIn(source),
@@ -24,7 +28,7 @@ class TelegramBotClientSourceContractTest {
         val source = File(
             "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
         ).readText()
-        val resultMethodStart = source.indexOf("internal fun verifyBotTokenResult")
+        val resultMethodStart = source.indexOf("internal suspend fun verifyBotTokenResult")
         val methodEnd = source.indexOf(
             "fun sendTestAlertToOwners",
             startIndex = resultMethodStart,

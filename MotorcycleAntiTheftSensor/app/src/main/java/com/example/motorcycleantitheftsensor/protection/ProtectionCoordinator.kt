@@ -35,6 +35,7 @@ class ProtectionCoordinator(
     @Volatile private var stateBeforeOffline: ProtectionState? = null
     @Volatile private var baseDegradationReasons: Set<String> = initialSnapshot.degradationReasons
     private val unavailablePersistence = AtomicReference<Set<PersistenceSource>>(emptySet())
+    private val runtimeDegradations = AtomicReference<Set<String>>(emptySet())
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
 
@@ -257,6 +258,43 @@ class ProtectionCoordinator(
         }
     }
 
+    fun recordLocationForegroundRestriction(restricted: Boolean) {
+        val reason = "Background location foreground start restricted"
+        var changed = false
+        while (true) {
+            val current = runtimeDegradations.get()
+            val updated = if (restricted) current + reason else current - reason
+            if (updated == current) break
+            if (runtimeDegradations.compareAndSet(current, updated)) {
+                changed = true
+                break
+            }
+        }
+        if (changed) {
+            refreshRuntimeDegradations()
+        }
+    }
+
+    private fun refreshRuntimeDegradations() {
+        val runtimeReasons = runtimeDegradations.get()
+        updateSnapshot { current ->
+            val remaining = current.degradationReasons - setOf("Background location foreground start restricted")
+            val updated = remaining + runtimeReasons
+            current.copy(
+                state = when {
+                    current.state == ProtectionState.ARMED_HEALTHY && updated.isNotEmpty() ->
+                        ProtectionState.ARMED_DEGRADED
+                    current.state == ProtectionState.ARMED_DEGRADED &&
+                        updated.isEmpty() &&
+                        current.sensorHealth[SensorKind.VIBRATION]?.state == SensorHealthState.HEALTHY ->
+                        ProtectionState.ARMED_HEALTHY
+                    else -> current.state
+                },
+                degradationReasons = updated,
+            )
+        }
+    }
+
     fun recordTelegramContact(atMs: Long) {
         updateSnapshot { current ->
             current.copy(
@@ -363,7 +401,6 @@ class ProtectionCoordinator(
                 lastTransitionAtMs = clock.nowMs(),
                 lastIncident = IncidentSummary(
                     id = incident.id,
-                    source = incident.source,
                     severity = incident.severity,
                     lifecycle = incident.lifecycle,
                     updatedAtMs = incident.updatedAtMs,
@@ -401,7 +438,8 @@ class ProtectionCoordinator(
             val degradations = baseDegradationReasons +
                 unhealthySensorReasons(evaluatedSensors) +
                 channelDegradations +
-                persistenceDegradations()
+                persistenceDegradations() +
+                runtimeDegradations.get()
             val evaluatedState = when {
                 !serviceFresh -> {
                     if (current.state != ProtectionState.OFFLINE) stateBeforeOffline = current.state
@@ -482,6 +520,7 @@ class ProtectionCoordinator(
             when (source) {
                 PersistenceSource.SNAPSHOT -> SNAPSHOT_PERSISTENCE_DEGRADATION
                 PersistenceSource.INCIDENT_HISTORY -> INCIDENT_PERSISTENCE_DEGRADATION
+                PersistenceSource.MOVEMENT_TRACKING -> MOVEMENT_TRACKING_PERSISTENCE_DEGRADATION
             }
         }
 
@@ -522,9 +561,11 @@ class ProtectionCoordinator(
         val ACTIVE_INCIDENT_STATES = ARMED_STATES + ProtectionState.ALERT_ACTIVE
         const val SNAPSHOT_PERSISTENCE_DEGRADATION = "SNAPSHOT persistence unavailable"
         const val INCIDENT_PERSISTENCE_DEGRADATION = "INCIDENT history unavailable"
+        const val MOVEMENT_TRACKING_PERSISTENCE_DEGRADATION = "Movement tracking persistence unavailable"
         val PERSISTENCE_REASON_LABELS = setOf(
             SNAPSHOT_PERSISTENCE_DEGRADATION,
             INCIDENT_PERSISTENCE_DEGRADATION,
+            MOVEMENT_TRACKING_PERSISTENCE_DEGRADATION,
         )
     }
 }

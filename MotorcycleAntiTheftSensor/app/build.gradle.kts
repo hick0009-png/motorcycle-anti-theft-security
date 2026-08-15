@@ -71,6 +71,7 @@ dependencies {
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation("org.json:json:20231013")
+  testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)
@@ -85,8 +86,6 @@ dependencies {
 
   // Security & Crypto
   implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-  implementation("com.google.zxing:core:3.5.4")
 
   // Networking (OkHttp with CertificatePinner)
   implementation("com.squareup.okhttp3:okhttp:4.12.0")

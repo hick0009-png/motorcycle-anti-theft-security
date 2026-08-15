@@ -2,17 +2,20 @@ package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
-import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AndroidProtectionSettingsGatewayTest {
     @Test
     fun prefixedTokenIsNormalizedBeforeVerificationPersistenceAndPollingRefresh() = runTest {
@@ -89,76 +92,66 @@ class AndroidProtectionSettingsGatewayTest {
     }
 
     @Test
-    fun beginningAuthenticatorSetupExposesDetailsWithoutActivatingCandidate() = runTest {
+    fun verificationWithoutResultTimesOutAndRetainsExistingToken() = runTest {
         val operations = FakeAndroidProtectionSettingsOperations()
-        val gateway = AndroidProtectionSettingsGateway(operations, PairingCodePolicy())
-
-        val details = gateway.beginAuthenticatorSetup()
-
-        assertEquals("CANDIDATE", details?.secret)
-        assertEquals("otpauth://candidate", details?.uri)
-        assertEquals(listOf("create-authenticator"), operations.events)
-    }
-
-    @Test
-    fun cancellingAuthenticatorSetupDiscardsCandidate() = runTest {
-        val operations = FakeAndroidProtectionSettingsOperations()
-        val gateway = AndroidProtectionSettingsGateway(operations, PairingCodePolicy())
-        gateway.beginAuthenticatorSetup()
-
-        gateway.cancelAuthenticatorSetup()
-        val verified = gateway.verifyAuthenticator("123456")
-
-        assertFalse(verified)
-        assertEquals(listOf("create-authenticator"), operations.events)
-    }
-
-    @Test
-    fun successfulAuthenticatorVerificationActivatesPendingCandidate() = runTest {
-        val operations = FakeAndroidProtectionSettingsOperations()
-        val gateway = AndroidProtectionSettingsGateway(operations, PairingCodePolicy())
-        gateway.beginAuthenticatorSetup()
-
-        val verified = gateway.verifyAuthenticator("123456")
-
-        assertTrue(verified)
-        assertEquals(
-            listOf(
-                "create-authenticator",
-                "verify-authenticator:123456:CANDIDATE",
-                "activate-authenticator:CANDIDATE",
-            ),
-            operations.events,
+        operations.savedToken = "OLD_TOKEN"
+        operations.verificationHang = true
+        val gateway = AndroidProtectionSettingsGateway(
+            operations = operations,
+            pairingCodePolicy = PairingCodePolicy(),
+            verificationTimeoutMs = 50L,
         )
-        assertFalse(gateway.verifyAuthenticator("123456"))
+
+        val result = gateway.replaceBotToken("123456:HANG")
+
+        assertFalse(result.applied)
+        assertEquals("Telegram connection could not be established", result.message)
+        assertEquals("OLD_TOKEN", operations.savedToken)
     }
 
     @Test
-    fun cancellationWhileCandidateVerificationIsPausedPreventsActivation() = runTest {
-        val verificationStarted = CountDownLatch(1)
-        val allowVerification = CountDownLatch(1)
-        val operations = FakeAndroidProtectionSettingsOperations(
-            verificationStarted = verificationStarted,
-            allowVerification = allowVerification,
+    fun timeoutDoesNotRefreshPolling() = runTest {
+        val operations = FakeAndroidProtectionSettingsOperations()
+        operations.verificationHang = true
+        val gateway = AndroidProtectionSettingsGateway(
+            operations = operations,
+            pairingCodePolicy = PairingCodePolicy(),
+            verificationTimeoutMs = 50L,
         )
-        val gateway = AndroidProtectionSettingsGateway(operations, PairingCodePolicy())
-        gateway.beginAuthenticatorSetup()
-        val verification = async(Dispatchers.Default) {
-            gateway.verifyAuthenticator("123456")
+
+        gateway.replaceBotToken("123456:HANG")
+
+        assertFalse(operations.events.contains("refresh-service"))
+    }
+
+    @Test
+    fun gatewayCancellationPropagates() = runTest {
+        val cancelledSignal = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val operations = FakeAndroidProtectionSettingsOperations()
+        operations.verificationAction = {
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                cancelledSignal.complete(Unit)
+            }
         }
-        assertTrue(verificationStarted.await(2, TimeUnit.SECONDS))
+        val gateway = AndroidProtectionSettingsGateway(
+            operations = operations,
+            pairingCodePolicy = PairingCodePolicy(),
+            verificationTimeoutMs = 10_000L,
+        )
 
-        gateway.cancelAuthenticatorSetup()
-        allowVerification.countDown()
-
-        assertFalse(verification.await())
-        assertFalse(operations.events.contains("activate-authenticator:CANDIDATE"))
+        val job = launch {
+            gateway.replaceBotToken("123456:HANG")
+        }
+        runCurrent()
+        job.cancel()
+        runCurrent()
+        assertTrue(cancelledSignal.isCompleted)
     }
 }
 
 private class FakeAndroidProtectionSettingsOperations(
-    private val verificationStarted: CountDownLatch? = null,
-    private val allowVerification: CountDownLatch? = null,
     allowedChatIds: Set<String> = emptySet(),
 ) : AndroidProtectionSettingsOperations {
     val events = mutableListOf<String>()
@@ -167,6 +160,8 @@ private class FakeAndroidProtectionSettingsOperations(
         private set
     var verificationResultToReturn: com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult = 
         com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult.Verified("testbot", "123")
+    var verificationHang: Boolean = false
+    var verificationAction: (suspend () -> com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult)? = null
 
     override fun getAllowedChatIds(): Set<String> = allowedOwners
 
@@ -183,8 +178,6 @@ private class FakeAndroidProtectionSettingsOperations(
     }
 
     override fun getBotToken(): String? = savedToken
-
-    override fun getTotpSeed(): String? = null
 
     override fun getSensitivity(): Int = 5
 
@@ -203,35 +196,16 @@ private class FakeAndroidProtectionSettingsOperations(
 
     override fun saveSmsAesKey(aesKey: String) = Unit
 
-    override fun verifyBotToken(token: String, onResult: (com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult) -> Unit) {
+    override suspend fun verifyBotToken(token: String): com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult {
         events += "verify:$token"
-        onResult(verificationResultToReturn)
+        verificationAction?.let { return it() }
+        if (verificationHang) {
+            kotlinx.coroutines.awaitCancellation()
+        }
+        return verificationResultToReturn
     }
 
     override fun refreshControlService() {
         events += "refresh-service"
     }
-
-    override fun createAuthenticatorSetup(): TotpAuthenticator.SetupCandidate {
-        events += "create-authenticator"
-        return TotpAuthenticator.SetupCandidate(
-            secret = "CANDIDATE",
-            uri = "otpauth://candidate",
-        )
-    }
-
-    override fun verifyAuthenticatorSetup(
-        candidate: TotpAuthenticator.SetupCandidate,
-        code: String,
-    ): TotpAuthenticator.VerificationResult {
-        events += "verify-authenticator:$code:${candidate.secret}"
-        verificationStarted?.countDown()
-        if (allowVerification != null) check(allowVerification.await(2, TimeUnit.SECONDS))
-        return TotpAuthenticator.VerificationResult.SUCCESS
-    }
-
-    override fun activateAuthenticatorSetup(candidate: TotpAuthenticator.SetupCandidate) {
-        events += "activate-authenticator:${candidate.secret}"
-    }
-
 }

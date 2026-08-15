@@ -10,7 +10,6 @@ class RemoteControlReadinessTest {
         val readiness = RemoteControlReadiness(
             botTokenConfigured = false,
             ownerPaired = false,
-            totpConfigured = false,
         )
 
         val blockers = readiness.blockers()
@@ -19,7 +18,6 @@ class RemoteControlReadinessTest {
             setOf(
                 "TELEGRAM bot token not configured",
                 "TELEGRAM owner not paired",
-                "TOTP not configured",
             ),
             blockers,
         )
@@ -31,7 +29,6 @@ class RemoteControlReadinessTest {
         val readiness = RemoteControlReadiness(
             botTokenConfigured = true,
             ownerPaired = true,
-            totpConfigured = true,
         )
 
         assertTrue(readiness.blockers().isEmpty())

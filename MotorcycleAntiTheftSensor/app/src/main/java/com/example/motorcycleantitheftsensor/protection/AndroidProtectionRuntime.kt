@@ -24,11 +24,14 @@ interface AndroidDetectorSet {
     fun currentSensorHealth(): Map<SensorKind, SensorHealth>
 
     fun currentLocationObservation(): SensorObservation? = null
+
+    fun currentIncidentLocation(): IncidentLocation? = null
 }
 
 data class IncidentObservationBatch(
     val primary: SensorObservation,
     val supplementalEvidence: List<SensorObservation> = emptyList(),
+    val location: IncidentLocation? = null,
 )
 
 class AndroidProtectionRuntime(
@@ -87,10 +90,13 @@ class AndroidProtectionRuntime(
                         ?.let(::listOf)
                         .orEmpty()
                 }
+                val incidentLocation = runCatching(detectors::currentIncidentLocation)
+                    .getOrNull()
                 incidentConsumer(
                     IncidentObservationBatch(
                         primary = decision.observation,
                         supplementalEvidence = supplementalEvidence,
+                        location = incidentLocation,
                     ),
                 )
             }
@@ -172,6 +178,7 @@ class AndroidRuntimeReadiness(
 
 class PlatformAndroidDetectorSet(
     context: Context,
+    private val location: LocationObservationProvider,
     private val onObservation: (SensorObservation) -> Unit,
 ) : AndroidDetectorSet {
     private val applicationContext = context.applicationContext
@@ -182,7 +189,6 @@ class PlatformAndroidDetectorSet(
     private val light = LightIntrusionDetector(applicationContext, ::record)
     private val powerThermal = PowerThermalMonitor(applicationContext, ::record)
     private val audio = AudioPeakDetector(applicationContext, ::record)
-    private val location = LocationObservationProvider(applicationContext)
     private var running = false
 
     init {
@@ -269,6 +275,18 @@ class PlatformAndroidDetectorSet(
 
     @Synchronized
     override fun currentLocationObservation(): SensorObservation = location.currentObservation().also(::updateHealth)
+
+    @Synchronized
+    override fun currentIncidentLocation(): IncidentLocation? {
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val fix = location.currentUsableFix(nowElapsedMs) ?: return null
+        return IncidentLocation(
+            latitude = fix.latitude,
+            longitude = fix.longitude,
+            accuracyMeters = fix.accuracyMeters,
+            capturedAtWallClockMs = fix.wallClockMs,
+        )
+    }
 
     @Synchronized
     private fun record(observation: SensorObservation) {

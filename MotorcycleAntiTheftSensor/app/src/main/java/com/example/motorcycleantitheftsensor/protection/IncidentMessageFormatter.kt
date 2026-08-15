@@ -1,66 +1,108 @@
 package com.example.motorcycleantitheftsensor.protection
 
-import java.text.SimpleDateFormat
-import java.util.Date
+import com.example.motorcycleantitheftsensor.location.LocationPresentation
 import java.util.Locale
-import java.util.TimeZone
 
 class IncidentMessageFormatter(
-    private val timeZone: TimeZone = TimeZone.getDefault(),
+    private val getSnapshot: () -> ProtectionSnapshot? = { null }
 ) {
-    fun format(incident: SecurityIncident): String = buildString {
-        if (incident.source == IncidentSource.DEMO) append("DEMO — ")
-        append(incident.severity.name)
-        append(' ')
-        append(incident.type.name)
-        append('\n')
-        append("Time: ")
-        append(formatTime(incident.updatedAtMs))
-        append('\n')
+    fun formatTelegram(
+        incident: SecurityIncident,
+        presentation: LocationPresentation? = null,
+    ): String {
+        val code = when (incident.lifecycle) {
+            IncidentLifecycle.OPEN -> GuidanceCode.INCIDENT_OPENED
+            IncidentLifecycle.INTERRUPTED -> GuidanceCode.INCIDENT_ESCALATED
+            IncidentLifecycle.CLOSED -> GuidanceCode.INCIDENT_CLOSED
+        }
+        val template = UserGuidanceCatalog.content(code).telegramTh ?: ""
+        var message = template.replace("{incidentType}", incident.type.name)
 
-        incident.evidence
-            .filterNot { evidence -> evidence.kind == SensorKind.LOCATION }
-            .forEach { evidence ->
-                append(formatEvidence(evidence))
-                append('\n')
+        if (incident.lifecycle != IncidentLifecycle.CLOSED) {
+            val details = mutableListOf<String>()
+
+            if (incident.evidence.isNotEmpty()) {
+                incident.evidence.forEach { ev ->
+                    val kindName = when (ev.kind) {
+                        SensorKind.LIGHT -> "แสงสว่างลอดเข้าใต้เบาะ"
+                        SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                        SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
+                        SensorKind.MICROPHONE -> "เสียง"
+                        SensorKind.LOCATION -> "พิกัด"
+                    }
+                    val diag = ev.diagnostic ?: "N/A"
+                    val verb = when (ev.kind) {
+                        SensorKind.LIGHT -> "ตรวจพบความสว่างเปลี่ยนไป"
+                        SensorKind.VIBRATION -> "ตรวจพบการเอียง/สั่น"
+                        else -> "ตรวจพบค่าเปลี่ยนไป"
+                    }
+                    details.add("• $kindName ($diag): $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
+                }
             }
 
-        val location = incident.evidence.lastOrNull { evidence -> evidence.kind == SensorKind.LOCATION }
-        append(formatLocation(location))
-        append('\n')
-        append("Protection: ")
-        append(incident.protectionState.name)
-        append('\n')
-        append("Incident: ")
-        append(incident.id)
-    }
+            val snapshot = getSnapshot()
+            if (snapshot?.batteryLevelPercent != null) {
+                val tempStr = snapshot.batteryTemperatureCelsius?.let { " (%.1f°C)".format(Locale.US, it) } ?: ""
+                details.add("🔋 แบตเตอรี่: ${snapshot.batteryLevelPercent}%$tempStr")
+            }
 
-    private fun formatTime(timestampMs: Long): String = SimpleDateFormat(
-        "yyyy-MM-dd HH:mm:ss z",
-        Locale.US,
-    ).apply {
-        timeZone = this@IncidentMessageFormatter.timeZone
-    }.format(Date(timestampMs))
+            if (presentation != null) {
+                if (!presentation.labelTh.isNullOrBlank()) {
+                    details.add("📍 ตำแหน่ง: ${presentation.labelTh}")
+                }
+                details.add("🗺️ แผนที่: ${presentation.mapsUrl} (ความแม่นยำ ~${presentation.accuracyMeters}m)")
+            }
 
-    private fun formatEvidence(evidence: IncidentEvidence): String = when (evidence.kind) {
-        SensorKind.VIBRATION -> "Vibration delta: %.2f m/s²".format(Locale.US, evidence.baselineDelta)
-        SensorKind.LIGHT -> "Light change: %.1f lux".format(Locale.US, evidence.baselineDelta)
-        SensorKind.POWER_THERMAL -> when (evidence.diagnostic) {
-            "charger_disconnected" -> "Charger disconnected"
-            "temperature_celsius" ->
-                "Temperature: %.1f C".format(Locale.US, evidence.normalizedValue)
-            else -> "Power/thermal evidence unavailable"
+            if (details.isNotEmpty()) {
+                message += "\nรายละเอียด:\n" + details.joinToString("\n")
+            }
         }
-        SensorKind.MICROPHONE -> "Relative audio amplitude: %.2f".format(Locale.US, evidence.normalizedValue)
-        SensorKind.LOCATION -> error("Location is formatted separately")
+        return message
     }
 
-    private fun formatLocation(evidence: IncidentEvidence?): String {
-        val diagnostic = evidence?.diagnostic
-        return if (diagnostic != null && diagnostic.startsWith("fix ")) {
-            "Location: $diagnostic"
-        } else {
-            "Location: unavailable (${diagnostic ?: "no recent fix"})"
+    fun formatSms(incident: SecurityIncident): String {
+        val code = when (incident.lifecycle) {
+            IncidentLifecycle.OPEN -> GuidanceCode.INCIDENT_OPENED
+            IncidentLifecycle.INTERRUPTED -> GuidanceCode.INCIDENT_ESCALATED
+            IncidentLifecycle.CLOSED -> GuidanceCode.INCIDENT_CLOSED
         }
+        val template = UserGuidanceCatalog.content(code).telegramTh ?: ""
+        var message = template.replace("{incidentType}", incident.type.name)
+
+        if (incident.lifecycle != IncidentLifecycle.CLOSED) {
+            val details = mutableListOf<String>()
+
+            if (incident.evidence.isNotEmpty()) {
+                incident.evidence.filter { it.kind != SensorKind.LOCATION }.forEach { ev ->
+                    val kindName = when (ev.kind) {
+                        SensorKind.LIGHT -> "แสงสว่างลอดเข้าใต้เบาะ"
+                        SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                        SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
+                        SensorKind.MICROPHONE -> "เสียง"
+                        else -> ev.kind.name
+                    }
+                    val diag = ev.diagnostic ?: "N/A"
+                    val verb = when (ev.kind) {
+                        SensorKind.LIGHT -> "ตรวจพบความสว่างเปลี่ยนไป"
+                        SensorKind.VIBRATION -> "ตรวจพบการเอียง/สั่น"
+                        else -> "ตรวจพบค่าเปลี่ยนไป"
+                    }
+                    details.add("• $kindName ($diag): $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
+                }
+            }
+
+            val snapshot = getSnapshot()
+            if (snapshot?.batteryLevelPercent != null) {
+                val tempStr = snapshot.batteryTemperatureCelsius?.let { " (%.1f°C)".format(Locale.US, it) } ?: ""
+                details.add("🔋 แบตเตอรี่: ${snapshot.batteryLevelPercent}%$tempStr")
+            }
+
+            if (details.isNotEmpty()) {
+                message += "\nรายละเอียด:\n" + details.joinToString("\n")
+            }
+        }
+        return message
     }
+
+    fun format(incident: SecurityIncident): String = formatTelegram(incident, null)
 }

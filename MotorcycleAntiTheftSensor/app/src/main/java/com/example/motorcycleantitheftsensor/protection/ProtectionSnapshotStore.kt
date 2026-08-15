@@ -18,7 +18,6 @@ data class ProtectionRecoveryHints(
     val lastTransitionAtMs: Long?,
     val lastServiceHeartbeatAtMs: Long?,
     val lastTelegramContactAtMs: Long?,
-    val demoModeEnabled: Boolean,
     val lastIncidentId: String?,
     val revision: Long = 0L,
 )
@@ -77,7 +76,7 @@ class ProtectionSnapshotStore(
                 KEY_TRANSITION_AT_MS to snapshot.lastTransitionAtMs,
                 KEY_SERVICE_HEARTBEAT_AT_MS to lastServiceHeartbeatAtMs,
                 KEY_TELEGRAM_CONTACT_AT_MS to snapshot.lastTelegramContactAtMs,
-                KEY_DEMO_ENABLED to snapshot.demoModeEnabled,
+                LEGACY_REMOVED_FLAG_KEY to null,
                 KEY_LAST_INCIDENT_ID to snapshot.lastIncident?.id,
                 KEY_REVISION to snapshot.revision,
             ),
@@ -95,7 +94,6 @@ class ProtectionSnapshotStore(
                 lastTransitionAtMs = preferences.getLong(KEY_TRANSITION_AT_MS),
                 lastServiceHeartbeatAtMs = preferences.getLong(KEY_SERVICE_HEARTBEAT_AT_MS),
                 lastTelegramContactAtMs = preferences.getLong(KEY_TELEGRAM_CONTACT_AT_MS),
-                demoModeEnabled = preferences.getBoolean(KEY_DEMO_ENABLED) ?: false,
                 lastIncidentId = preferences.getString(KEY_LAST_INCIDENT_ID),
                 revision = preferences.getLong(KEY_REVISION) ?: 0L,
             ),
@@ -108,7 +106,7 @@ class ProtectionSnapshotStore(
         const val KEY_TRANSITION_AT_MS = "transition_at_ms"
         const val KEY_SERVICE_HEARTBEAT_AT_MS = "service_heartbeat_at_ms"
         const val KEY_TELEGRAM_CONTACT_AT_MS = "telegram_contact_at_ms"
-        const val KEY_DEMO_ENABLED = "demo_enabled"
+        const val LEGACY_REMOVED_FLAG_KEY = "demo_enabled"
         const val KEY_LAST_INCIDENT_ID = "last_incident_id"
         const val KEY_REVISION = "revision"
     }

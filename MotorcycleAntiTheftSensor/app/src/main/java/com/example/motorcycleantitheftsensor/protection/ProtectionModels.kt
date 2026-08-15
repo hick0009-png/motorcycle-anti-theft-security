@@ -31,11 +31,6 @@ enum class IncidentSeverity {
     CRITICAL,
 }
 
-enum class IncidentSource {
-    REAL,
-    DEMO,
-}
-
 enum class IncidentLifecycle {
     OPEN,
     CLOSED,
@@ -65,6 +60,7 @@ enum class CommandOutcome {
 enum class PersistenceSource {
     SNAPSHOT,
     INCIDENT_HISTORY,
+    MOVEMENT_TRACKING,
 }
 
 data class SensorReadingSummary(
@@ -82,7 +78,6 @@ data class SensorHealth(
 
 data class IncidentSummary(
     val id: String,
-    val source: IncidentSource,
     val severity: IncidentSeverity,
     val lifecycle: IncidentLifecycle,
     val updatedAtMs: Long,
@@ -110,7 +105,6 @@ data class ProtectionSnapshot(
     val batteryTemperatureCelsius: Float?,
     val lastIncident: IncidentSummary?,
     val lastDeliveryState: DeliveryState?,
-    val demoModeEnabled: Boolean,
     val revision: Long = 0L,
 ) {
     companion object {
@@ -128,7 +122,6 @@ data class ProtectionSnapshot(
             batteryTemperatureCelsius = null,
             lastIncident = null,
             lastDeliveryState = null,
-            demoModeEnabled = false,
         )
     }
 }

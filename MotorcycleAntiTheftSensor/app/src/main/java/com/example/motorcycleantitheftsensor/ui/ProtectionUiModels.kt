@@ -1,9 +1,9 @@
 package com.example.motorcycleantitheftsensor.ui
 
+import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
-import com.example.motorcycleantitheftsensor.protection.IncidentSource
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -18,7 +18,6 @@ data class ProtectionSettingsSummary(
     val tokenConfigured: Boolean,
     val pairedOwnerCount: Int,
     val pairingCode: String?,
-    val authenticatorConfigured: Boolean,
     val sensitivity: Int,
     val smsFallbackConfigured: Boolean,
     val missingPermissions: Set<String>,
@@ -34,7 +33,7 @@ data class ProtectionEventRow(
     val deliveryState: DeliveryState,
 )
 
-data class ProtectionUiMessage(val id: Long, val text: String, val isError: Boolean)
+data class ProtectionUiMessage(val id: Long, val content: GuidanceContent)
 
 data class ProtectionStatusUiState(
     val state: ProtectionState,
@@ -50,6 +49,7 @@ data class ProtectionStatusUiState(
     val batteryTemperatureCelsius: Float?,
     val lastIncident: IncidentRowSummary?,
     val lastDeliveryState: DeliveryState?,
+    val persistentGuidance: GuidanceContent? = null,
 )
 
 data class IncidentRowSummary(
@@ -62,17 +62,12 @@ data class IncidentRowSummary(
 
 data class SettingsOperationResult(val applied: Boolean, val message: String)
 
-data class AuthenticatorSetupDetails(val secret: String, val uri: String)
-
 interface ProtectionSettingsGateway {
     suspend fun read(missingPermissions: Set<String>): ProtectionSettingsSummary
     fun saveSensitivity(level: Int)
     suspend fun replaceBotToken(token: String): SettingsOperationResult
     suspend fun resetPairing(): SettingsOperationResult
     fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
-    suspend fun beginAuthenticatorSetup(): AuthenticatorSetupDetails?
-    fun cancelAuthenticatorSetup()
-    suspend fun verifyAuthenticator(code: String): Boolean
 }
 
 data class ProtectionUiState(
@@ -114,7 +109,6 @@ data class ProtectionUiState(
             protection = snapshot.toStatusUiState(),
             events = incidents
                 .asSequence()
-                .filter { it.source == IncidentSource.REAL }
                 .sortedByDescending { it.updatedAtMs }
                 .map { it.toEventRow() }
                 .toList(),
@@ -156,6 +150,17 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
         )
     },
     lastDeliveryState = lastDeliveryState,
+    persistentGuidance = when {
+        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.SETUP_REQUIRED ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED)
+        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE)
+        permissionBlockers.isNotEmpty() ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                com.example.motorcycleantitheftsensor.protection.GuidanceCode.NOTIFICATION_PERMISSION_MISSING
+            )
+        else -> null
+    },
 )
 
 private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventRow(
@@ -163,10 +168,12 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
     type = type,
     severity = severity,
     lifecycle = lifecycle,
-    evidenceSummary = evidence.firstOrNull()?.let { item ->
-        listOfNotNull(item.kind.name, item.diagnostic?.takeIf(String::isNotBlank))
-            .joinToString(": ")
-    } ?: "No sensor evidence",
+    evidenceSummary = when (lifecycle) {
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.OPEN -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_OPENED).bodyTh
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.INTERRUPTED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_ESCALATED).bodyTh.replace("{incidentType}", type.name)
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED).bodyTh
+        else -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_UPDATED).bodyTh
+    },
     updatedAtMs = updatedAtMs,
     deliveryState = deliveryState,
 )

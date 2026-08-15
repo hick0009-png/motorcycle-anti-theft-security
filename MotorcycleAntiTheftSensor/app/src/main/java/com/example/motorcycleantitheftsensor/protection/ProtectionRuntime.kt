@@ -13,12 +13,10 @@ data class DetectorStartResult(
 data class RemoteControlReadiness(
     val botTokenConfigured: Boolean,
     val ownerPaired: Boolean,
-    val totpConfigured: Boolean,
 ) {
     fun blockers(): Set<String> = buildSet {
         if (!botTokenConfigured) add("TELEGRAM bot token not configured")
         if (!ownerPaired) add("TELEGRAM owner not paired")
-        if (!totpConfigured) add("TOTP not configured")
     }
 }
 

@@ -1,29 +1,21 @@
 package com.example.motorcycleantitheftsensor.ui.settings
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.graphics.Bitmap
-import android.view.WindowManager
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,15 +35,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -60,16 +50,12 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
-import com.example.motorcycleantitheftsensor.ui.AuthenticatorSetupDetails
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -78,52 +64,18 @@ fun SettingsScreen(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
 ) {
-    val view = LocalView.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var replacementToken by remember { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
     var smsKey by remember { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
-    var authenticatorSetup by remember { mutableStateOf<AuthenticatorSetupDetails?>(null) }
-    var authenticatorSecretRevealed by remember { mutableStateOf(false) }
-    var verificationCode by remember { mutableStateOf("") }
-    var authenticatorError by remember { mutableStateOf<String?>(null) }
-    var cancelAuthenticatorRequest by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var authenticatorQrRequested by remember { mutableStateOf(false) }
-    var authenticatorQrLoading by remember { mutableStateOf(false) }
-    var authenticatorQrImage by remember { mutableStateOf<ImageBitmap?>(null) }
-    var authenticatorQrError by remember { mutableStateOf<String?>(null) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
-
-    fun clearAuthenticatorUi() {
-        val cancelRequest = cancelAuthenticatorRequest
-        cancelAuthenticatorRequest = null
-        if (cancelRequest != null) cancelRequest() else actions.cancelAuthenticatorSetup()
-        authenticatorSetup = null
-        authenticatorSecretRevealed = false
-        verificationCode = ""
-        authenticatorError = null
-        authenticatorQrRequested = false
-        authenticatorQrLoading = false
-        authenticatorQrImage = null
-        authenticatorQrError = null
-    }
 
     DisposableEffect(Unit) {
         onDispose {
             replacementToken = ""
             smsKey = ""
-            clearAuthenticatorUi()
-        }
-    }
-    DisposableEffect(authenticatorSetup, view) {
-        val window = if (authenticatorSetup == null) null else view.context.findActivity()?.window
-        val wasSecure = window != null && window.attributes.flags
-            .and(WindowManager.LayoutParams.FLAG_SECURE) != 0
-        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose {
-            if (window != null && !wasSecure) window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 
@@ -149,6 +101,14 @@ fun SettingsScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        state.protection.persistentGuidance?.let { guidance ->
+            item(key = "persistent-guidance") {
+                SettingsCard(title = guidance.titleTh) {
+                    Text(guidance.bodyTh)
+                }
+            }
+        }
+
         item(key = "settings-header") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -173,15 +133,15 @@ fun SettingsScreen(
         item(key = "telegram-settings") {
             SettingsCard(title = "Telegram") {
                 Text(if (state.settings.tokenConfigured) "Token configured" else "Token not configured")
-                Text(
-                    when {
-                        state.settings.pairedOwnerCount > 0 ->
-                            "Paired owners: ${state.settings.pairedOwnerCount}"
-                        state.settings.pairingCode != null ->
-                            "Pairing code: ${state.settings.pairingCode}"
-                        else -> "No paired owners"
-                    },
-                )
+                if (state.settings.pairedOwnerCount > 0) {
+                    Text("Paired owners: ${state.settings.pairedOwnerCount}")
+                }
+                if (state.settings.pairingCode != null) {
+                    Text("Pairing code: ${state.settings.pairingCode}")
+                }
+                if (state.settings.pairedOwnerCount == 0 && state.settings.pairingCode == null) {
+                    Text("No paired owners")
+                }
                 OutlinedTextField(
                     value = replacementToken,
                     onValueChange = { replacementToken = it },
@@ -205,7 +165,21 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
-                    Text("Save bot token")
+                    if (state.settingsOperationInFlight) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Text("กำลังตรวจสอบและบันทึก...")
+                        }
+                    } else {
+                        Text("Save bot token")
+                    }
                 }
                 OutlinedButton(
                     onClick = { confirmResetPairing = true },
@@ -305,57 +279,22 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
-                    Text("Save SMS fallback")
-                }
-            }
-        }
-
-        item(key = "authenticator") {
-            SettingsCard(title = "Authenticator") {
-                Text(
-                    if (state.settings.authenticatorConfigured) {
-                        "Authenticator configured"
-                    } else {
-                        "Authenticator not configured"
-                    },
-                )
-                Button(
-                    onClick = {
-                        cancelAuthenticatorRequest?.invoke()
-                        cancelAuthenticatorRequest = null
-                        verificationCode = ""
-                        authenticatorError = null
-                        authenticatorQrRequested = false
-                        authenticatorQrLoading = false
-                        authenticatorQrImage = null
-                        authenticatorQrError = null
-                        cancelAuthenticatorRequest = actions.beginAuthenticatorSetup { setup ->
-                            cancelAuthenticatorRequest = null
-                            authenticatorSetup = setup
-                            authenticatorSecretRevealed = false
-                            authenticatorQrRequested = false
-                            authenticatorQrLoading = false
-                            authenticatorQrImage = null
-                            authenticatorQrError = null
-                            if (setup == null) {
-                                authenticatorError = "Unable to start authenticator setup"
-                            }
+                    if (state.settingsOperationInFlight) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Text("กำลังบันทึก SMS สำรอง...")
                         }
-                    },
-                    enabled = !state.settingsOperationInFlight,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                ) {
-                    Text(
-                        if (state.settings.authenticatorConfigured) {
-                            "Replace authenticator"
-                        } else {
-                            "Set up authenticator"
-                        },
-                    )
+                    } else {
+                        Text("Save SMS fallback")
+                    }
                 }
-                authenticatorError?.let { Text(it) }
             }
         }
 
@@ -383,134 +322,6 @@ fun SettingsScreen(
                 )
             }
         }
-    }
-
-    LaunchedEffect(authenticatorSetup?.uri, authenticatorQrRequested) {
-        val setup = authenticatorSetup
-        if (setup == null || !authenticatorQrRequested) {
-            authenticatorQrLoading = false
-            authenticatorQrImage = null
-            authenticatorQrError = null
-            return@LaunchedEffect
-        }
-        authenticatorQrLoading = true
-        authenticatorQrImage = null
-        authenticatorQrError = null
-        val encoded = withContext(Dispatchers.Default) {
-            AuthenticatorQrCodeEncoder.encode(setup.uri).map { qr ->
-                Bitmap.createBitmap(
-                    qr.argb,
-                    qr.sizePx,
-                    qr.sizePx,
-                    Bitmap.Config.ARGB_8888,
-                ).asImageBitmap()
-            }
-        }
-        if (authenticatorSetup?.uri == setup.uri && authenticatorQrRequested) {
-            authenticatorQrLoading = false
-            encoded.fold(
-                onSuccess = { authenticatorQrImage = it },
-                onFailure = {
-                    authenticatorQrError = "Unable to create QR code. Use the secret instead."
-                },
-            )
-        }
-    }
-
-    authenticatorSetup?.let { setup ->
-        AlertDialog(
-            onDismissRequest = ::clearAuthenticatorUi,
-            title = { Text("Authenticator setup") },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("Enter this secret in your authenticator:")
-                    Text(
-                        text = if (authenticatorSecretRevealed) setup.secret else "••••••••",
-                        modifier = Modifier
-                            .testTag(AUTHENTICATOR_SECRET_TAG)
-                            .clearAndSetSemantics {
-                                contentDescription = if (authenticatorSecretRevealed) {
-                                    "Authenticator secret revealed"
-                                } else {
-                                    "Authenticator secret hidden"
-                                }
-                            },
-                    )
-                    TextButton(
-                        onClick = {
-                            authenticatorSecretRevealed = !authenticatorSecretRevealed
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(if (authenticatorSecretRevealed) "Hide secret" else "Reveal secret")
-                    }
-                    TextButton(
-                        onClick = {
-                            authenticatorQrRequested = !authenticatorQrRequested
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) {
-                        Text(if (authenticatorQrRequested) "Hide QR code" else "Show QR code")
-                    }
-                    if (authenticatorQrLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.semantics {
-                                contentDescription = "Creating authenticator QR code"
-                            },
-                        )
-                    }
-                    authenticatorQrImage?.let { image ->
-                        Image(
-                            bitmap = image,
-                            contentDescription = "Authenticator setup QR code",
-                            modifier = Modifier
-                                .size(220.dp)
-                                .align(Alignment.CenterHorizontally)
-                                .testTag(AUTHENTICATOR_QR_TAG),
-                        )
-                    }
-                    authenticatorQrError?.let { Text(it) }
-                    OutlinedTextField(
-                        value = verificationCode,
-                        onValueChange = { verificationCode = it },
-                        label = { Text("Verification code") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    authenticatorError?.let { Text(it) }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        cancelAuthenticatorRequest?.invoke()
-                        cancelAuthenticatorRequest = actions.verifyAuthenticator(verificationCode) { verified ->
-                            cancelAuthenticatorRequest = null
-                            if (verified) {
-                                clearAuthenticatorUi()
-                            } else {
-                                authenticatorError = "Verification code not accepted"
-                            }
-                        }
-                    },
-                    enabled = verificationCode.isNotBlank() && !state.settingsOperationInFlight,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("Verify")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = ::clearAuthenticatorUi,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("Cancel")
-                }
-            },
-        )
     }
 
     if (confirmResetPairing) {
@@ -582,14 +393,6 @@ private fun SettingsLoadState(
     }
 }
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
-
-private const val AUTHENTICATOR_SECRET_TAG = "authenticator_secret"
-private const val AUTHENTICATOR_QR_TAG = "authenticator_qr_code"
 private const val SENSITIVITY_SLIDER_TAG = "sensitivity_slider"
 
 @Composable

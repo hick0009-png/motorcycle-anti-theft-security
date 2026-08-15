@@ -553,23 +553,30 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
-    fun persistenceRecoveryOnlyClearsTheRecoveredSource() {
+    fun movementTrackingPersistenceFailureDegradesCoordinatorWithExactLabel() = runTest {
         val coordinator = coordinator(
-            runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet())),
+            runtime = FakeRuntime(
+                readiness = ReadinessReport(emptySet(), emptySet()),
+                health = healthyVibration(),
+            ),
             armingDelay = ArmingDelay { },
         )
+        coordinator.arm("arm", CommandOrigin.LOCAL)
 
-        coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
-        coordinator.recordPersistenceFailure(PersistenceSource.SNAPSHOT)
-        coordinator.recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
+        coordinator.recordPersistenceFailure(PersistenceSource.MOVEMENT_TRACKING)
 
+        assertEquals(ProtectionState.ARMED_DEGRADED, coordinator.snapshot.value.state)
         assertTrue(
-            coordinator.snapshot.value.degradationReasons.contains("INCIDENT history unavailable"),
+            coordinator.snapshot.value.degradationReasons.contains("Movement tracking persistence unavailable"),
         )
+
+        coordinator.recordPersistenceRecovered(PersistenceSource.MOVEMENT_TRACKING)
+        assertEquals(ProtectionState.ARMED_HEALTHY, coordinator.snapshot.value.state)
         assertFalse(
-            coordinator.snapshot.value.degradationReasons.contains("SNAPSHOT persistence unavailable"),
+            coordinator.snapshot.value.degradationReasons.contains("Movement tracking persistence unavailable"),
         )
     }
+
 
     @Test
     fun incidentHistoryFailureMakesDisarmUnknownAfterProtectionStops() = runTest {
@@ -649,6 +656,32 @@ class ProtectionCoordinatorTest {
         assertEquals(null, loc.value)
         assertEquals(null, loc.unit)
         assertEquals("Fix Acquired", loc.label)
+    }
+
+    @Test
+    fun locationForegroundRestrictionAddsAndRemovesOneRuntimeDegradation() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+        coordinator.arm("arm", CommandOrigin.LOCAL)
+
+        assertEquals(ProtectionState.ARMED_HEALTHY, coordinator.snapshot.value.state)
+        assertTrue(coordinator.snapshot.value.degradationReasons.isEmpty())
+
+        // Restrict location foreground start
+        coordinator.recordLocationForegroundRestriction(true)
+        assertEquals(ProtectionState.ARMED_DEGRADED, coordinator.snapshot.value.state)
+        assertEquals(
+            setOf("Background location foreground start restricted"),
+            coordinator.snapshot.value.degradationReasons
+        )
+
+        // Recover location foreground start
+        coordinator.recordLocationForegroundRestriction(false)
+        assertEquals(ProtectionState.ARMED_HEALTHY, coordinator.snapshot.value.state)
+        assertTrue(coordinator.snapshot.value.degradationReasons.isEmpty())
     }
 }
 

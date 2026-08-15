@@ -42,8 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -109,9 +107,6 @@ fun DashboardScreen(
     batteryTemp: Float = 32.5f,
     currentLux: Float = 0.0f,
     hardwareSensors: List<SensorStatusItem> = emptyList(),
-    totpSecret: String? = null,
-    totpUri: String? = null,
-    totpStatusMessage: String? = null,
     initialBotToken: String? = null,
     botUsername: String? = null,
     botId: String? = null,
@@ -123,20 +118,14 @@ fun DashboardScreen(
     onSensitivityChange: (Int) -> Unit = {},
     onSaveToken: (String) -> Unit = {},
     onVerifyBot: (String) -> Unit = {},
-    onSendTestNotification: () -> Unit = {},
-    onSetupTotp: () -> Unit = {},
-    onVerifyTotpCode: (String) -> Boolean = { false }
+    onSendTestNotification: () -> Unit = {}
 ) {
 
     var botTokenInput by remember { mutableStateOf(initialBotToken ?: "") }
     var tokenSaveStatus by remember { mutableStateOf<String?>(if (!initialBotToken.isNullOrEmpty()) "✅ Telegram Bot Token Saved & Active" else null) }
     var currentSensitivity by remember { mutableIntStateOf(sensitivity) }
-    var showAuthDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
-    var verifyCodeInput by remember { mutableStateOf("") }
-    var verificationResultText by remember { mutableStateOf<String?>(null) }
 
-    val clipboardManager = LocalClipboardManager.current
     val scaler = rememberAdaptiveScreenScaler()
 
     // Clean Minimal White Palette
@@ -384,7 +373,7 @@ fun DashboardScreen(
 
                         Spacer(modifier = Modifier.height(scaler.scaleDp(8.dp)))
 
-                        if (pairingCode != null && allowedChatIds.isEmpty()) {
+                        if (pairingCode != null) {
                             Text(
                                 text = "Telegram pairing code: $pairingCode (expires in 10 minutes)",
                                 color = textPrimary,
@@ -490,55 +479,25 @@ fun DashboardScreen(
 
                         Spacer(modifier = Modifier.height(scaler.scaleDp(6.dp)))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Button(
+                            onClick = {
+                                if (botTokenInput.isNotBlank()) {
+                                    onSaveToken(botTokenInput)
+                                    tokenSaveStatus = "✅ Token Saved & Telegram Bot Connected!"
+                                } else {
+                                    tokenSaveStatus = "⚠️ Please enter a valid Bot Token first"
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Button(
-                                onClick = {
-                                    if (botTokenInput.isNotBlank()) {
-                                        onSaveToken(botTokenInput)
-                                        tokenSaveStatus = "✅ Token Saved & Telegram Bot Connected!"
-                                    } else {
-                                        tokenSaveStatus = "⚠️ Please enter a valid Bot Token first"
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                AutoResizedText(text = "Save Token", color = Color.White, minFontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            Button(
-                                onClick = {
-                                    onSetupTotp()
-                                    showAuthDialog = true
-                                    verifyCodeInput = ""
-                                    verificationResultText = null
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE0E0E0)),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                AutoResizedText(text = "Setup Auth", color = Color.Black, minFontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
+                            AutoResizedText(text = "Save Token", color = Color.White, minFontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
 
                         if (tokenSaveStatus != null) {
                             Spacer(modifier = Modifier.height(scaler.scaleDp(6.dp)))
                             AutoResizedText(
                                 text = tokenSaveStatus!!,
-                                color = Color.Black,
-                                style = TextStyle(fontSize = scaler.scaleSp(11.sp), fontWeight = FontWeight.Bold),
-                                minFontSize = 8.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        if (totpStatusMessage != null) {
-                            Spacer(modifier = Modifier.height(scaler.scaleDp(6.dp)))
-                            AutoResizedText(
-                                text = totpStatusMessage!!,
                                 color = Color.Black,
                                 style = TextStyle(fontSize = scaler.scaleSp(11.sp), fontWeight = FontWeight.Bold),
                                 minFontSize = 8.sp,
@@ -553,7 +512,7 @@ fun DashboardScreen(
             // Bottom System Footer Badge (Fills remaining lower screen space)
             Spacer(modifier = Modifier.height(scaler.scaleDp(16.dp)))
             AutoResizedText(
-                text = "SECURITY STATUS: ONLINE • TOTP ED25519 READY",
+                text = "SECURITY STATUS: ONLINE",
                 color = Color(0xFF777777),
                 style = TextStyle(fontSize = scaler.scaleSp(10.sp), fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
                 minFontSize = 7.sp,
@@ -565,115 +524,6 @@ fun DashboardScreen(
         }
     }
 
-    // Interactive Setup Auth Dialog
-    if (showAuthDialog) {
-        AlertDialog(
-            onDismissRequest = { showAuthDialog = false },
-            title = {
-                Text(
-                    text = "🔑 Google Authenticator Setup",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = scaler.scaleSp(16.sp),
-                    color = Color.Black
-                )
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "1. Copy the Secret Key below and add it to Google Authenticator:",
-                        fontSize = scaler.scaleSp(12.sp),
-                        color = Color.Black
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F0F0)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, Color.Black, RoundedCornerShape(6.dp))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = totpSecret ?: "GENERATING...",
-                                fontWeight = FontWeight.Black,
-                                fontSize = scaler.scaleSp(14.sp),
-                                color = Color.Black,
-                                letterSpacing = 1.sp,
-                                textAlign = TextAlign.Center
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Button(
-                                onClick = {
-                                    totpSecret?.let {
-                                        clipboardManager.setText(AnnotatedString(it))
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
-                            ) {
-                                Text("📋 COPY SECRET KEY", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "2. Enter 6-digit OTP code to verify setup:",
-                        fontSize = scaler.scaleSp(12.sp),
-                        color = Color.Black
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    OutlinedTextField(
-                        value = verifyCodeInput,
-                        onValueChange = { if (it.length <= 6) verifyCodeInput = it },
-                        label = { Text("6-Digit Code (e.g. 123456)", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (verificationResultText != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = verificationResultText!!,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = if (verificationResultText!!.contains("SUCCESS")) Color(0xFF008800) else Color(0xFFCC0000)
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val success = onVerifyTotpCode(verifyCodeInput)
-                        if (success) {
-                            verificationResultText = "✅ AUTHENTICATION VERIFIED & SAVED!"
-                        } else {
-                            verificationResultText = "❌ INVALID CODE. TRY AGAIN."
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
-                ) {
-                    Text("VERIFY & SAVE", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAuthDialog = false }) {
-                    Text("CLOSE", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                }
-            },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(12.dp)
-        )
-    }
 
     // 🚨 Red Emergency Alarm Triggered Dialog (Charger Disconnected / Vibration / Intrusion)
     if (activeAlarmMessage != null) {

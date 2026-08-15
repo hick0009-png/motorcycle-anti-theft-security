@@ -23,6 +23,5 @@ class IncidentUpdateDeliveryPolicyTest {
 private fun warningIncident(): SecurityIncident = incident(
     id = "warning-1",
     updatedAtMs = 1_000L,
-    source = IncidentSource.REAL,
     severity = IncidentSeverity.WARNING,
 )

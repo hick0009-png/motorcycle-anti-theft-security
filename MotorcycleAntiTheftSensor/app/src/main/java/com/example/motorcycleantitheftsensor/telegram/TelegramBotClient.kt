@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.network.TlsPinningClient
-import com.example.motorcycleantitheftsensor.security.TotpAuthenticator
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.PairingResult
 import com.example.motorcycleantitheftsensor.telephony.EncryptedSmsCodec
@@ -24,18 +23,19 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val TRANSPORT_TAG = "TelegramTransport"
+
 /**
  * COM-01: TelegramBotClient
  * Connects to Telegram Bot API using TLS 1.3 + Certificate Pinning.
  * Handles long polling and the supported owner command set,
- * TOTP OTP verification for sensitive commands, and SMS Decode Engine.
+ * and SMS Decode Engine.
  */
 class TelegramBotClient(
-    private val context: Context,
     private val prefsManager: EncryptedPrefsManager,
-    private val totpAuthenticator: TotpAuthenticator,
-    private val commandHandler: TelegramCommandHandler? = null,
+    private val commandHandler: TelegramCommandExecutor? = null,
     private val onTelegramContact: (Long) -> Unit = {},
+    private val httpClient: okhttp3.OkHttpClient = TlsPinningClient.client,
 ) {
 
     private val pairingCodePolicy = PairingCodePolicy()
@@ -72,7 +72,7 @@ class TelegramBotClient(
                 while (isPolling && epoch == pollingEpoch.get()) {
                     try {
                         pollUpdates(cleanToken, epoch)
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         if (!isPolling || epoch != pollingEpoch.get()) return@thread
                         Log.w(TRANSPORT_TAG, "Telegram polling failed")
                         try { Thread.sleep(3000) } catch (ignored: Exception) {}
@@ -116,7 +116,7 @@ class TelegramBotClient(
     private fun pollUpdates(botToken: String, epoch: Long) {
         val url = "https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=10"
         val request = Request.Builder().url(url).build()
-        val call = TlsPinningClient.client.newCall(request)
+        val call = httpClient.newCall(request)
         activePollCall = call
         if (!isPolling || epoch != pollingEpoch.get()) {
             call.cancel()
@@ -124,19 +124,15 @@ class TelegramBotClient(
         }
 
         try {
-            android.util.Log.i(TRANSPORT_TAG, "Fetching getUpdates offset ${lastUpdateId + 1}")
             call.execute().use { response ->
-                android.util.Log.i(TRANSPORT_TAG, "getUpdates response code: ${response.code}")
                 if (!response.isSuccessful) return
                 val bodyString = response.body?.string() ?: return
-                android.util.Log.i(TRANSPORT_TAG, "getUpdates response body: $bodyString")
                 val json = org.json.JSONObject(bodyString)
                 if (!json.optBoolean("ok", false)) return
                 if (!isPolling || epoch != pollingEpoch.get()) return
                 onTelegramContact(System.currentTimeMillis())
 
                 val resultArray = json.getJSONArray("result")
-                android.util.Log.i(TRANSPORT_TAG, "getUpdates result array length: ${resultArray.length()}")
                 for (i in 0 until resultArray.length()) {
                     if (!isPolling || epoch != pollingEpoch.get()) return
                     val update = resultArray.getJSONObject(i)
@@ -154,18 +150,18 @@ class TelegramBotClient(
                     if (prefsManager.getAllowedChatIds().isEmpty()) {
                         if (command is RemoteCommand.Pair && command.code != null) {
                             when (prefsManager.claimPairingCode(chatId, command.code, pairingCodePolicy)) {
-                                PairingResult.Accepted -> sendTelegramMessage(chatId, "✅ *OWNER PAIRED.* Remote control is now enabled.")
-                                PairingResult.Expired -> sendTelegramMessage(chatId, "⚠️ Pairing code expired. Generate a new code on the device.")
-                                else -> sendTelegramMessage(chatId, "⛔ Pairing rejected. Generate a pairing code on the device first.")
+                                PairingResult.Accepted -> sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.PAIRING_ACCEPTED).telegramTh!!)
+                                PairingResult.Expired -> sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.PAIRING_INVALID_OR_EXPIRED).telegramTh!!)
+                                else -> sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.PAIRING_INVALID_OR_EXPIRED).telegramTh!!)
                             }
                         } else {
-                            sendTelegramMessage(chatId, "⛔ This bot is not paired. Use the pairing code displayed on the device.")
+                            sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.PAIRING_REQUIRED).telegramTh!!)
                         }
                         continue
                     }
 
                     if (!prefsManager.isChatIdAllowed(chatId)) {
-                        sendTelegramMessage(chatId, "Unauthorized command.")
+                        sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.UNAUTHORIZED_COMMAND).telegramTh!!)
                         continue
                     }
 
@@ -179,26 +175,7 @@ class TelegramBotClient(
 
     private fun handleAuthorizedCommand(chatId: String, commandId: String, command: RemoteCommand) {
         when (command) {
-            is RemoteCommand.Disarm -> {
-                val totpSeed = prefsManager.getTotpSeed()
-                if (totpSeed == null) {
-                    sendTelegramMessage(chatId, "TOTP must be configured on the device before remote disarm is allowed.")
-                    return
-                }
-
-                if (command.code == null) {
-                    sendTelegramMessage(chatId, "⚠️ Disarm requires 6-digit TOTP code from Google Authenticator.\nUsage: `/disarm 123456`")
-                    return
-                }
-
-                when (totpAuthenticator.verifyCode(command.code)) {
-                    TotpAuthenticator.VerificationResult.SUCCESS -> delegate(chatId, commandId, command)
-                    TotpAuthenticator.VerificationResult.LOCKED_OUT ->
-                        sendTelegramMessage(chatId, "TOTP verification locked. Try again later.")
-
-                    else -> sendTelegramMessage(chatId, "Invalid TOTP code.")
-                }
-            }
+            RemoteCommand.Disarm -> delegate(chatId, commandId, command)
 
             is RemoteCommand.Decode -> {
                 val secretPass = prefsManager.getSmsAesKey()
@@ -216,7 +193,7 @@ class TelegramBotClient(
 
             RemoteCommand.Unknown,
             is RemoteCommand.Pair,
-            -> sendTelegramMessage(chatId, "Unknown command. Use /help.")
+            -> sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN).telegramTh!!)
 
             else -> delegate(chatId, commandId, command)
         }
@@ -224,11 +201,11 @@ class TelegramBotClient(
 
     private fun delegate(chatId: String, commandId: String, command: RemoteCommand) {
         if (commandHandler == null) {
-            sendTelegramMessage(chatId, "Command service unavailable.")
+            sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE).telegramTh!!)
             return
         }
         if (commandQueue.trySend(QueuedCommand(chatId, commandId, command)).isFailure) {
-            sendTelegramMessage(chatId, "Command queue unavailable; request /status.")
+            sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE).telegramTh!!)
         }
     }
 
@@ -236,7 +213,7 @@ class TelegramBotClient(
         val dispatcher = PrioritizedCommandDispatcher(
             scope = commandScope,
             isArm = { queued: QueuedCommand -> queued.command == RemoteCommand.Arm },
-            isDisarm = { queued: QueuedCommand -> queued.command is RemoteCommand.Disarm },
+            isDisarm = { queued: QueuedCommand -> queued.command == RemoteCommand.Disarm },
             execute = ::execute,
         )
         for (queued in commandQueue) {
@@ -255,7 +232,6 @@ class TelegramBotClient(
     }
 
     fun sendTelegramMessage(chatId: String, textMarkdown: String) {
-        android.util.Log.i(TRANSPORT_TAG, "sendTelegramMessage called for $chatId")
         thread {
             sendTelegramMessageSync(chatId, textMarkdown)
         }
@@ -268,50 +244,20 @@ class TelegramBotClient(
     }
 
     private fun sendTelegramMessageSync(chatId: String, textMarkdown: String): Boolean {
-        android.util.Log.i(TRANSPORT_TAG, "sendTelegramMessageSync CALLED for $chatId")
         val botToken = prefsManager.getBotToken() ?: return false
-        android.util.Log.i(TRANSPORT_TAG, "botToken read: ${botToken.take(5)}...")
-        return try {
-            val url = "https://api.telegram.org/bot$botToken/sendMessage"
-            val json = org.json.JSONObject()
-            json.put("chat_id", chatId)
-            json.put("text", textMarkdown)
-            json.put("parse_mode", "Markdown")
-
-            val body = okhttp3.RequestBody.create(
-                "application/json; charset=utf-8".toMediaType(),
-                json.toString()
-            )
-            val request = okhttp3.Request.Builder().url(url).post(body).build()
-            TlsPinningClient.client.newCall(request).execute().use { response ->
-                val bodyStr = response.body?.string()
-                android.util.Log.i(TRANSPORT_TAG, "sendMessage response: ${response.code} $bodyStr")
-                val sent = response.isSuccessful && bodyStr
-                    ?.let { body -> org.json.JSONObject(body).optBoolean("ok", false) } == true
-                sent.also {
-                    if (sent) onTelegramContact(System.currentTimeMillis())
-                }
-            }
-        } catch (_: Exception) {
-            Log.w(TRANSPORT_TAG, "Telegram send failed")
-            false
-        }
+        val sent = sendTelegramMessageToApi(httpClient, botToken, chatId, textMarkdown)
+        if (sent) onTelegramContact(System.currentTimeMillis())
+        return sent
     }
 
-    internal fun verifyBotTokenResult(
+    internal suspend fun verifyBotTokenResult(
         token: String,
-        onResult: (TelegramBotVerificationResult) -> Unit,
-    ) {
+    ): TelegramBotVerificationResult {
         val cleanToken = normalizeTelegramBotToken(token)
-        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         if (cleanToken.isBlank()) {
-            mainHandler.post { onResult(TelegramBotVerificationResult.Rejected) }
-            return
+            return TelegramBotVerificationResult.Rejected
         }
-        thread {
-            val result = botVerifier.verify(cleanToken)
-            mainHandler.post { onResult(result) }
-        }
+        return botVerifier.verify(cleanToken)
     }
 
     /**
@@ -339,10 +285,6 @@ class TelegramBotClient(
         val commandId: String,
         val command: RemoteCommand,
     )
-
-    private companion object {
-        const val TRANSPORT_TAG = "TelegramTransport"
-    }
 }
 
 internal suspend fun awaitTelegramPollingSessionShutdown(
@@ -358,4 +300,37 @@ internal suspend fun awaitTelegramPollingSessionShutdown(
 internal fun normalizeTelegramBotToken(token: String): String {
     val trimmed = token.trim()
     return if (trimmed.startsWith("bot", ignoreCase = true)) trimmed.drop(3) else trimmed
+}
+
+internal fun sendTelegramMessageToApi(
+    httpClient: okhttp3.OkHttpClient,
+    botToken: String,
+    chatId: String,
+    text: String
+): Boolean {
+    return try {
+        val cleanToken = normalizeTelegramBotToken(botToken)
+        val url = "https://api.telegram.org/bot$cleanToken/sendMessage"
+        val json = org.json.JSONObject()
+        json.put("chat_id", chatId)
+        json.put("text", text)
+
+        val body = okhttp3.RequestBody.create(
+            "application/json; charset=utf-8".toMediaType(),
+            json.toString()
+        )
+        val request = okhttp3.Request.Builder().url(url).post(body).build()
+        httpClient.newCall(request).execute().use { response ->
+            val bodyStr = response.body?.string()
+            val ok = response.isSuccessful && bodyStr
+                ?.let { org.json.JSONObject(it).optBoolean("ok", false) } == true
+            if (!ok) {
+                Log.w(TRANSPORT_TAG, "Telegram send failed")
+            }
+            ok
+        }
+    } catch (_: Exception) {
+        Log.w(TRANSPORT_TAG, "Telegram send failed")
+        false
+    }
 }

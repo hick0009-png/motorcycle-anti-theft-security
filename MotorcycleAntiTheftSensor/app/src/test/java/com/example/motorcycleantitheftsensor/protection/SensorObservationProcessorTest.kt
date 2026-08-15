@@ -148,5 +148,4 @@ private fun observation(
     baselineDelta = 0.0,
     valid = valid,
     diagnostic = diagnostic,
-    source = IncidentSource.REAL,
 )

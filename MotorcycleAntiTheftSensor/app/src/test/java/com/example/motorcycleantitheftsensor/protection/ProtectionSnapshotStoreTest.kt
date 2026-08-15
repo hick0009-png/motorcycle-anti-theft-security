@@ -7,6 +7,24 @@ import org.junit.Test
 
 class ProtectionSnapshotStoreTest {
     @Test
+    fun savingSnapshotClearsRemovedLegacyDemoPreference() {
+        val preferences = InMemoryProtectionSnapshotPreferences().apply {
+            put(mapOf("demo_enabled" to true))
+        }
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+
+        store.save(
+            snapshot = ProtectionSnapshot.offline(nowMs = 1_000L),
+            lastServiceHeartbeatAtMs = null,
+        )
+
+        assertFalse(preferences.contains("demo_enabled"))
+    }
+
+    @Test
     fun recoveryGateKeepsCapturedStateAndBlocksPersistenceUntilRecoveryCompletes() {
         val captured = ProtectionRecoveryState(
             liveSnapshot = ProtectionSnapshot.offline(nowMs = 9_000L),
@@ -15,7 +33,6 @@ class ProtectionSnapshotStoreTest {
                 lastTransitionAtMs = 1_000L,
                 lastServiceHeartbeatAtMs = 2_000L,
                 lastTelegramContactAtMs = 3_000L,
-                demoModeEnabled = false,
                 lastIncidentId = "incident-before-restart",
             ),
         )
@@ -38,7 +55,6 @@ class ProtectionSnapshotStoreTest {
                 lastTransitionAtMs = 1_000L,
                 lastServiceHeartbeatAtMs = 2_000L,
                 lastTelegramContactAtMs = 3_000L,
-                demoModeEnabled = false,
                 lastIncidentId = null,
             ),
         )
@@ -75,13 +91,11 @@ class ProtectionSnapshotStoreTest {
                 ),
                 lastIncident = IncidentSummary(
                     id = "incident-1",
-                    source = IncidentSource.REAL,
                     severity = IncidentSeverity.WARNING,
                     lifecycle = IncidentLifecycle.OPEN,
                     updatedAtMs = 4_000L,
                     deliveryState = DeliveryState.SENT,
                 ),
-                demoModeEnabled = true,
                 revision = 42L,
             ),
             lastServiceHeartbeatAtMs = 2_500L,
@@ -93,7 +107,6 @@ class ProtectionSnapshotStoreTest {
         assertEquals(2_500L, recovery.hints.lastServiceHeartbeatAtMs)
         assertEquals(3_000L, recovery.hints.lastTelegramContactAtMs)
         assertEquals("incident-1", recovery.hints.lastIncidentId)
-        assertTrue(recovery.hints.demoModeEnabled)
         assertEquals(42L, recovery.hints.revision)
         assertEquals(ProtectionState.OFFLINE, recovery.liveSnapshot.state)
         assertEquals(9_000L, recovery.liveSnapshot.lastTransitionAtMs)
@@ -107,7 +120,13 @@ private class InMemoryProtectionSnapshotPreferences : ProtectionSnapshotPreferen
     private val values = mutableMapOf<String, Any?>()
 
     override fun put(values: Map<String, Any?>) {
-        this.values.putAll(values)
+        values.forEach { (key, value) ->
+            if (value == null) {
+                this.values.remove(key)
+            } else {
+                this.values[key] = value
+            }
+        }
     }
 
     override fun getString(key: String): String? = values[key] as? String
@@ -115,4 +134,6 @@ private class InMemoryProtectionSnapshotPreferences : ProtectionSnapshotPreferen
     override fun getLong(key: String): Long? = values[key] as? Long
 
     override fun getBoolean(key: String): Boolean? = values[key] as? Boolean
+
+    fun contains(key: String): Boolean = values.containsKey(key)
 }

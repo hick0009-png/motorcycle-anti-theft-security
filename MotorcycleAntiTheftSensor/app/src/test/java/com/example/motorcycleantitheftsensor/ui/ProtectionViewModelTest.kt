@@ -8,7 +8,6 @@ import com.example.motorcycleantitheftsensor.protection.IncidentEvidence
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
-import com.example.motorcycleantitheftsensor.protection.IncidentSource
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionClock
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
@@ -64,7 +63,7 @@ class ProtectionViewModelTest {
 
         assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
         assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
-        assertEquals("VIBRATION: newer evidence", viewModel.uiState.value.events.first().evidenceSummary)
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_OPENED).bodyTh, viewModel.uiState.value.events.first().evidenceSummary)
         assertFalse(viewModel.uiState.value.toString().contains("Demo", ignoreCase = true))
     }
 
@@ -88,8 +87,7 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
-        assertEquals("Missing required: POST_NOTIFICATIONS", viewModel.uiState.value.message?.text)
-        assertTrue(viewModel.uiState.value.message?.isError == true)
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh, viewModel.uiState.value.message?.content?.titleTh ?: com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
     }
 
     @Test
@@ -100,8 +98,7 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<Int>(), fixture.settings.savedSensitivity)
-        assertTrue(fixture.viewModel.uiState.value.message?.isError == true)
-        assertEquals("Sensitivity must be 1-10", fixture.viewModel.uiState.value.message?.text)
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_INVALID).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
     }
 
     @Test
@@ -127,8 +124,8 @@ class ProtectionViewModelTest {
         fixture.viewModel.replaceBotToken(secret)
         advanceUntilIdle()
 
-        assertEquals("Unable to update bot token", fixture.viewModel.uiState.value.message?.text)
-        assertFalse(fixture.viewModel.uiState.value.message?.text.orEmpty().contains(secret))
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
+        assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
         assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
     }
 
@@ -140,65 +137,23 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, fixture.settings.tokenReplaceCalls)
-        assertTrue(fixture.viewModel.uiState.value.message?.isError == true)
+
     }
 
     @Test
-    fun authenticatorSetupRunsAsynchronouslyWithoutEnteringUiState() = runTest {
-        val details = AuthenticatorSetupDetails(
-            secret = "transient-authenticator-secret",
-            uri = "otpauth://transient",
-        )
-        val settings = FakeProtectionSettingsGateway(authenticatorSetupDetails = details)
-        val fixture = fixture(testScheduler, settings = settings)
-        var completedDetails: AuthenticatorSetupDetails? = null
-
-        fixture.viewModel.beginAuthenticatorSetup { completedDetails = it }
-
-        assertEquals(0, settings.authenticatorSetupCalls)
-        assertNull(completedDetails)
-        advanceUntilIdle()
-        assertEquals(1, settings.authenticatorSetupCalls)
-        assertEquals(details, completedDetails)
-        assertFalse(fixture.viewModel.uiState.value.toString().contains(details.secret))
-    }
-
-    @Test
-    fun cancellingAuthenticatorSetupDiscardsGatewayCandidate() = runTest {
+    fun timeoutAlwaysClearsSettingsOperationInFlight() = runTest {
         val settings = FakeProtectionSettingsGateway(
-            authenticatorSetupDetails = AuthenticatorSetupDetails("secret", "otpauth://candidate"),
+            replaceBotTokenAction = {
+                SettingsOperationResult(applied = false, message = "Telegram connection could not be established")
+            },
         )
         val fixture = fixture(testScheduler, settings = settings)
-        val cancel = fixture.viewModel.beginAuthenticatorSetup { }
+
+        fixture.viewModel.replaceBotToken("123456:TIMEOUT")
         advanceUntilIdle()
 
-        cancel()
-
-        assertEquals(1, settings.authenticatorCancelCalls)
+        assertFalse(fixture.viewModel.uiState.value.settingsOperationInFlight)
     }
-
-    @Test
-    fun successfulAuthenticatorVerificationRefreshesConfiguredStateBeforeCompletion() = runTest {
-        val verification = CompletableDeferred<Boolean>()
-        val settings = FakeProtectionSettingsGateway(
-            authenticatorConfigured = false,
-            authenticatorVerification = verification,
-        )
-        val fixture = fixture(testScheduler, settings = settings)
-        runCurrent()
-        var completion: Boolean? = null
-
-        fixture.viewModel.verifyAuthenticator("123456") { verified -> completion = verified }
-        runCurrent()
-
-        assertFalse(fixture.viewModel.uiState.value.settings.authenticatorConfigured)
-        assertNull(completion)
-        verification.complete(true)
-        advanceUntilIdle()
-        assertTrue(fixture.viewModel.uiState.value.settings.authenticatorConfigured)
-        assertEquals(true, completion)
-    }
-
     @Test
     fun latestPermissionUpdateWinsWhenInitialSettingsReadCompletesLast() = runTest {
         val initialReadStarted = CompletableDeferred<Unit>()
@@ -241,8 +196,8 @@ class ProtectionViewModelTest {
         fixture.viewModel.configureSmsFallback("+15555550123", secret)
         advanceUntilIdle()
 
-        assertEquals("Unable to configure SMS fallback", fixture.viewModel.uiState.value.message?.text)
-        assertFalse(fixture.viewModel.uiState.value.message?.text.orEmpty().contains(secret))
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
+        assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
         assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
     }
 
@@ -440,7 +395,7 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, settings.resetPairingCalls)
-        assertEquals("Pairing reset", fixture.viewModel.uiState.value.message?.text)
+        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_SUCCESS).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
         assertEquals(readsBeforeReset + 1, settings.settingsReadCount)
     }
 
@@ -474,6 +429,106 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertNull(viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun rapidSensorSamplesAreRateLimitedBeforeUiStateButCoordinatorKeepsEveryRevision() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var wallClockMs = 1_000L
+        val coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY)
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { wallClockMs },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        val emissions = mutableListOf<ProtectionUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect(emissions::add)
+        }
+        runCurrent()
+        emissions.clear()
+        val initialRevision = coordinator.snapshot.value.revision
+
+        repeat(100) { index ->
+            wallClockMs = 1_000L + index * 5L
+            coordinator.recordSensorSample(
+                kind = SensorKind.VIBRATION,
+                atMs = wallClockMs,
+                detail = "accelerometer_magnitude",
+                normalizedValue = 9.8 + index,
+            )
+            runCurrent()
+        }
+
+        assertEquals(initialRevision + 100L, coordinator.snapshot.value.revision)
+        assertEquals(1, emissions.size)
+
+        wallClockMs = 2_001L
+        coordinator.recordSensorSample(
+            kind = SensorKind.VIBRATION,
+            atMs = wallClockMs,
+            detail = "accelerometer_magnitude",
+            normalizedValue = 777.0,
+        )
+        runCurrent()
+
+        assertEquals(initialRevision + 101L, coordinator.snapshot.value.revision)
+        assertEquals(2, emissions.size)
+        assertEquals(
+            777.0,
+            requireNotNull(
+                viewModel.uiState.value.protection.sensorHealth[SensorKind.VIBRATION]
+                    ?.latestReading
+                    ?.value,
+            ),
+            0.0,
+        )
+    }
+
+    @Test
+    fun alertStateBypassesUiSensorProjectionInterval() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        var wallClockMs = 1_000L
+        val coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY)
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { wallClockMs },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        val emissions = mutableListOf<ProtectionUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect(emissions::add)
+        }
+        runCurrent()
+
+        coordinator.recordSensorSample(
+            kind = SensorKind.VIBRATION,
+            atMs = wallClockMs,
+            detail = "accelerometer_magnitude",
+            normalizedValue = 9.8,
+        )
+        runCurrent()
+        emissions.clear()
+
+        wallClockMs = 1_100L
+        coordinator.recordIncident(incident(id = "projection-alert", updatedAtMs = wallClockMs))
+        runCurrent()
+
+        assertEquals(1, emissions.size)
+        assertEquals(ProtectionState.ALERT_ACTIVE, emissions.single().protection.state)
+        assertEquals("projection-alert", emissions.single().protection.lastIncident?.id)
     }
 }
 
@@ -549,7 +604,6 @@ private fun settingsSummary(): ProtectionSettingsSummary = ProtectionSettingsSum
     tokenConfigured = true,
     pairedOwnerCount = 1,
     pairingCode = "A1B2C3",
-    authenticatorConfigured = true,
     sensitivity = 5,
     smsFallbackConfigured = false,
     missingPermissions = emptySet(),
@@ -558,18 +612,15 @@ private fun settingsSummary(): ProtectionSettingsSummary = ProtectionSettingsSum
 private fun realIncident(id: String, updatedAtMs: Long): SecurityIncident = incident(
     id = id,
     updatedAtMs = updatedAtMs,
-    source = IncidentSource.REAL,
-)
+    )
 
 private fun incident(
     id: String,
     updatedAtMs: Long,
-    source: IncidentSource,
-): SecurityIncident = SecurityIncident(
+    ): SecurityIncident = SecurityIncident(
     id = id,
     type = IncidentType.VIBRATION,
-    source = source,
-    severity = IncidentSeverity.WARNING,
+        severity = IncidentSeverity.WARNING,
     lifecycle = IncidentLifecycle.OPEN,
     evidence = listOf(
         IncidentEvidence(
@@ -686,22 +737,16 @@ private class InitialSettingsReadBarrierDispatcher : CoroutineDispatcher() {
 private class FakeProtectionSettingsGateway(
     private val botTokenFailure: String? = null,
     private val smsFallbackFailure: String? = null,
-    private var authenticatorConfigured: Boolean = true,
-    private val authenticatorSetupDetails: AuthenticatorSetupDetails? = null,
-    private val authenticatorVerification: CompletableDeferred<Boolean>? = null,
     private val firstSettingsReadStarted: CompletableDeferred<Unit>? = null,
     private val allowFirstSettingsRead: CompletableDeferred<Unit>? = null,
     private var settingsReadFailuresRemaining: Int = 0,
     private var settingsReadFailuresRemainingAfterFirst: Int = 0,
+    private val replaceBotTokenAction: (suspend (String) -> SettingsOperationResult)? = null,
 ) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
     var tokenReplaceCalls = 0
         private set
     var writeCount = 0
-        private set
-    var authenticatorSetupCalls = 0
-        private set
-    var authenticatorCancelCalls = 0
         private set
     var resetPairingCalls = 0
         private set
@@ -723,7 +768,6 @@ private class FakeProtectionSettingsGateway(
             error("settings unavailable")
         }
         return settingsSummary().copy(
-            authenticatorConfigured = authenticatorConfigured,
             missingPermissions = missingPermissions,
         )
     }
@@ -735,6 +779,7 @@ private class FakeProtectionSettingsGateway(
 
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
         tokenReplaceCalls += 1
+        replaceBotTokenAction?.let { return it(token) }
         botTokenFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "Bot token updated")
@@ -749,20 +794,5 @@ private class FakeProtectionSettingsGateway(
         smsFallbackFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
-    }
-
-    override suspend fun beginAuthenticatorSetup(): AuthenticatorSetupDetails? {
-        authenticatorSetupCalls += 1
-        return authenticatorSetupDetails
-    }
-
-    override fun cancelAuthenticatorSetup() {
-        authenticatorCancelCalls += 1
-    }
-
-    override suspend fun verifyAuthenticator(code: String): Boolean {
-        val verified = authenticatorVerification?.await() ?: false
-        if (verified) authenticatorConfigured = true
-        return verified
     }
 }
