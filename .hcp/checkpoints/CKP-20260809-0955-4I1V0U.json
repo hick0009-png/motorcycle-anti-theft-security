@@ -1,0 +1,202 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260809-0955-4I1V0U",
+    "timestamp":  "2026-08-09T09:55:06.1968813+07:00",
+    "phase":  "P6",
+    "task_id":  "UI-03",
+    "status":  "IN_PROGRESS",
+    "description":  "Demo-free UI Task 4 is verified and approved; Task 5 final state fix is paused after valid RED tests with partial uncommitted ViewModel/model/test changes.",
+    "progress":  92,
+    "scope":  "MotorcycleAntiTheftSensor demo-free authoritative UI; pause during Task 5 final state/message/re-pair/settings-loading fix wave.",
+    "knowledge":  [
+                      "Task 4 commit 0c2f5fb passed 116 unit tests, 21 Huawei UI tests, assembleDebug, and Android-test compilation; independent UI audit approved with no Critical or Important findings.",
+                      "Telegram polling refresh commits 71d70ca and 6cfc234 await the old session and fail closed; independent backend review approved.",
+                      "Task 5 compile RED confirmed missing settings loading/error/retry and resetPairing APIs.",
+                      "Task 5 behavioral RED confirmed the original global commandMutex blocks disarm while clear-history work is blocked.",
+                      "Current Task 5 production changes are partial and uncommitted; UI shell Snackbar, confirmed re-pair UI, settings load/error UI, Navigation wiring, and Compose RED tests have not started."
+                  ],
+    "assumptions":  [
+                        {
+                            "assumption":  "The accepted Task 4 navigation, slider, TOTP, timestamp, permission, and SMS behavior must remain unchanged during Task 5.",
+                            "confidence":  "high",
+                            "needsValidation":  true
+                        },
+                        {
+                            "assumption":  "Unrelated dirty and untracked files belong to the user and must not be staged, reset, deleted, or included in Task 5.",
+                            "confidence":  "high",
+                            "needsValidation":  false
+                        }
+                    ],
+    "risks":  [
+                  {
+                      "risk":  "Kotlin daemon can fail with DOS error 1455 because the Windows paging file is too small.",
+                      "impact":  "high",
+                      "mitigation":  "Use JAVA_HOME Android Studio JBR, GRADLE_OPTS Xmx256m with SerialGC and 128m metaspace, --no-daemon, --max-workers=1, and in-process Kotlin compilation."
+                  },
+                  {
+                      "risk":  "Partial Task 5 changes do not yet compile against the future UI action contracts and have not had GREEN verification.",
+                      "impact":  "high",
+                      "mitigation":  "Resume strict TDD from the existing RED evidence; finish ViewModel GREEN, then add Compose tests RED before UI production changes."
+                  },
+                  {
+                      "risk":  "Raw historical Settings audit captures contain transient pairing codes.",
+                      "impact":  "high",
+                      "mitigation":  "Keep raw captures local; only use post-fix-round-2-final evidence where the pairing section is offscreen."
+                  }
+              ],
+    "memory_snapshot":  [
+                            {
+                                "key":  "branch_head",
+                                "value":  "feature/motorcycle-guard-protection at 0c2f5fb before uncommitted Task 5 changes"
+                            },
+                            {
+                                "key":  "task5_brief",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/task-5-final-state-brief.md"
+                            },
+                            {
+                                "key":  "task5_partial_files",
+                                "value":  "ProtectionUiModels.kt, ProtectionViewModel.kt, ProtectionViewModelTest.kt"
+                            },
+                            {
+                                "key":  "task4_evidence",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/artifacts/ui-audit/post-fix-round-2-final"
+                            },
+                            {
+                                "key":  "sdd_ledger",
+                                "value":  "D:/security/.superpowers/sdd/2026-08-08-demo-free-authoritative-ui/progress.md"
+                            }
+                        ],
+    "dependencies":  [
+                         "Re-dispatch or resume a Task 5 implementer using task-5-final-state-brief.md and the SDD ledger.",
+                         "Do not run overlapping Gradle or ADB processes; verify Huawei is awake and unlocked before connected tests."
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+                  "name":  "Codex",
+                  "model":  "GPT-5.6"
+              },
+    "snapshot":  {
+                     "build_status":  "NOT_RUN",
+                     "build_output_snippet":  "Checkpoint created with -Lite because Task 5 is intentionally partial. Last accepted baseline: 116 unit and 21 Huawei UI tests passed at 0c2f5fb. Current Task 5 has valid RED evidence only.",
+                     "test_results":  {
+                                          "passed":  137,
+                                          "failed":  0,
+                                          "skipped":  0
+                                      },
+                     "files_changed":  [
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicy.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorServiceAction.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionUiModels.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModel.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/main/res/xml/network_security_config.xml",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/security/PairingCodePolicyTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/service/SensorServiceActionTest.kt",
+                                               "action":  "MODIFIED"
+                                           },
+                                           {
+                                               "path":  "MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModelTest.kt",
+                                               "action":  "MODIFIED"
+                                           }
+                                       ]
+                 },
+    "decisions":  [
+                      {
+                          "question":  "Should Godkiller MCP gate this work?",
+                          "decision":  "No; skip it for this repository task.",
+                          "rationale":  "The user stated it belongs to another agent team.",
+                          "decided_by":  "user"
+                      },
+                      {
+                          "question":  "How should the final plan be executed?",
+                          "decision":  "Use Subagent-Driven Development with TDD and independent reviews.",
+                          "rationale":  "The user explicitly selected this workflow.",
+                          "decided_by":  "user"
+                      },
+                      {
+                          "question":  "Pause now or continue Task 5?",
+                          "decision":  "Create a durable checkpoint now and resume later.",
+                          "rationale":  "The user explicitly requested a checkpoint before returning.",
+                          "decided_by":  "user"
+                      }
+                  ],
+    "open_tasks":  [
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Finish Task 5 ViewModel scoped-operation/loading/reset implementation and get focused unit tests GREEN.",
+                           "priority":  1,
+                           "blocked_by":  ""
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Add Compose RED tests, then implement shell Snackbar message consumption, confirmed re-pair action, and settings loading/error/retry UI plus Navigation wiring.",
+                           "priority":  1,
+                           "blocked_by":  "Task 5 ViewModel contracts must stabilize first."
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Run task-scoped reviewer, fix any Critical/Important findings, then run final whole-branch review.",
+                           "priority":  2,
+                           "blocked_by":  "Task 5 implementation and tests."
+                       },
+                       {
+                           "task_id":  "UI-03",
+                           "description":  "Create commit-safe audit report/artifacts, run fresh full verification and scans, then create final HCP handoff and branch-finish options.",
+                           "priority":  2,
+                           "blocked_by":  "Final review must be clean."
+                       }
+                   ],
+    "context":  {
+                    "summary":  "Task 4 is complete and independently approved. Task 5 is paused mid-TDD after valid compile and behavioral RED evidence. Three exact Task 5 files contain partial uncommitted model/ViewModel/test changes; no Task 5 commit exists.",
+                    "next_steps":  [
+                                       "Read the SDD ledger and task-5-final-state-brief.md before acting.",
+                                       "Inspect git status and diff; preserve all unrelated dirty/untracked files.",
+                                       "Continue the existing partial Task 5 implementation until focused ProtectionViewModelTest is GREEN under the low-memory profile.",
+                                       "Add Compose tests first and observe RED before editing ProtectionAppScreen, SettingsScreen, ProtectionScreen, or Navigation.",
+                                       "Commit exact Task 5 files, run independent task review, then proceed to final branch review and verification."
+                                   ],
+                    "warnings":  [
+                                      "Do not claim the current partial Task 5 compiles or is complete; only RED evidence exists.",
+                                      "Do not reset or stage unrelated dirty files: PairingCodePolicy, SensorServiceAction, DashboardScreen, network_security_config, and their tests are pre-existing user work.",
+                                      "Use post-fix-round-2-final evidence only; older raw Settings captures may expose a pairing code.",
+                                      "No live TalkBack, Telegram/SMS delivery, populated Events device capture, or armed/alert real-sensor acceptance has been performed."
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "0c2f5fb"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  [
+                 "motorcycle-guard",
+                 "demo-free-ui",
+                 "task5",
+                 "tdd",
+                 "checkpoint"
+             ]
+}

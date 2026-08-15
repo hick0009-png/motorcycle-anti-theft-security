@@ -1,0 +1,17 @@
+# Local editor and assistant state
+/.cursor/
+/.idea/
+/.serena/
+/.gradle-task2/
+/.pytest_cache/
+
+# Android/Gradle generated state and output
+/MotorcycleAntiTheftSensor/.gradle/
+/MotorcycleAntiTheftSensor/.kotlin/
+/MotorcycleAntiTheftSensor/**/build/
+
+# JVM diagnostic output generated locally
+/MotorcycleAntiTheftSensor/hs_err_pid*.log
+/MotorcycleAntiTheftSensor/replay_pid*.log
+/hs_err_pid*.log
+/logcat*.txt

@@ -1,0 +1,95 @@
+{
+  "$schema": "./schema/hcp-config.schema.json",
+  "version": "1.0.0",
+  "project": "MotorcycleAntiTheftSensor",
+  "project_root": "d:\\security",
+  "hcp_dir": "d:\\security\\.hcp",
+  "checkpoint_dir": "d:\\security\\.hcp\\checkpoints",
+  "audit_dir": "d:\\security\\.hcp\\audit",
+  "recovery_dir": "d:\\security\\.hcp\\recovery",
+
+  "git": {
+    "enabled": true,
+    "remote": "origin",
+    "default_branch": "main",
+    "checkpoint_branch_prefix": "hcp/checkpoint-",
+    "auto_commit_on_checkpoint": true,
+    "auto_push": false,
+    "commit_message_prefix": "[HCP]"
+  },
+
+  "checkpoint": {
+    "max_checkpoints": 50,
+    "compress": false,
+    "include_build_artifacts": false,
+    "auto_checkpoint_interval_minutes": 0,
+    "require_description": true,
+    "fields_required": ["phase", "task_id", "description", "status"]
+  },
+
+  "autoCheckpoint": {
+    "frequency": 3,
+    "onDecision": true,
+    "onHighImpactTool": true,
+    "onError": {
+      "enabled": true,
+      "captureStackTrace": true,
+      "createCheckpointOnExitCode": true,
+      "createCheckpointOnException": true,
+      "guardScript": true
+    }
+  },
+
+  "replay": {
+    "showMemorySnapshot": false,
+    "maxEntries": 100
+  },
+
+  "recover": {
+    "autoRestoreMemory": true,
+    "requireConfirmation": true,
+    "defaultRecoverFromStatus": ["error", "failed", "cancelled"]
+  },
+
+  "storage": {
+    "retentionDays": 90
+  },
+
+  "guard": {
+    "enabled": true,
+    "watch_files": [
+      "d:\\security\\MotorcycleAntiTheftSensor\\app\\src\\main\\java\\**\\*.kt",
+      "d:\\security\\MotorcycleAntiTheftSensor\\app\\src\\main\\AndroidManifest.xml",
+      "d:\\security\\MotorcycleAntiTheftSensor\\app\\build.gradle.kts"
+    ],
+    "error_patterns": [
+      "BUILD FAILED",
+      "Compilation error",
+      "Exception in",
+      "FAILURE:"
+    ],
+    "auto_recover_on_error": true,
+    "alert_on_recover": true
+  },
+
+  "session_handoff": {
+    "enabled": true,
+    "target_tools": ["cursor", "antigravity", "claude", "gemini"],
+    "export_format": "markdown",
+    "include_file_tree": true,
+    "include_last_decisions": true,
+    "include_open_tasks": true
+  },
+
+  "phases": {
+    "P1": { "name": "Security Foundation", "tasks": ["SEC-01","SEC-02","SEC-03","SEC-04","SEC-05"] },
+    "P2": { "name": "Anti-Tamper & Kiosk", "tasks": ["SEC-06","SEC-07","SEC-08","SEC-09"] },
+    "P3": { "name": "Core Sensor Engine", "tasks": ["SEN-01","SEN-02","SEN-03","SEN-04"] },
+    "P4": { "name": "Background Service", "tasks": ["SVC-01","SVC-02","SVC-03"] },
+    "P5": { "name": "Communication Layer", "tasks": ["COM-01","COM-02","COM-03"] },
+    "P6": { "name": "UI & Configuration", "tasks": ["UI-01","UI-02","UI-03"] }
+  },
+
+  "status_values": ["PLANNED", "IN_PROGRESS", "DONE", "FAILED", "SKIPPED", "BLOCKED"],
+  "severity_values": ["INFO", "WARNING", "ERROR", "CRITICAL"]
+}
