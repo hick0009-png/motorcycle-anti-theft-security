@@ -29,6 +29,7 @@ The user approved these decisions:
 8. Every arm operation performs a 10-second calibration/readiness phase for all enabled sensors. A live configuration change recalibrates only the affected group.
 9. Sampling is adaptive: low-power wake/monitor sensors run during steady state, and higher-rate motion/rotation/magnetic sensors activate temporarily to confirm candidate events.
 10. Continuous sensors use baseline-relative detection with absolute sanity limits. Trigger and virtual sensors use the readiness validation appropriate to their Android API.
+11. Alerts and status messages use one human-readable presentation contract across UI, notification, Events, Telegram, and SMS. Every important message leads with what happened, risk, current protection, and a safe next action instead of exposing enum names or internal diagnostics.
 
 ## 3. Non-goals
 
@@ -411,7 +412,134 @@ Unavailable sensors remain visible but disabled with a reason. The UI must never
 
 While armed, a change that can remove the last effective primary shows a confirmation explaining that protection will stop if no replacement primary becomes ready. If applied and no primary is ready, the resulting non-armed state and reason persist on Protection and Settings screens and are included in Telegram `/status`.
 
-## 12. Error handling and concurrency
+## 12. Human-readable alerts and guidance
+
+### 12.1 Message goals
+
+An alert is successful only when the owner can quickly answer:
+
+1. What happened?
+2. How serious is it?
+3. What evidence supports the conclusion?
+4. Is protection still operating?
+5. What should the owner do next?
+6. When and where did it happen?
+7. Was the alert delivered through the expected channel?
+
+Messages must prioritize decisions over telemetry. Raw enum values such as `MOVEMENT`, internal diagnostics such as `accelerometer_magnitude_sensitivity_5`, unexplained deltas, placeholders, and implementation instructions such as `update status card only` must never appear in user-facing output.
+
+### 12.2 Presentation model
+
+The incident and protection models remain the source of truth. A pure presentation layer converts them into an immutable `ProtectionMessagePresentation` or `IncidentMessagePresentation` before any channel formats text.
+
+The incident presentation contains:
+
+- localized incident title and concise summary;
+- severity label and urgency;
+- occurrence and update timestamps in the device locale/time zone;
+- human-readable evidence items with label, value, unit, comparison context, and confidence when meaningful;
+- current protection state and named operating/degraded capabilities;
+- safe recommended action;
+- location label, fix age, and accuracy when the fix is valid;
+- delivery state;
+- incident identifier;
+- explicit `DEMO` marker when applicable.
+
+The status presentation contains:
+
+- one-line protection headline;
+- immediate owner action, or an explicit “ไม่ต้องดำเนินการ” when healthy;
+- operating primary capabilities;
+- unavailable/failed capabilities and their practical impact;
+- remediation for actionable issues;
+- service, Telegram, battery, and last-incident summaries;
+- freshness timestamps for information that can become stale.
+
+Channel formatters consume these presentations and cannot access raw sensor diagnostics directly.
+
+### 12.3 Information hierarchy
+
+All critical and degraded messages follow this order:
+
+1. severity icon plus plain-language headline;
+2. current protection outcome;
+3. safe next action;
+4. time and location when available;
+5. concise evidence;
+6. delivery/freshness information;
+7. incident identifier.
+
+Healthy or command-success messages stay shorter: outcome, effective state, and whether any action is needed.
+
+Technical evidence is translated into user meaning:
+
+- acceleration: “ตรวจพบแรงสั่นต่อเนื่อง 2.1 วินาที” rather than an unexplained magnitude;
+- rotation: “มุมของรถเปลี่ยนประมาณ 18°” rather than quaternion components;
+- magnetic field: “สนามแม่เหล็กรอบรถเปลี่ยนจากค่าตอนเปิดระบบ” without presenting it as proof of theft;
+- light: “แสงใต้เบาะเพิ่มขึ้นจากค่าตอนเปิดระบบ” with lux only as secondary detail;
+- proximity: “สถานะวัตถุใกล้โทรศัพท์เปลี่ยนจาก ใกล้ เป็น ไกล”;
+- unavailable sensor: state what protection remains and what confirmation is lost.
+
+Threshold, baseline delta, and confidence may appear as secondary evidence only when a unit and plain-language interpretation accompany them.
+
+### 12.4 Safe action guidance
+
+Guidance is selected from a typed policy, not assembled from raw exception text. Initial actions are:
+
+- suspected movement/tamper: check camera or location from a safe place and do not confront a suspected thief;
+- critical incident with credible location: contact the appropriate authority or trusted person and provide the incident identifier;
+- degraded sensor: identify the lost capability and direct the owner to Sensor Settings when remediation is possible;
+- missing permission: open the exact Android permission/settings destination;
+- unsupported hardware: explain that the phone does not provide the source and offer an available fallback, without instructing the owner to retry indefinitely;
+- Telegram unavailable: confirm whether local monitoring continues and describe any eligible fallback honestly;
+- calibration failure: keep the affected capability suppressed and identify whether protection continued in degraded mode or arm was rejected.
+
+Guidance must not encourage approaching the vehicle, promise police response, claim successful Telegram/SMS delivery without evidence, or claim a sensor proves theft by itself.
+
+### 12.5 Channel-specific formatting
+
+- **Protection screen:** persistent active/degraded card with headline, protection outcome, primary action, and a link to evidence/details.
+- **Snackbar:** immediate acknowledgement only; it never replaces the persistent card for critical, offline, setup-blocked, or degraded states.
+- **Android notification:** title plus the most important outcome/action in two or three compact lines; expanded style may show bounded evidence.
+- **Events:** complete chronology, evidence, state transitions, and confirmed delivery outcomes.
+- **Telegram incident:** concise structured sections for event, protection, action, evidence, location, and incident ID.
+- **Telegram `/status`:** action and protection headline first; healthy systems are compact, while problems include impact and remediation.
+- **SMS fallback:** smallest truthful version containing severity, plain-language event, time, compact protection state, and incident ID; SMS never includes location data.
+
+All channels use the same localized labels, severity, timestamps, protection state, and incident identifier. Channel length may differ, but meaning cannot contradict.
+
+### 12.6 Persistence, deduplication, and accessibility
+
+- `ALERT_ACTIVE`, `ARMED_DEGRADED`, `OFFLINE`, setup blockers, and failed configuration apply results are persistent until resolved or acknowledged according to state policy.
+- Repeated evidence updates one incident card/history item. Only severity escalation, material protection-state change, or a configured reminder can emit another external notification.
+- Every message uses text in addition to icon/color.
+- Thai labels must remain readable with TalkBack and must not depend on emoji names for meaning.
+- Units and numbers use consistent formatting and do not rely on color or symbol-only deltas.
+- Dynamic status changes use suitable accessibility live-region semantics without repeatedly announcing unchanged telemetry.
+- User-facing strings must be UTF-8 safe and tested for unreplaced placeholders.
+
+### 12.7 Example Telegram incident
+
+```text
+🚨 รถอาจถูกเคลื่อนย้าย
+
+ระดับความเสี่ยง: สูง
+สถานะระบบ: การป้องกันยังทำงาน
+แนะนำ: ตรวจสอบกล้องหรือตำแหน่งจากระยะปลอดภัย อย่าเข้าเผชิญหน้าด้วยตนเอง
+
+เวลา: 20 ส.ค. 2569 21:35
+หลักฐาน:
+• ตรวจพบแรงสั่นต่อเนื่อง 2.1 วินาที
+• มุมของรถเปลี่ยนประมาณ 18°
+• แสงใต้เบาะเพิ่มขึ้นจากค่าตอนเปิดระบบ
+
+ตำแหน่งล่าสุด: ความแม่นยำประมาณ 24 เมตร
+เหตุการณ์: MG-20260820-0142
+```
+
+The example defines hierarchy and tone, not fixed evidence. A formatter includes only confirmed evidence and must not invent missing values.
+
+## 13. Error handling and concurrency
 
 - All listener registration, trigger requests, and unregistration are idempotent.
 - Lifecycle changes are serialized by a dedicated detector/configuration lock.
@@ -425,7 +553,7 @@ While armed, a change that can remove the last effective primary shows a confirm
 - Repeated failures and stale-state notices are rate-limited.
 - No raw sensor stream is written to logs, incident history, or Telegram; only bounded evidence summaries are retained.
 
-## 13. Existing-code integration boundaries
+## 14. Existing-code integration boundaries
 
 The implementation will preserve and evolve these paths rather than create a parallel protection system:
 
@@ -436,16 +564,18 @@ The implementation will preserve and evolve these paths rather than create a par
 - `protection/SensorObservation.kt`: typed source and generation metadata;
 - `protection/SensorObservationProcessor.kt`: role-aware candidate and fusion processing;
 - `protection/IncidentEngine.kt`: deduplicated incident lifecycle;
+- `protection/IncidentMessageFormatter.kt`: migrate from raw enum/diagnostic formatting to channel formatting over the shared presentation model;
+- `protection/UserGuidance.kt`: retain typed guidance codes while replacing internal placeholder copy with user-safe localized content and persistence/action policy;
 - `sensor/VibrationDetector.kt` and `sensor/LightIntrusionDetector.kt`: migrate into or adapt to the common listener contract;
 - `sensor/SensorScanner.kt`: replace with injected catalog usage, then remove only after every caller/test migrates;
 - `data/EncryptedPrefsManager.kt`: versioned configuration persistence boundary;
 - `ui/ProtectionViewModel.kt` and UI models: desired/effective configuration and operation state;
 - `ui/settings/SettingsScreen.kt`: main group controls and navigation to advanced controls;
-- Telegram status formatting: read the same authoritative sensor health and never a separate scan.
+- `telegram/ProtectionStatusFormatter.kt` and `protection/ProtectionStateTelegramNotifier.kt`: consume the shared status presentation, put action/outcome first, and never read a separate scan or raw degradation string.
 
 No public API is renamed or removed until compile-time callers and tests migrate in a bounded TDD task.
 
-## 14. Delivery sequence
+## 15. Delivery sequence
 
 Implementation must be split into small TDD tasks in this order:
 
@@ -461,15 +591,17 @@ Implementation must be split into small TDD tasks in this order:
 10. Capability controller and adaptive sampling state machine.
 11. Observation metadata, role-aware processing, fusion, and deduplication.
 12. Runtime/coordinator configuration application and arm eligibility.
-13. Health/state projection and Telegram status truth path.
-14. Settings main-group controls.
-15. Advanced per-source settings.
-16. Persistence/restart/reboot recovery.
-17. Full host verification and controlled real-device acceptance.
+13. Health/state projection and authoritative desired/effective truth path.
+14. Human-readable presentation models, localized labels, safe-action policy, and diagnostic redaction.
+15. Channel formatters for Protection, notification, Events, Telegram, and SMS, including persistence and deduplication behavior.
+16. Settings main-group controls.
+17. Advanced per-source settings.
+18. Persistence/restart/reboot recovery.
+19. Full host verification and controlled real-device acceptance.
 
 The later implementation plan must name exact files, RED tests, minimal GREEN production changes, focused commands, full gates, and rollback boundaries for every task.
 
-## 15. Testing strategy
+## 16. Testing strategy
 
 ### 15.1 Pure unit tests
 
@@ -489,7 +621,13 @@ Cover:
 - Significant Motion re-request behavior;
 - partial configuration apply results;
 - last-primary removal behavior;
-- disabled sources not causing degradation.
+- disabled sources not causing degradation;
+- complete Thai labels for every incident, sensor source, health state, severity, action, and delivery state;
+- raw enum names, raw diagnostics, and exception messages never reaching presentations;
+- evidence values always carrying units and plain-language meaning;
+- safe-action selection for incident, degradation, permission, unsupported-hardware, delivery, and calibration cases;
+- no unresolved template placeholders under missing/partial data;
+- deterministic compact/full variants retaining the same severity, state, time, and incident ID.
 
 ### 15.2 Android/integration tests
 
@@ -502,7 +640,10 @@ Cover:
 - unaffected groups remain active during per-group recalibration;
 - process recovery discards baselines and re-enters `ARMING`;
 - coordinator, service, Settings, notification, and Telegram consume the same snapshot;
-- unavailable sensors remain visible with accurate reasons.
+- unavailable sensors remain visible with accurate reasons;
+- UI, notification, Events, Telegram, and SMS consume the same presentation meaning;
+- repeated evidence does not emit duplicate external alerts unless severity or protection state materially changes;
+- confirmed delivery outcomes are reported without assuming success from a queued request.
 
 ### 15.3 Compose tests
 
@@ -516,6 +657,9 @@ Cover:
 - disabled/unavailable/failed distinctions;
 - dangerous last-primary confirmation;
 - Snackbar plus persistent result/degradation presentation;
+- persistent cards for alert, degraded, offline, setup-blocked, and failed-apply states;
+- action/outcome hierarchy remains understandable on compact screens and large font scales;
+- TalkBack labels communicate severity, state, and action without depending on emoji or color;
 - state restoration without leaking secrets or raw samples.
 
 ### 15.4 Real-device acceptance
@@ -533,10 +677,14 @@ Host tests and a successful APK build do not prove sensor behavior. Device accep
 9. Verify process restart and device reboot repeat calibration before claiming healthy protection.
 10. Verify local UI and Telegram `/status` report identical desired/effective roles and health.
 11. Verify one controlled multi-sensor event creates one incident thread rather than duplicate alerts.
+12. Verify Thai incident, degraded, offline, calibration-failure, and recovery messages on the target device and owner Telegram phone.
+13. Verify notification collapsed/expanded text, persistent Protection card, Events detail, Telegram, and eligible SMS communicate the same severity, state, time, and incident ID.
+14. Verify large text and TalkBack reading order for the headline, current protection, action, evidence, and identifier.
+15. Verify no raw enum, internal diagnostic, exception text, placeholder, secret, or unsupported claim appears in captured output.
 
 Hardware not present on the target device remains explicitly unaccepted until tested on a device that provides it.
 
-## 16. Acceptance criteria
+## 17. Acceptance criteria
 
 The design is implemented only when all of the following are true:
 
@@ -554,11 +702,20 @@ The design is implemented only when all of the following are true:
 - Rotation-vector sources replace deprecated orientation-sensor usage.
 - Overlapping physical/virtual sensor observations do not create duplicate incidents.
 - Settings, Protection, service notification, Events, and Telegram report the same authoritative state.
+- Every incident and status uses localized human-readable names rather than raw enum or diagnostic values.
+- Critical/degraded messages lead with what happened, current protection, and a safe next action before technical evidence.
+- Evidence includes a unit and plain-language interpretation when a numeric value is shown.
+- Protection, notification, Events, Telegram, and SMS preserve the same severity, state, timestamp, and incident identifier.
+- Critical, degraded, offline, setup-blocked, and failed-apply states remain persistently visible until their state policy resolves or acknowledges them.
+- Repeated evidence updates one incident and does not create alert spam; material escalation remains immediately visible.
+- Missing data produces an honest omission or unavailable reason, never an invented value or unresolved placeholder.
+- No raw exception, internal diagnostic, secret, destination, key, or unsupported delivery/protection claim reaches user-facing output.
+- Thai copy, large-text layout, and TalkBack reading order pass controlled device checks.
 - No sensor listener sends an alert directly or blocks the main thread.
 - Desired configuration, effective listener state, calibration state, and fresh health remain distinguishable.
 - Focused tests, full unit tests, APK assembly, installation, and controlled real-device checks are recorded separately.
 
-## 17. Risks and safeguards
+## 18. Risks and safeguards
 
 - **Battery and heat:** use adaptive sampling, bounded profiles, background processing, and device measurement before promotion.
 - **False alarms:** use stable baseline validation, per-source debounce, supporting roles, source-family deduplication, and incident-level cooldown.
@@ -567,8 +724,11 @@ The design is implemented only when all of the following are true:
 - **Race conditions during live changes:** serialize lifecycle changes and reject stale generation callbacks.
 - **Unsafe configuration:** validate through one policy and confirm changes that can remove the last primary.
 - **Stale restored protection:** discard baselines and repeat calibration after process restart or reboot.
+- **Unreadable or contradictory alerts:** generate every channel from one presentation model, apply a fixed information hierarchy, and test semantic equivalence.
+- **Technical text leakage:** allowlist localized presentation fields and prohibit channel formatters from reading raw diagnostics or exception messages.
+- **Unsafe owner reaction:** use typed safe-action guidance and never encourage confrontation or imply guaranteed external response.
 - **Dirty-worktree collision:** implement in narrowly scoped TDD tasks, inspect diffs before each edit, and never reset or overwrite unrelated changes.
 
-## 18. Written-spec review gate
+## 19. Written-spec review gate
 
 This document captures the approved conversational design. Production implementation must not begin until the user reviews this written file and explicitly approves it. After approval, create a separate detailed implementation plan and agent handoff with exact paths, task dependencies, RED-GREEN-REFACTOR order, verification commands, device acceptance, and security boundaries.
