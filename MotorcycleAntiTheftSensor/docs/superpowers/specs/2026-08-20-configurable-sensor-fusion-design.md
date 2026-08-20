@@ -486,8 +486,7 @@ Threshold, baseline delta, and confidence may appear as secondary evidence only 
 
 Guidance is selected from a typed policy, not assembled from raw exception text. Initial actions are:
 
-- suspected movement/tamper: check camera or the latest available location;
-- critical incident with credible location: contact the appropriate authority or trusted person and provide the incident identifier;
+- real incident alerts: use the neutral guidance “ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม” without naming a specific person, tool, channel, or response;
 - degraded sensor: identify the lost capability and direct the owner to Sensor Settings when remediation is possible;
 - missing permission: open the exact Android permission/settings destination;
 - unsupported hardware: explain that the phone does not provide the source and offer an available fallback, without instructing the owner to retry indefinitely;
@@ -525,7 +524,7 @@ All channels use the same localized labels, severity, timestamps, protection sta
 
 ระดับความเสี่ยง: สูง
 สถานะระบบ: การป้องกันยังทำงาน
-แนะนำ: ตรวจสอบภาพจากกล้องหรือตำแหน่งล่าสุด
+แนะนำ: ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม
 
 เวลา: 20 ส.ค. 2569 21:35
 หลักฐาน:
@@ -625,7 +624,7 @@ Cover:
 - complete Thai labels for every incident, sensor source, health state, severity, action, and delivery state;
 - raw enum names, raw diagnostics, and exception messages never reaching presentations;
 - evidence values always carrying units and plain-language meaning;
-- action-guidance selection for incident, degradation, permission, unsupported-hardware, delivery, and calibration cases;
+- neutral incident guidance plus actionable system remediation for degradation, permission, unsupported-hardware, delivery, and calibration cases;
 - no unresolved template placeholders under missing/partial data;
 - deterministic compact/full variants retaining the same severity, state, time, and incident ID.
 
