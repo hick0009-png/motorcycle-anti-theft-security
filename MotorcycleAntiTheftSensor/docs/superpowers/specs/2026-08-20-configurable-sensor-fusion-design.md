@@ -29,7 +29,7 @@ The user approved these decisions:
 8. Every arm operation performs a 10-second calibration/readiness phase for all enabled sensors. A live configuration change recalibrates only the affected group.
 9. Sampling is adaptive: low-power wake/monitor sensors run during steady state, and higher-rate motion/rotation/magnetic sensors activate temporarily to confirm candidate events.
 10. Continuous sensors use baseline-relative detection with absolute sanity limits. Trigger and virtual sensors use the readiness validation appropriate to their Android API.
-11. Alerts and status messages use one human-readable presentation contract across UI, notification, Events, Telegram, and SMS. Every important message leads with what happened, risk, current protection, and a safe next action instead of exposing enum names or internal diagnostics.
+11. Alerts and status messages use one human-readable presentation contract across UI, notification, Events, Telegram, and SMS. Every important message leads with what happened, risk, current protection, and a recommended next action instead of exposing enum names or internal diagnostics.
 
 ## 3. Non-goals
 
@@ -439,7 +439,7 @@ The incident presentation contains:
 - occurrence and update timestamps in the device locale/time zone;
 - human-readable evidence items with label, value, unit, comparison context, and confidence when meaningful;
 - current protection state and named operating/degraded capabilities;
-- safe recommended action;
+- recommended action;
 - location label, fix age, and accuracy when the fix is valid;
 - delivery state;
 - incident identifier;
@@ -463,7 +463,7 @@ All critical and degraded messages follow this order:
 
 1. severity icon plus plain-language headline;
 2. current protection outcome;
-3. safe next action;
+3. recommended next action;
 4. time and location when available;
 5. concise evidence;
 6. delivery/freshness information;
@@ -482,11 +482,11 @@ Technical evidence is translated into user meaning:
 
 Threshold, baseline delta, and confidence may appear as secondary evidence only when a unit and plain-language interpretation accompany them.
 
-### 12.4 Safe action guidance
+### 12.4 Action guidance
 
 Guidance is selected from a typed policy, not assembled from raw exception text. Initial actions are:
 
-- suspected movement/tamper: check camera or location from a safe place and do not confront a suspected thief;
+- suspected movement/tamper: check camera or the latest available location;
 - critical incident with credible location: contact the appropriate authority or trusted person and provide the incident identifier;
 - degraded sensor: identify the lost capability and direct the owner to Sensor Settings when remediation is possible;
 - missing permission: open the exact Android permission/settings destination;
@@ -494,7 +494,7 @@ Guidance is selected from a typed policy, not assembled from raw exception text.
 - Telegram unavailable: confirm whether local monitoring continues and describe any eligible fallback honestly;
 - calibration failure: keep the affected capability suppressed and identify whether protection continued in degraded mode or arm was rejected.
 
-Guidance must not encourage approaching the vehicle, promise police response, claim successful Telegram/SMS delivery without evidence, or claim a sensor proves theft by itself.
+Guidance must not promise police response, claim successful Telegram/SMS delivery without evidence, or claim a sensor proves theft by itself.
 
 ### 12.5 Channel-specific formatting
 
@@ -525,7 +525,7 @@ All channels use the same localized labels, severity, timestamps, protection sta
 
 ระดับความเสี่ยง: สูง
 สถานะระบบ: การป้องกันยังทำงาน
-แนะนำ: ตรวจสอบกล้องหรือตำแหน่งจากระยะปลอดภัย อย่าเข้าเผชิญหน้าด้วยตนเอง
+แนะนำ: ตรวจสอบภาพจากกล้องหรือตำแหน่งล่าสุด
 
 เวลา: 20 ส.ค. 2569 21:35
 หลักฐาน:
@@ -565,7 +565,7 @@ The implementation will preserve and evolve these paths rather than create a par
 - `protection/SensorObservationProcessor.kt`: role-aware candidate and fusion processing;
 - `protection/IncidentEngine.kt`: deduplicated incident lifecycle;
 - `protection/IncidentMessageFormatter.kt`: migrate from raw enum/diagnostic formatting to channel formatting over the shared presentation model;
-- `protection/UserGuidance.kt`: retain typed guidance codes while replacing internal placeholder copy with user-safe localized content and persistence/action policy;
+- `protection/UserGuidance.kt`: retain typed guidance codes while replacing internal placeholder copy with localized content and persistence/action policy;
 - `sensor/VibrationDetector.kt` and `sensor/LightIntrusionDetector.kt`: migrate into or adapt to the common listener contract;
 - `sensor/SensorScanner.kt`: replace with injected catalog usage, then remove only after every caller/test migrates;
 - `data/EncryptedPrefsManager.kt`: versioned configuration persistence boundary;
@@ -592,7 +592,7 @@ Implementation must be split into small TDD tasks in this order:
 11. Observation metadata, role-aware processing, fusion, and deduplication.
 12. Runtime/coordinator configuration application and arm eligibility.
 13. Health/state projection and authoritative desired/effective truth path.
-14. Human-readable presentation models, localized labels, safe-action policy, and diagnostic redaction.
+14. Human-readable presentation models, localized labels, action policy, and diagnostic redaction.
 15. Channel formatters for Protection, notification, Events, Telegram, and SMS, including persistence and deduplication behavior.
 16. Settings main-group controls.
 17. Advanced per-source settings.
@@ -625,7 +625,7 @@ Cover:
 - complete Thai labels for every incident, sensor source, health state, severity, action, and delivery state;
 - raw enum names, raw diagnostics, and exception messages never reaching presentations;
 - evidence values always carrying units and plain-language meaning;
-- safe-action selection for incident, degradation, permission, unsupported-hardware, delivery, and calibration cases;
+- action-guidance selection for incident, degradation, permission, unsupported-hardware, delivery, and calibration cases;
 - no unresolved template placeholders under missing/partial data;
 - deterministic compact/full variants retaining the same severity, state, time, and incident ID.
 
@@ -703,7 +703,7 @@ The design is implemented only when all of the following are true:
 - Overlapping physical/virtual sensor observations do not create duplicate incidents.
 - Settings, Protection, service notification, Events, and Telegram report the same authoritative state.
 - Every incident and status uses localized human-readable names rather than raw enum or diagnostic values.
-- Critical/degraded messages lead with what happened, current protection, and a safe next action before technical evidence.
+- Critical/degraded messages lead with what happened, current protection, and a recommended next action before technical evidence.
 - Evidence includes a unit and plain-language interpretation when a numeric value is shown.
 - Protection, notification, Events, Telegram, and SMS preserve the same severity, state, timestamp, and incident identifier.
 - Critical, degraded, offline, setup-blocked, and failed-apply states remain persistently visible until their state policy resolves or acknowledges them.
@@ -726,7 +726,6 @@ The design is implemented only when all of the following are true:
 - **Stale restored protection:** discard baselines and repeat calibration after process restart or reboot.
 - **Unreadable or contradictory alerts:** generate every channel from one presentation model, apply a fixed information hierarchy, and test semantic equivalence.
 - **Technical text leakage:** allowlist localized presentation fields and prohibit channel formatters from reading raw diagnostics or exception messages.
-- **Unsafe owner reaction:** use typed safe-action guidance and never encourage confrontation or imply guaranteed external response.
 - **Dirty-worktree collision:** implement in narrowly scoped TDD tasks, inspect diffs before each edit, and never reset or overwrite unrelated changes.
 
 ## 19. Written-spec review gate
