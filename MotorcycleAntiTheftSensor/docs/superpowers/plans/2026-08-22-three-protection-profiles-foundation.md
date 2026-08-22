@@ -215,7 +215,7 @@ git commit -m "feat: add protection profile domain"
 - Consumes: Task 1 profile types plus the existing `SensorConfigurationCodec` and `SensorConfigurationRepository`.
 - Produces: `ProtectionProfileRepository.load()`, `save(state)`, and `update(transform)`; all later tasks use this repository as the only profile-store writer.
 
-- [ ] **Step 1: Write failing codec and migration tests**
+- [x] **Step 1: Write failing codec and migration tests**
 
 ```kotlin
 @Test fun roundTripPreservesPerProfileSettingsAndNullSelection() {
@@ -240,7 +240,7 @@ git commit -m "feat: add protection profile domain"
 }
 ```
 
-- [ ] **Step 2: Run the two tests and confirm RED**
+- [x] **Step 2: Run the two tests and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionProfileCodecTest' --tests '*ProtectionProfileRepositoryTest'
@@ -248,7 +248,7 @@ git commit -m "feat: add protection profile domain"
 
 Expected: compilation fails because codec/repository types do not exist.
 
-- [ ] **Step 3: Implement one versioned JSON aggregate and one commit boundary**
+- [x] **Step 3: Implement one versioned JSON aggregate and one commit boundary**
 
 Use one credential-protected preference key:
 
@@ -273,7 +273,7 @@ class SharedPreferencesProtectionProfileRepository(
 
 `ProtectionProfileCodec` must encode fields in fixed profile-enum order and reuse `SensorConfigurationCodec` for nested sensor configurations. Reject unknown future schema versions, missing profile entries, invalid enum values, and invalid profile-specific ranges. `save` must call `SharedPreferences.Editor.commit()` once for the whole JSON aggregate. On first load with no aggregate, return `newStoreState(legacyRepository.loadConfiguration())`; do not write or select a profile until the owner acts.
 
-- [ ] **Step 4: Run the focused tests and confirm GREEN**
+- [x] **Step 4: Run the focused tests and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionProfileCodecTest' --tests '*ProtectionProfileRepositoryTest'
@@ -281,7 +281,7 @@ class SharedPreferencesProtectionProfileRepository(
 
 Expected: codec round-trip, corrupt/future-schema rejection, atomic failure, and legacy-preservation tests pass.
 
-- [ ] **Step 5: Commit persistence**
+- [x] **Step 5: Commit persistence**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileCodec.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileRepository.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileCodecTest.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileRepositoryTest.kt
