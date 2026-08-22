@@ -43,9 +43,9 @@ This plan is the first independently testable slice. It deliberately exposes tru
 
 **Interfaces:**
 - Consumes: `SensorFusionConfiguration`, `SensorConfigurationPolicy`, `SensorRole`, and `SensorSource`.
-- Produces: `ProtectionProfile`, `ProfileSetupState`, `ProfileSpecificSettings`, `StoredProfileConfiguration`, `ProtectionProfileStoreState`, and `ProtectionProfilePolicy.resolve(...)` for later tasks.
+- Produces: `ProtectionProfile`, `ProfileSetupState`, field-level `SensorFusionProfileOverrides`, typed profile-specific overrides, `StoredProfileConfiguration`, `ResolvedProfileConfiguration`, `ProtectionProfileStoreState`, and `ProtectionProfilePolicy.resolve(...)` for later tasks.
 
-- [ ] **Step 1: Write failing domain tests**
+- [x] **Step 1: Write failing domain tests**
 
 ```kotlin
 class ProtectionProfilePolicyTest {
@@ -62,30 +62,30 @@ class ProtectionProfilePolicyTest {
         val entry = initial.profiles.getValue(ProtectionProfile.ENTRY)
         val changed = policy.updateProfile(
             initial,
-            entry.copy(specificSettings = EntryProfileSettings(angleThresholdDegrees = 30)),
+            entry.copy(specificOverrides = EntryProfileOverrides(angleThresholdDegrees = 30)),
         )
-        assertEquals(30, (changed.profiles.getValue(ProtectionProfile.ENTRY).specificSettings as EntryProfileSettings).angleThresholdDegrees)
+        assertEquals(30, (policy.resolve(changed, ProtectionProfile.ENTRY).specificSettings as EntryProfileSettings).angleThresholdDegrees)
         assertEquals(
-            PowerProfileSettings(),
-            changed.profiles.getValue(ProtectionProfile.POWER).specificSettings,
+            initial.profiles.getValue(ProtectionProfile.POWER),
+            changed.profiles.getValue(ProtectionProfile.POWER),
         )
     }
 
     @Test fun restoreRecommendedChangesOnlyRequestedProfile() {
         val customized = policy.updateProfile(
             policy.newStoreState(),
-            policy.recommended(ProtectionProfile.ENTRY).copy(
-                specificSettings = EntryProfileSettings(angleThresholdDegrees = 45),
+            policy.newStoreState().profiles.getValue(ProtectionProfile.ENTRY).copy(
+                specificOverrides = EntryProfileOverrides(angleThresholdDegrees = 45),
             ),
         )
         val restored = policy.restoreRecommended(customized, ProtectionProfile.ENTRY)
-        assertEquals(15, (restored.profiles.getValue(ProtectionProfile.ENTRY).specificSettings as EntryProfileSettings).angleThresholdDegrees)
+        assertEquals(15, (policy.resolve(restored, ProtectionProfile.ENTRY).specificSettings as EntryProfileSettings).angleThresholdDegrees)
         assertEquals(customized.profiles.getValue(ProtectionProfile.POWER), restored.profiles.getValue(ProtectionProfile.POWER))
     }
 }
 ```
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run from `MotorcycleAntiTheftSensor`:
 
@@ -96,7 +96,7 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 
 Expected: compilation fails because the profile types and policy do not exist.
 
-- [ ] **Step 3: Add the minimal typed profile model**
+- [x] **Step 3: Add the minimal typed profile model**
 
 ```kotlin
 enum class ProtectionProfile { VEHICLE, ENTRY, POWER }
@@ -116,7 +116,45 @@ data class PowerProfileSettings(
     val recoveryConfirmationMs: Long = 30_000L,
 ) : ProfileSpecificSettings
 
+data class SensorCapabilityProfileOverrides(
+    val sensitivity: Int? = null,
+    val correlationWindowMs: Long? = null,
+    val confirmationDurationMs: Long? = null,
+)
+
+data class SensorSourceProfileOverrides(
+    val role: SensorRole? = null,
+    val thresholdOverride: Double? = null,
+    val debounceOverrideMs: Long? = null,
+    val samplingProfileOverride: SensorSamplingProfile? = null,
+)
+
+data class SensorFusionProfileOverrides(
+    val samplingProfile: SensorSamplingProfile? = null,
+    val capabilities: Map<SensorCapability, SensorCapabilityProfileOverrides> = emptyMap(),
+    val sources: Map<SensorSource, SensorSourceProfileOverrides> = emptyMap(),
+)
+
+sealed interface ProfileSpecificOverrides
+data object VehicleProfileOverrides : ProfileSpecificOverrides
+data class EntryProfileOverrides(
+    val angleThresholdDegrees: Int? = null,
+    val openConfirmationMs: Long? = null,
+) : ProfileSpecificOverrides
+data class PowerProfileOverrides(
+    val lossConfirmationMs: Long? = null,
+    val recoveryConfirmationMs: Long? = null,
+) : ProfileSpecificOverrides
+
 data class StoredProfileConfiguration(
+    val profile: ProtectionProfile,
+    val presetVersion: Int,
+    val sensorOverrides: SensorFusionProfileOverrides,
+    val specificOverrides: ProfileSpecificOverrides,
+    val setupState: ProfileSetupState,
+)
+
+data class ResolvedProfileConfiguration(
     val profile: ProtectionProfile,
     val presetVersion: Int,
     val sensorConfiguration: SensorFusionConfiguration,
@@ -130,9 +168,12 @@ data class ProtectionProfileStoreState(
     val selectedProfile: ProtectionProfile?,
     val profiles: Map<ProtectionProfile, StoredProfileConfiguration>,
     val legacyConfiguration: SensorFusionConfiguration?,
-    val switchTransaction: ProfileSwitchTransaction? = null,
 )
 ```
+
+`ProfileSwitchTransaction` is introduced only in Task 5, together with its
+repository recovery tests. It is intentionally absent from the Task 1 domain
+slice.
 
 Implement `ProtectionProfilePolicy` with these exact rules:
 
@@ -143,8 +184,9 @@ Implement `ProtectionProfilePolicy` with these exact rules:
 - Entry and Power start as `SETUP_REQUIRED`; Vehicle starts `READY` only after the existing runtime readiness passes.
 - Validate Entry angle `5..90`, open confirmation `250..3_000`, fixed close threshold `3`, and fixed close confirmation `5_000`.
 - Validate Power loss `10_000` and recovery `30_000` for this release.
+- Resolve only explicit field-level overrides on top of the current profile preset, then pass the resolved sensor configuration through `SensorConfigurationPolicy.validateForSave`.
 
-- [ ] **Step 4: Run the focused test and confirm GREEN**
+- [x] **Step 4: Run the focused test and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionProfilePolicyTest'
@@ -152,7 +194,7 @@ Implement `ProtectionProfilePolicy` with these exact rules:
 
 Expected: all `ProtectionProfilePolicyTest` tests pass.
 
-- [ ] **Step 5: Commit the domain slice**
+- [x] **Step 5: Commit the domain slice**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileModels.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfilePolicy.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfilePolicyTest.kt
@@ -353,14 +395,14 @@ git commit -m "feat: persist immutable armed profile snapshots"
     coordinator.arm("arm-1", CommandOrigin.LOCAL)
     val armed = coordinator.snapshot.value.armedProfileSnapshot!!
     profileRepository.save(vehicleEditedForNextArm)
-    assertEquals(selectedVehicleState.profiles.getValue(ProtectionProfile.VEHICLE).sensorConfiguration, armed.effectiveConfiguration)
+    assertEquals(profilePolicy.resolve(selectedVehicleState, ProtectionProfile.VEHICLE).sensorConfiguration, armed.effectiveConfiguration)
     verify(runtime).startDetectors(armed.armedSessionId, armed.effectiveConfiguration)
 }
 
 @Test fun settingsEditWhileArmedDoesNotReconfigureRunningDetectors() = runTest {
     coordinator.arm("arm-1", CommandOrigin.LOCAL)
     coordinator.updateSelectedProfile("settings-1", editedVehicle)
-    verify(runtime, never()).applySensorConfiguration(editedVehicle.sensorConfiguration)
+    verify(runtime, never()).applySensorConfiguration(profilePolicy.resolve(vehicleEditedForNextArm, ProtectionProfile.VEHICLE).sensorConfiguration)
     assertEquals(originalArmedConfig, coordinator.snapshot.value.armedProfileSnapshot!!.effectiveConfiguration)
 }
 
