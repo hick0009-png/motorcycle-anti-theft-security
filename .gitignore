@@ -1,4 +1,5 @@
 # Local editor and assistant state
+/.worktrees/
 /.cursor/
 /.idea/
 /.serena/
