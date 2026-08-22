@@ -66,7 +66,26 @@ object ProtectionRuntimeGraph {
             },
             writeSnapshot = { snapshot, heartbeat ->
                 withContext(Dispatchers.IO) {
-                    snapshotStore.save(snapshot, heartbeat)
+                    val armed = snapshot.state in setOf(
+                        ProtectionState.ARMING,
+                        ProtectionState.ARMED_HEALTHY,
+                        ProtectionState.ARMED_DEGRADED,
+                        ProtectionState.ALERT_ACTIVE,
+                    )
+                    snapshotStore.save(
+                        snapshot = snapshot,
+                        lastServiceHeartbeatAtMs = heartbeat,
+                        continuityIntent = ProtectionContinuityIntent(
+                            desiredService = if (snapshot.state == ProtectionState.OFFLINE) {
+                                DesiredService.STOPPED_BY_OWNER
+                            } else {
+                                DesiredService.RUNNING
+                            },
+                            desiredProtection = if (armed) DesiredProtection.ARMED else DesiredProtection.DISARMED,
+                            autoRecoveryAfterBoot = preferences.isAutoRecoveryAfterBootEnabled(),
+                            armedSessionId = if (armed) coordinator.currentArmedSessionId() else null,
+                        ),
+                    )
                 }
             },
         )

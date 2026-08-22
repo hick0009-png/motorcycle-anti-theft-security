@@ -7,6 +7,52 @@ import org.junit.Test
 
 class ProtectionContinuityPolicyTest {
     @Test
+    fun ownerStoppedIntentNeverAllowsBackgroundServiceStart() {
+        val allowed = ProtectionContinuityPolicy.allowsServiceStart(
+            intent = ProtectionContinuityIntent(
+                desiredService = DesiredService.STOPPED_BY_OWNER,
+                desiredProtection = DesiredProtection.DISARMED,
+                autoRecoveryAfterBoot = true,
+            ),
+            trigger = RecoveryTrigger.WATCHDOG,
+            continuityValid = true,
+        )
+
+        assertFalse(allowed)
+    }
+
+    @Test
+    fun disabledBootRecoveryDoesNotAllowBootReceiverToStartService() {
+        val allowed = ProtectionContinuityPolicy.allowsServiceStart(
+            intent = ProtectionContinuityIntent(
+                desiredService = DesiredService.RUNNING,
+                desiredProtection = DesiredProtection.ARMED,
+                autoRecoveryAfterBoot = false,
+                armedSessionId = "session-1",
+            ),
+            trigger = RecoveryTrigger.ANDROID_BOOT,
+            continuityValid = true,
+        )
+
+        assertFalse(allowed)
+    }
+
+    @Test
+    fun validRunningIntentAllowsWatchdogServiceStart() {
+        val allowed = ProtectionContinuityPolicy.allowsServiceStart(
+            intent = ProtectionContinuityIntent(
+                desiredService = DesiredService.RUNNING,
+                desiredProtection = DesiredProtection.DISARMED,
+                autoRecoveryAfterBoot = false,
+            ),
+            trigger = RecoveryTrigger.WATCHDOG,
+            continuityValid = true,
+        )
+
+        assertTrue(allowed)
+    }
+
+    @Test
     fun ownerStoppedIntentNeverRestartsDetectors() {
         val result = ProtectionContinuityPolicy.eligibility(
             ProtectionContinuityIntent(

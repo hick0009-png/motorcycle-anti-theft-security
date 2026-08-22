@@ -43,6 +43,17 @@ data class RecoveryEligibility(
 )
 
 object ProtectionContinuityPolicy {
+    fun allowsServiceStart(
+        intent: ProtectionContinuityIntent,
+        trigger: RecoveryTrigger,
+        continuityValid: Boolean,
+    ): Boolean {
+        if (!continuityValid || intent.desiredService == DesiredService.STOPPED_BY_OWNER) {
+            return false
+        }
+        return trigger != RecoveryTrigger.ANDROID_BOOT || intent.autoRecoveryAfterBoot
+    }
+
     fun eligibility(
         intent: ProtectionContinuityIntent,
         trigger: RecoveryTrigger,

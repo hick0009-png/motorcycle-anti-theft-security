@@ -26,6 +26,7 @@ class EncryptedPrefsManager(private val context: Context) {
         private const val KEY_SMS_AES_KEY = "enc_sms_aes_key"
         private const val KEY_SMS_DESTINATION = "enc_sms_destination"
         private const val KEY_SYSTEM_ARMED = "system_armed_state"
+        private const val KEY_AUTO_RECOVERY_AFTER_BOOT = "auto_recovery_after_boot"
         private const val KEY_SENSITIVITY = "sensor_sensitivity_level"
         private const val KEY_PAIRING_CODE = "pairing_code"
         private const val KEY_PAIRING_EXPIRES_AT_MS = "pairing_expires_at_ms"
@@ -170,6 +171,10 @@ class EncryptedPrefsManager(private val context: Context) {
 
     fun isSystemArmed(): Boolean {
         return prefs.getBoolean(KEY_SYSTEM_ARMED, false)
+    }
+
+    fun isAutoRecoveryAfterBootEnabled(): Boolean {
+        return prefs.getBoolean(KEY_AUTO_RECOVERY_AFTER_BOOT, true)
     }
 
     // --- Sensor Sensitivity (1-10) ---

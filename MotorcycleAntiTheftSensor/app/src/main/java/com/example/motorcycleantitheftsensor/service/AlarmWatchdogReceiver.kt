@@ -6,6 +6,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.example.motorcycleantitheftsensor.protection.ProtectionClock
+import com.example.motorcycleantitheftsensor.protection.ProtectionContinuityPolicy
+import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshotStore
+import com.example.motorcycleantitheftsensor.protection.RecoveryTrigger
 
 /**
  * SVC-02: AlarmWatchdogReceiver
@@ -105,11 +109,17 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         if (context == null) return
 
+        if (!allowsServiceStart(context)) {
+            cancelWatchdog(context)
+            return
+        }
+
         // Reschedule next exact watchdog cycle
         scheduleWatchdog(context)
 
         val serviceIntent = Intent(context, SensorService::class.java).apply {
             action = SensorService.ACTION_START_SERVICE
+            putExtra(SensorService.EXTRA_RECOVERY_TRIGGER, RecoveryTrigger.WATCHDOG.name)
         }
 
         try {
@@ -121,5 +131,19 @@ class AlarmWatchdogReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             android.util.Log.w("AlarmWatchdog", "Failed to start SensorService from background watchdog alarm", e)
         }
+    }
+
+    private fun allowsServiceStart(context: Context): Boolean = try {
+        val recovery = ProtectionSnapshotStore(
+            context = context,
+            clock = ProtectionClock(System::currentTimeMillis),
+        ).loadForRecovery()
+        ProtectionContinuityPolicy.allowsServiceStart(
+            intent = recovery.continuityIntent,
+            trigger = RecoveryTrigger.WATCHDOG,
+            continuityValid = recovery.continuityValid,
+        )
+    } catch (_: RuntimeException) {
+        false
     }
 }

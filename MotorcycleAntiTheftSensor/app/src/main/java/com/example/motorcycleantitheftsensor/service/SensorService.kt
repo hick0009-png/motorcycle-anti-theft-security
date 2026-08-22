@@ -36,6 +36,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.RecoveryGenerationToken
+import com.example.motorcycleantitheftsensor.protection.RecoveryTrigger
 import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
@@ -74,6 +75,7 @@ class SensorService : Service(), ServiceEnvironment {
         const val ACTION_ARM = "ACTION_ARM"
         const val ACTION_DISARM = "ACTION_DISARM"
         const val ACTION_REFRESH_TELEGRAM_POLLING = "ACTION_REFRESH_TELEGRAM_POLLING"
+        const val EXTRA_RECOVERY_TRIGGER = "EXTRA_RECOVERY_TRIGGER"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -179,7 +181,12 @@ class SensorService : Service(), ServiceEnvironment {
                 }
             }
             if (shouldRunRecovery) {
-                applyRecovery(graph.coordinator.captureRecoveryToken())
+                applyRecovery(
+                    recoveryToken = graph.coordinator.captureRecoveryToken(),
+                    trigger = intent?.getStringExtra(EXTRA_RECOVERY_TRIGGER)
+                        ?.let { runCatching { RecoveryTrigger.valueOf(it) }.getOrNull() }
+                        ?: RecoveryTrigger.PROCESS_RECREATION,
+                )
                 handleInitializedCommand(action, refreshTelegramPolling, "start")
             } else {
                 handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
@@ -202,9 +209,15 @@ class SensorService : Service(), ServiceEnvironment {
 
     private suspend fun applyRecovery(
         recoveryToken: RecoveryGenerationToken,
+        trigger: RecoveryTrigger,
     ) {
         val recoveryState = recoveryGate.capturedState
-        val plan = ProtectionRecoveryPolicy.plan(recoveryState.hints.persistedState)
+        val plan = ProtectionRecoveryPolicy.plan(
+            persistedState = recoveryState.hints.persistedState,
+            intent = recoveryState.continuityIntent,
+            trigger = trigger,
+            continuityValid = recoveryState.continuityValid,
+        )
         if (plan.previousIncidentLifecycle == IncidentLifecycle.INTERRUPTED) {
             val interrupted = try {
                 withContext(Dispatchers.IO) {
