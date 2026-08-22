@@ -1,6 +1,6 @@
 # Mobile-only Three Protection Profiles Design
 
-**Status:** Draft for product review
+**Status:** Approved for staged TDD implementation on 2026-08-22
 **Date:** 2026-08-22
 **Scope:** One Android phone only. No external control box, USB data protocol, or external environmental sensor is included in this release.
 
@@ -27,7 +27,7 @@ The app does not infer the customer's business automatically. The customer choos
 - GPS and Live Map remain exclusive to Vehicle Guard.
 - Automatic recovery is a shared continuity policy for all three profiles, not a Power Guard detector. It resumes only a valid, durably armed session and never overrides an explicit owner Stop or Disarm.
 - This release recovers after Android has booted successfully; it does not claim that an Android app can power on a fully powered-off phone. Hardware/OEM automatic power-on remains a separate per-device capability and acceptance result.
-- Full unattended recovery in this release requires the dedicated monitoring phone to have no PIN, Pattern, or Password at boot. Direct Boot and moving Telegram or other secrets into device-protected storage are not part of this design.
+- Preserve the completed minimal Direct Boot bootstrap as a continuity baseline. Before credential unlock it is local-only, observes accelerometer deviation only, and stores only the non-secret `armed` and `autoRecoveryAfterBoot` marker booleans in device-protected storage. Telegram, TOTP, SMS keys, chat IDs, encrypted incidents, and the full profile runtime remain credential-protected.
 
 ## 3. First-run and settings UX
 
@@ -103,7 +103,7 @@ Settings exposes one shared switch named **กลับมาป้องกั�
 - The switch is offered during first setup and in **Settings > System continuity**. It becomes enabled only after a confirmation sheet requires the owner to accept `ฉันเข้าใจว่าการไม่มีรหัสล็อกหน้าจอลดการป้องกันข้อมูลในโทรศัพท์ และเหมาะกับโทรศัพท์เฉพาะงานเท่านั้น`; merely installing or updating the app does not arm protection.
 - Automatic recovery applies only when durable owner intent is `RUNNING + ARMED` with a valid `armedProfileSnapshot`. A durable owner Stop or Disarm always wins over boot, sticky service recreation, watchdog, or package-replacement triggers.
 - The switch gates restoration after a full Android boot only. Ordinary same-boot process/service recreation and a supported package replacement continue protecting a current `RUNNING + ARMED` session even when boot recovery is off.
-- This release intentionally does not implement Direct Boot. Telegram credentials, TOTP material, SMS keys, allowlists, and other secrets remain in credential-protected encrypted storage.
+- The completed minimal Direct Boot bootstrap remains local-only until credential unlock and then hands off to the normal `SensorService`. This profile work must not expand the bootstrap into the full runtime or move Telegram credentials, TOTP material, SMS keys, allowlists, or other secrets out of credential-protected encrypted storage.
 - The app checks `KeyguardManager.isDeviceSecure` when the switch is enabled, before every Arm, whenever the app returns to the foreground, and during continuity-readiness reconciliation. `false` means no secure PIN/Pattern/Password is configured; it does not prove OEM boot permission or hardware automatic power-on.
 - If a PIN, Pattern, or Password exists when the owner enables the switch, the switch remains off. If it exists while automatic recovery is enabled and the owner tries to Arm, final Arm is blocked until the owner chooses **เปิดการตั้งค่าล็อกหน้าจอ** or **ป้องกันต่อโดยไม่เปิดการกู้คืนหลังรีบูต**. The app can open only the general Android Security settings; it cannot remove the device credential itself.
 - If a secure credential is detected after the phone is already armed, current sensor protection does not silently disarm. The state becomes `Armed Degraded`, with the scoped hero text `กำลังปกป้องอยู่ · การกลับมาหลังรีบูตยังไม่พร้อม`; one deduplicated continuity-health episode is opened, and Telegram receives at most one warning for that episode.
@@ -501,7 +501,7 @@ The protection coordinator remains the authoritative owner of armed state. Senso
 - External control boxes, USB data transport, BLE/Wi-Fi sensors, smart plugs, temperature probes, water-level sensors, and pump control.
 - Claiming a building-wide mains outage, freezer temperature, pond water condition, or compressor/pump state from the phone and witness lamp.
 - Changing current Telegram authorization, encryption, SMS policy, or GPS privacy boundaries.
-- Bypassing PIN/Pattern/Password, running full sensor/Telegram protection with Direct Boot before credential unlock, or moving bot tokens/TOTP/SMS keys into device-protected storage.
+- Expanding the existing minimal local-only Direct Boot bootstrap into full sensor/Telegram protection before credential unlock, bypassing PIN/Pattern/Password, or moving bot tokens/TOTP/SMS keys into device-protected storage.
 - Guaranteeing that a powered-off phone will start from charger insertion, an RTC schedule, battery recovery, or thermal recovery on every Android/OEM model.
 
 ## 10. Approval checklist
@@ -522,7 +522,7 @@ Before implementation, confirm:
 12. Full Power readiness requires a lamp off/on challenge for each Arm. The successful commissioning challenge may satisfy only the immediately following first Arm within 10 minutes and the same uninterrupted setup; skipping a later challenge is allowed as `Armed Degraded`.
 13. Independent Telegram readiness expires after 24 hours or a tested cellular-transport change/failure. Testing is explicit and route-bound; the app does not send repeated background test messages.
 14. Automatic recovery is shared by all three profiles and resumes durable `RUNNING + ARMED` owner intent after Android boots successfully only when the boot-recovery switch is enabled; owner Stop/Disarm always wins, while same-boot process/package recovery remains a baseline.
-15. Full unattended recovery in this release requires no PIN, Pattern, or Password. The UI shows the approved short explanation and security trade-off; Direct Boot and secret migration are out of scope.
+15. Preserve the completed minimal local-only Direct Boot bootstrap and its non-secret two-boolean marker. Full profile runtime and remote delivery wait for credential unlock; bypassing the lock screen and migrating Telegram/TOTP/SMS secrets remain out of scope.
 16. The setting is named **กลับมาป้องกันอัตโนมัติเมื่อเครื่องเปิดอีกครั้ง** and never claims the app can power on a fully powered-off phone. Reboot verification and hardware/OEM power-on verification remain separate.
 17. Recovery has one durable event/outbox identity per chat, blocks heartbeat until terminal state, waits a full heartbeat interval afterward, and preserves the separate owners of incident text and Vehicle Live Location.
 18. The main UI uses the approved paper-light hierarchy and complete state palette, keeps **ปกป้อง · เหตุการณ์ · ตั้งค่า**, supports profile-specific summaries, separates current protection from boot readiness, and passes 200% font scale, landscape, TalkBack, single-live-region, and 48 dp acceptance.
