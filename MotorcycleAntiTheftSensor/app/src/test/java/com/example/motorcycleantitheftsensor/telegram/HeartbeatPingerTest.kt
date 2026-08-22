@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import android.content.Context
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -13,6 +14,23 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.verify
 
 class HeartbeatPingerTest {
+
+    @Test
+    fun recoveryStartsFirstHeartbeatOnlyAfterFullInterval() {
+        val scheduler = RecordingHeartbeatScheduler()
+        val pinger = HeartbeatPinger(
+            context = mock(Context::class.java),
+            prefsManager = mock(EncryptedPrefsManager::class.java),
+            telegramBotClient = mock(TelegramBotClient::class.java),
+            scheduler = scheduler,
+        )
+
+        pinger.startHeartbeat()
+
+        assertEquals(15L, scheduler.initialDelayMinutes)
+        assertEquals(15L, scheduler.periodMinutes)
+        pinger.stopHeartbeat()
+    }
 
     @Test
     fun startAndStopHeartbeatLifecycle() {
@@ -64,4 +82,23 @@ class HeartbeatPingerTest {
         assertFalse(message.contains("💓"))
         assertFalse(message.contains("*"))
     }
+}
+
+private class RecordingHeartbeatScheduler : HeartbeatScheduler {
+    var initialDelayMinutes: Long? = null
+    var periodMinutes: Long? = null
+
+    override fun scheduleAtFixedRate(
+        initialDelay: Long,
+        period: Long,
+        unit: java.util.concurrent.TimeUnit,
+        task: () -> Unit,
+    ) {
+        initialDelayMinutes = unit.toMinutes(initialDelay)
+        periodMinutes = unit.toMinutes(period)
+    }
+
+    override fun shutdownNow() = Unit
+
+    override val isShutdown: Boolean = false
 }

@@ -10,6 +10,38 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
+interface HeartbeatScheduler {
+    val isShutdown: Boolean
+
+    fun scheduleAtFixedRate(
+        initialDelay: Long,
+        period: Long,
+        unit: TimeUnit,
+        task: () -> Unit,
+    )
+
+    fun shutdownNow()
+}
+
+private class ExecutorHeartbeatScheduler(
+    private val executor: ScheduledExecutorService,
+) : HeartbeatScheduler {
+    override val isShutdown: Boolean get() = executor.isShutdown
+
+    override fun scheduleAtFixedRate(
+        initialDelay: Long,
+        period: Long,
+        unit: TimeUnit,
+        task: () -> Unit,
+    ) {
+        executor.scheduleAtFixedRate(task, initialDelay, period, unit)
+    }
+
+    override fun shutdownNow() {
+        executor.shutdownNow()
+    }
+}
+
 /**
  * COM-02: HeartbeatPinger
  * Sends a silent heartbeat "alive" status ping every 15 minutes to Telegram Bot.
@@ -18,27 +50,35 @@ import java.util.concurrent.TimeUnit
 class HeartbeatPinger(
     private val context: Context,
     private val prefsManager: EncryptedPrefsManager,
-    private val telegramBotClient: TelegramBotClient
+    private val telegramBotClient: TelegramBotClient,
+    private var scheduler: HeartbeatScheduler? = null,
 ) {
-
-    private var executor: ScheduledExecutorService? = null
+    private var started = false
 
     @Synchronized
     fun startHeartbeat() {
-        if (executor != null && !executor!!.isShutdown) return
+        if (started && scheduler != null && !scheduler!!.isShutdown) return
 
-        executor = Executors.newSingleThreadScheduledExecutor()
-        executor?.scheduleAtFixedRate({
+        if (scheduler == null || scheduler!!.isShutdown) {
+            scheduler = ExecutorHeartbeatScheduler(Executors.newSingleThreadScheduledExecutor())
+        }
+        scheduler?.scheduleAtFixedRate(
+            initialDelay = HEARTBEAT_INTERVAL_MINUTES,
+            period = HEARTBEAT_INTERVAL_MINUTES,
+            unit = TimeUnit.MINUTES,
+        ) {
             try {
                 sendHeartbeatPing()
             } catch (ignored: Exception) {}
-        }, 0, 15, TimeUnit.MINUTES)
+        }
+        started = true
     }
 
     @Synchronized
     fun stopHeartbeat() {
-        executor?.shutdownNow()
-        executor = null
+        scheduler?.shutdownNow()
+        scheduler = null
+        started = false
     }
 
     private fun sendHeartbeatPing() {
@@ -66,5 +106,9 @@ class HeartbeatPinger(
                     "รายงานเมื่อ: $timestamp",
             )
         }
+    }
+
+    private companion object {
+        const val HEARTBEAT_INTERVAL_MINUTES = 15L
     }
 }
