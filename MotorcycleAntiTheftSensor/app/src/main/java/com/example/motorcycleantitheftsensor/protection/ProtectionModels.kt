@@ -196,6 +196,7 @@ data class ProtectionSnapshot(
     val revision: Long = 0L,
     val sensorFusionConfiguration: SensorFusionConfiguration? = null,
     val sensorGenerationId: Long = 0L,
+    val armedProfileSnapshot: ArmedProfileSnapshot? = null,
 ) {
     companion object {
         fun offline(nowMs: Long): ProtectionSnapshot = ProtectionSnapshot(

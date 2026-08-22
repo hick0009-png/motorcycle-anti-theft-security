@@ -304,7 +304,7 @@ git commit -m "feat: persist protection profiles atomically"
 - Consumes: resolved Task 1 configuration and existing snapshot persistence.
 - Produces: `ArmedProfileSnapshot`, `ArmedCalibrationSnapshot`, and `ConfigurationFingerprint.sha256(...)` for coordinator/recovery use.
 
-- [ ] **Step 1: Write failing immutability and recovery round-trip tests**
+- [x] **Step 1: Write failing immutability and recovery round-trip tests**
 
 ```kotlin
 @Test fun snapshotRoundTripKeepsProfileSessionAndFrozenConfiguration() {
@@ -329,7 +329,7 @@ git commit -m "feat: persist protection profiles atomically"
 }
 ```
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ArmedProfileSnapshotCodecTest' --tests '*ProtectionSnapshotStoreTest'
@@ -337,7 +337,7 @@ git commit -m "feat: persist protection profiles atomically"
 
 Expected: compilation fails because armed-profile snapshot types do not exist.
 
-- [ ] **Step 3: Implement immutable snapshot storage**
+- [x] **Step 3: Implement immutable snapshot storage**
 
 ```kotlin
 sealed interface ArmedCalibrationSnapshot { val generation: Long }
@@ -358,7 +358,7 @@ data class ArmedProfileSnapshot(
 
 Add `armedProfileSnapshot: ArmedProfileSnapshot? = null` to `ProtectionSnapshot`. Encode the armed snapshot in the same atomic `ProtectionSnapshotStore.save(...)` commit as owner intent and normal snapshot fields. Generate fingerprints with JDK `MessageDigest.getInstance("SHA-256")` over canonical codec output; never use object `hashCode()` or wall-clock values.
 
-- [ ] **Step 4: Run focused tests and confirm GREEN**
+- [x] **Step 4: Run focused tests and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ArmedProfileSnapshotCodecTest' --tests '*ProtectionSnapshotStoreTest'
@@ -366,7 +366,7 @@ Add `armedProfileSnapshot: ArmedProfileSnapshot? = null` to `ProtectionSnapshot`
 
 Expected: snapshot round-trip, corrupt/future-schema rejection, and stable-fingerprint tests pass.
 
-- [ ] **Step 5: Commit immutable snapshot support**
+- [x] **Step 5: Commit immutable snapshot support**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ArmedProfileSnapshotCodec.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileModels.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionModels.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStore.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ArmedProfileSnapshotCodecTest.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStoreTest.kt

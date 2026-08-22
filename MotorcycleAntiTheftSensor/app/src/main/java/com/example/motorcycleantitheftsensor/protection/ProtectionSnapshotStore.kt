@@ -58,6 +58,7 @@ class ProtectionRecoveryGate(
 class ProtectionSnapshotStore(
     private val preferences: ProtectionSnapshotPreferences,
     private val clock: ProtectionClock,
+    private val armedProfileSnapshotCodec: ArmedProfileSnapshotCodec = ArmedProfileSnapshotCodec(),
 ) {
     constructor(
         context: Context,
@@ -103,6 +104,8 @@ class ProtectionSnapshotStore(
                 KEY_CONTINUITY_DESIRED_PROTECTION to continuityIntent.desiredProtection.name,
                 KEY_CONTINUITY_AUTO_RECOVERY_AFTER_BOOT to continuityIntent.autoRecoveryAfterBoot,
                 KEY_CONTINUITY_ARMED_SESSION_ID to continuityIntent.armedSessionId,
+                // Encoded inside the same atomic put/commit as every other field.
+                KEY_ARMED_PROFILE_SNAPSHOT_JSON to snapshot.armedProfileSnapshot?.let { armedProfileSnapshotCodec.encode(it) },
             ),
         )
     }
@@ -136,8 +139,20 @@ class ProtectionSnapshotStore(
                 autoRecoveryAfterBoot = false,
             )
         }
+        val armedProfileSnapshot = preferences.getString(KEY_ARMED_PROFILE_SNAPSHOT_JSON)
+            ?.let { json ->
+                try {
+                    armedProfileSnapshotCodec.decode(json)
+                } catch (_: Exception) {
+                    // A corrupt armed snapshot fails safe to null; continuity intent above
+                    // still decides whether recovery may rearm.
+                    null
+                }
+            }
         return ProtectionRecoveryState(
-            liveSnapshot = ProtectionSnapshot.offline(clock.nowMs()),
+            liveSnapshot = ProtectionSnapshot.offline(clock.nowMs()).copy(
+                armedProfileSnapshot = armedProfileSnapshot,
+            ),
             hints = ProtectionRecoveryHints(
                 persistedState = persistedState,
                 lastTransitionAtMs = preferences.getLong(KEY_TRANSITION_AT_MS),
@@ -164,6 +179,7 @@ class ProtectionSnapshotStore(
         const val KEY_CONTINUITY_DESIRED_PROTECTION = "continuity_desired_protection"
         const val KEY_CONTINUITY_AUTO_RECOVERY_AFTER_BOOT = "continuity_auto_recovery_after_boot"
         const val KEY_CONTINUITY_ARMED_SESSION_ID = "continuity_armed_session_id"
+        const val KEY_ARMED_PROFILE_SNAPSHOT_JSON = "armed_profile_snapshot_json"
     }
 }
 

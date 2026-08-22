@@ -61,6 +61,44 @@ data class PowerProfileOverrides(
     val recoveryConfirmationMs: Long? = null,
 ) : ProfileSpecificOverrides
 
+/**
+ * Immutable calibration evidence frozen at Arm time. The generation changes whenever
+ * listeners are re-registered or the process restarts; it never mutates the frozen
+ * armed configuration.
+ */
+sealed interface ArmedCalibrationSnapshot {
+    val generation: Long
+}
+
+data class VehicleArmedCalibrationSnapshot(
+    override val generation: Long,
+) : ArmedCalibrationSnapshot
+
+data class EntryArmedCalibrationSnapshot(
+    override val generation: Long,
+    val modelFingerprint: String,
+) : ArmedCalibrationSnapshot
+
+data class PowerArmedCalibrationSnapshot(
+    override val generation: Long,
+    val modelFingerprint: String,
+) : ArmedCalibrationSnapshot
+
+/**
+ * The single authoritative protection policy for an armed session. Once created it is
+ * immutable until controlled disarm; Settings edits, preset migrations, late sensor
+ * samples, or process callbacks cannot change the running policy.
+ */
+data class ArmedProfileSnapshot(
+    val armedSessionId: String,
+    val profile: ProtectionProfile,
+    val resolvedPresetVersion: Int,
+    val effectiveConfiguration: SensorFusionConfiguration,
+    val configurationFingerprint: String,
+    val commissionedModelFingerprint: String?,
+    val armedCalibrationSnapshot: ArmedCalibrationSnapshot,
+)
+
 data class StoredProfileConfiguration(
     val profile: ProtectionProfile,
     val presetVersion: Int,

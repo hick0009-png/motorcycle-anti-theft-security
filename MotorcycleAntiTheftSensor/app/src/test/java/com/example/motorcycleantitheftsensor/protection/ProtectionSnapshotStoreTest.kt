@@ -177,6 +177,54 @@ class ProtectionSnapshotStoreTest {
         assertFalse(recovery.liveSnapshot.serviceRunning)
         assertFalse(recovery.liveSnapshot.telegramReachable)
     }
+
+    @Test
+    fun armedProfileSnapshotRoundTripsThroughSingleAtomicSave() {
+        val preferences = InMemoryProtectionSnapshotPreferences()
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+        val vehicleConfig =
+            SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED, nowMs = 1_000L)
+        val armed = ArmedProfileSnapshot(
+            armedSessionId = "session-1",
+            profile = ProtectionProfile.VEHICLE,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, VehicleProfileSettings),
+            commissionedModelFingerprint = null,
+            armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 7L),
+        )
+
+        store.save(
+            snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+                state = ProtectionState.ARMED_HEALTHY,
+                armedProfileSnapshot = armed,
+            ),
+            lastServiceHeartbeatAtMs = 2_000L,
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertEquals(armed, recovery.liveSnapshot.armedProfileSnapshot)
+    }
+
+    @Test
+    fun corruptArmedProfileSnapshotFailsSafeToNull() {
+        val preferences = InMemoryProtectionSnapshotPreferences().apply {
+            put(mapOf("armed_profile_snapshot_json" to "{ corrupt"))
+        }
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertEquals(null, recovery.liveSnapshot.armedProfileSnapshot)
+    }
 }
 
 private class InMemoryProtectionSnapshotPreferences : ProtectionSnapshotPreferences {
