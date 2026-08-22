@@ -45,7 +45,7 @@
 enum class DesiredService { RUNNING, STOPPED_BY_OWNER }
 enum class DesiredProtection { DISARMED, ARMED }
 enum class RecoveryTrigger { PROCESS_RECREATION, ANDROID_BOOT, PACKAGE_REPLACED, WATCHDOG, MANUAL_REOPEN }
-enum class RecoveryPhase { RECOVERY_PENDING, RECALIBRATING, RECOVERED_HEALTHY, RECOVERED_DEGRADED, RECOVERY_BLOCKED, NOT_RECOVERED_OWNER_STOPPED, NOT_RECOVERED_BOOT_DISABLED }
+enum class RecoveryPhase { RECOVERY_PENDING, RECALIBRATING, RECOVERED_HEALTHY, RECOVERED_DEGRADED, RECOVERY_BLOCKED, NOT_RECOVERED_OWNER_STOPPED, NOT_RECOVERED_DISARMED, NOT_RECOVERED_BOOT_DISABLED }
 
 data class ProtectionContinuityIntent(
     val desiredService: DesiredService,
@@ -92,6 +92,17 @@ fun disabledBootRecoveryDoesNotRestoreDetectorsAfterAndroidBoot() {
 }
 
 @Test
+fun disarmedIntentNeverRestartsDetectors() {
+    val result = ProtectionContinuityPolicy.eligibility(
+        ProtectionContinuityIntent(DesiredService.RUNNING, DesiredProtection.DISARMED, true),
+        RecoveryTrigger.PROCESS_RECREATION,
+    )
+
+    assertFalse(result.restartDetectors)
+    assertEquals(RecoveryPhase.NOT_RECOVERED_DISARMED, result.phase)
+}
+
+@Test
 fun disabledBootRecoveryStillAllowsSameBootProcessRecovery() {
     val result = ProtectionContinuityPolicy.eligibility(
         ProtectionContinuityIntent(DesiredService.RUNNING, DesiredProtection.ARMED, false, "session-1"),
@@ -117,7 +128,7 @@ Implement the interfaces above with these exact decisions:
 if (intent.desiredService == DesiredService.STOPPED_BY_OWNER)
     RecoveryEligibility(RecoveryPhase.NOT_RECOVERED_OWNER_STOPPED, false, DesiredProtection.DISARMED)
 else if (intent.desiredProtection == DesiredProtection.DISARMED)
-    RecoveryEligibility(RecoveryPhase.RECOVERY_BLOCKED, false, DesiredProtection.DISARMED)
+    RecoveryEligibility(RecoveryPhase.NOT_RECOVERED_DISARMED, false, DesiredProtection.DISARMED)
 else if (trigger == RecoveryTrigger.ANDROID_BOOT && !intent.autoRecoveryAfterBoot)
     RecoveryEligibility(RecoveryPhase.NOT_RECOVERED_BOOT_DISABLED, false, DesiredProtection.DISARMED)
 else RecoveryEligibility(RecoveryPhase.RECOVERY_PENDING, true, DesiredProtection.ARMED)
