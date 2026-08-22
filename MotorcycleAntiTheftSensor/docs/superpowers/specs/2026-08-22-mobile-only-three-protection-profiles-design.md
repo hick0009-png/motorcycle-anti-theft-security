@@ -25,6 +25,9 @@ The app does not infer the customer's business automatically. The customer choos
 - Losing charging power while armed must not disarm the app. The app continues on battery and reports the health change.
 - All Telegram notifications remain owner-authorized. SMS behavior is unchanged by this design.
 - GPS and Live Map remain exclusive to Vehicle Guard.
+- Automatic recovery is a shared continuity policy for all three profiles, not a Power Guard detector. It resumes only a valid, durably armed session and never overrides an explicit owner Stop or Disarm.
+- This release recovers after Android has booted successfully; it does not claim that an Android app can power on a fully powered-off phone. Hardware/OEM automatic power-on remains a separate per-device capability and acceptance result.
+- Full unattended recovery in this release requires the dedicated monitoring phone to have no PIN, Pattern, or Password at boot. Direct Boot and moving Telegram or other secrets into device-protected storage are not part of this design.
 
 ## 3. First-run and settings UX
 
@@ -92,6 +95,76 @@ The dashboard and Settings each expose a clearly labeled **Change use** action, 
 - A crash or reboot at any transaction phase resumes from the last durable phase and reaches the same truthful final state without rearming the old profile, duplicating the owner-action record, or admitting old-generation callbacks.
 - If an incident is active, the sheet requires a second explicit confirmation. The incident is retained in history as stopped by the owner during a profile change; it must not be reported as an automatically resolved incident.
 - A single persistent profile label and readable health summary identify what the phone is protecting now. Status is conveyed by text and icon as well as color; normal tap targets are at least 48 dp.
+
+### 3.5 Automatic recovery after Android boot
+
+Settings exposes one shared switch named **กลับมาป้องกันอัตโนมัติเมื่อเครื่องเปิดอีกครั้ง**. The name deliberately avoids **เปิดเครื่องอัตโนมัติ** because the app cannot turn on a fully powered-off phone. The switch controls what happens after Android has booted successfully and is available to the app.
+
+- The switch is offered during first setup and in **Settings > System continuity**. It becomes enabled only after a confirmation sheet requires the owner to accept `ฉันเข้าใจว่าการไม่มีรหัสล็อกหน้าจอลดการป้องกันข้อมูลในโทรศัพท์ และเหมาะกับโทรศัพท์เฉพาะงานเท่านั้น`; merely installing or updating the app does not arm protection.
+- Automatic recovery applies only when durable owner intent is `RUNNING + ARMED` with a valid `armedProfileSnapshot`. A durable owner Stop or Disarm always wins over boot, sticky service recreation, watchdog, or package-replacement triggers.
+- The switch gates restoration after a full Android boot only. Ordinary same-boot process/service recreation and a supported package replacement continue protecting a current `RUNNING + ARMED` session even when boot recovery is off.
+- This release intentionally does not implement Direct Boot. Telegram credentials, TOTP material, SMS keys, allowlists, and other secrets remain in credential-protected encrypted storage.
+- The app checks `KeyguardManager.isDeviceSecure` when the switch is enabled, before every Arm, whenever the app returns to the foreground, and during continuity-readiness reconciliation. `false` means no secure PIN/Pattern/Password is configured; it does not prove OEM boot permission or hardware automatic power-on.
+- If a PIN, Pattern, or Password exists when the owner enables the switch, the switch remains off. If it exists while automatic recovery is enabled and the owner tries to Arm, final Arm is blocked until the owner chooses **เปิดการตั้งค่าล็อกหน้าจอ** or **ป้องกันต่อโดยไม่เปิดการกู้คืนหลังรีบูต**. The app can open only the general Android Security settings; it cannot remove the device credential itself.
+- If a secure credential is detected after the phone is already armed, current sensor protection does not silently disarm. The state becomes `Armed Degraded`, with the scoped hero text `กำลังปกป้องอยู่ · การกลับมาหลังรีบูตยังไม่พร้อม`; one deduplicated continuity-health episode is opened, and Telegram receives at most one warning for that episode.
+- After the owner removes a secure credential, the app rechecks the encrypted credential store and Telegram configuration in addition to `isDeviceSecure`. Only stable fresh success closes the same health episode and restores full boot readiness. A key-store/configuration failure marks the `Telegram after boot` row `Blocked — ต้องตรวจสอบการเชื่อมต่อ Telegram หรือจับคู่ใหม่`, without exposing any secret; a valid local armed snapshot may continue as `Armed Degraded` rather than losing sensor protection.
+- If Telegram credentials are unavailable, the blocked state is still persisted and shown locally, but the app must not claim that its Telegram warning was sent. Delivery can resume only after the credential path is valid again.
+- No-PIN readiness does not replace normal app security. The UI states that this choice lowers local device-data protection and is not recommended for a personal phone.
+
+The always-visible short explanation below the switch is:
+
+> หากเปิดการกู้คืนหลังบูต โทรศัพท์เครื่องนี้ต้องไม่มีรหัสล็อกหน้าจอ (PIN, รูปแบบ หรือรหัสผ่าน) ไม่เช่นนั้นระบบจะรอให้ปลดล็อกก่อน จึงจะกลับมาป้องกันและส่ง Telegram ได้
+
+An expandable **รายละเอียดความปลอดภัย** note adds:
+
+> เหมาะสำหรับโทรศัพท์เฉพาะงานและไม่แนะนำกับโทรศัพท์ส่วนตัว การไม่ตั้งรหัสล็อกเครื่องลดการป้องกันข้อมูลในตัวเครื่อง ควรติดตั้งเครื่องไว้ในจุดที่ควบคุมได้
+
+Continuity readiness is shown as separate truthful rows:
+
+| Readiness row | Meaning |
+|---|---|
+| App/service recovery | The durable owner intent and armed snapshot can be restored after a process/service restart |
+| Android boot recovery | The app is eligible to resume after normal Android boot |
+| Screen-lock requirement | `Ready: no PIN/Pattern/Password` or a specific action required |
+| OEM auto-start | Configured, unverified, failed, or verified on this device |
+| Telegram after boot | Credential and delivery path are available after normal boot |
+| Hardware automatic power-on | A separate per-model result; never inferred from an Android reboot test |
+
+`Android boot recovery` becomes **Verified on this device** only after a controlled reboot proves that the same device, OS build, app version/recovery schema, and current no-PIN configuration resume protection and produce the exact expected Telegram count. A failed test, a newly detected secure credential, or a relevant OS/app recovery-schema change invalidates the result. A successful reboot test does not prove that the phone will power itself on after battery exhaustion or thermal shutdown; that hardware/OEM behavior is tested and labeled separately.
+
+### 3.6 Paper-light interface system
+
+The redesign uses a fixed, calm paper-light visual system for this release. Android dynamic color is disabled so status meaning and contrast do not change by wallpaper.
+
+- Keep three bottom destinations: **ปกป้อง · เหตุการณ์ · ตั้งค่า**. Vehicle, Entry, and Power are protection contexts, not additional navigation tabs.
+- **ปกป้อง** shows the active profile chip and **เปลี่ยนการใช้งาน**, one authoritative status card, one primary Arm/Disarm action, a profile-specific summary, an expandable system-readiness section, and a persistent incident/recovery banner when applicable.
+- The hero always separates current detection from future continuity. For example, `กำลังปกป้องอยู่ · การกลับมาหลังรีบูตยังไม่พร้อม` means sensors are still active now while boot recovery needs action; it must not be shortened to a vague `การป้องกันจำกัด`.
+- Vehicle summary shows movement readiness and Live Map only after confirmed movement. Entry summary shows the calibrated closed position and selected door angle, for example `ประตูปิด · 0°` and `แจ้งเมื่อเกิน 15°`. Power summary always shows charging and witness-light state as two independent rows.
+- **เหตุการณ์** uses a chronological lifecycle: opened, ongoing/updated, evidence interrupted, recovered, owner stopped, and delivery state. Each item identifies its profile and stable Event ID. Clear history is placed in an overflow/danger area rather than as a primary action.
+- **ตั้งค่า** is grouped in this order: current use/profile, profile detection, notifications, system continuity, then advanced diagnostics. Recommended/customized values remain editable per profile.
+- The runtime source of truth is the `ProtectionAppScreen` flow and its coordinator-backed read model. The redesign must not revive a disconnected legacy dashboard or fabricate profile, door-angle, witness-light, or readiness values that are absent from the domain state.
+- Show at most one persistent banner using this precedence: active incident; recovery blocked/degraded; system recovered; none. Events and TalkBack use distinct terms: `ระบบกลับมาทำงาน` for service/boot recovery, `เหตุการณ์สิ้นสุด` for an incident close, and `ไฟเลี้ยงกลับมาคงที่` for Power Guard settlement. Only the banner owns the assertive live-region announcement; the hero exposes its current semantics without announcing the same transition twice.
+
+Visual and accessibility tokens:
+
+| Token | Value |
+|---|---|
+| Paper background | `#FCFBF8` |
+| Card | `#FFFFFF` |
+| Primary / secondary ink | `#171717` / `#4B4B4B` |
+| Outline | `#767676` |
+| Primary action | `#171717` with white text |
+| Primary action pressed / focus | `#303030` / a 2 dp `#145DA0` focus indicator |
+| Disabled surface / ink | `#EEEEEC` / `#5C5C5C` |
+| Dialog scrim | `#000000` at 32% |
+| Snackbar | `#2B2B2B` with `#FFFFFF` text |
+| Armed | `#146C43` on `#E4F4EB` |
+| Degraded | `#8A4B00` on `#FFF1D6` |
+| Incident | `#A81818` on `#FCE8E6` |
+| Recovery | `#145DA0` on `#E9F2FB` |
+| Offline | `#5C5C5C` on `#EEEEEC` |
+
+Use the Android system sans/Roboto/Noto fallback with Thai support: body `16 sp / 24 sp`, title `20 sp`, and headline `28 sp`. Use a 4/8 dp spacing system, 16–20 dp page inset, 24 dp section spacing, and white cards with a 12 dp radius and 1 dp border. Status/navigation bars use light system bars with dark icons. The outline token is for boundaries, not body copy. Avoid gradients, glass effects, heavy shadows, decorative emoji, and text smaller than the accessible scale. Use consistent vector icons, minimum 48 dp touch targets, text plus icon plus color for state, large-font reflow through at least 200% font scale rather than aggressive shrinking, and TalkBack announcements only on meaningful state transitions.
 
 ## 4. Profile definitions
 
@@ -216,15 +289,14 @@ When both signals are healthy again for **30 s**, close the confirmed `PHONE_POW
 - Default ambiguity policy is safety-weighted and explicit: do not automatically retry uncertain one-signal health/recovery messages. For a confirmed power-loss opening, wait 30 seconds and permit one retry carrying the same visible episode ID and the prefix `ส่งซ้ำเพื่อยืนยันเหตุเดิม—ผลการส่งครั้งแรกไม่แน่นอน` only if that episode is still in continuous confirmed loss and the opening transition remains current. Partial/complete recovery, semantic supersession, or episode close cancels any not-started safety retry; if the episode becomes healthy after an uncertain opening, use the uncertainty-referencing settlement copy instead of sending a stale outage retry. Any configured SMS fallback continues under its existing approved policy.
 - After the complete healthy window, choose settlement from durable owner-notification state. If no opening was accepted or ambiguous, retire a transient episode silently with no orphan recovery. If a one-signal opening was accepted, enqueue its health recovery; if confirmed loss was accepted, enqueue the confirmed close. If opening delivery was uncertain, enqueue one settlement message that references the same episode ID and says the initial delivery result was uncertain rather than assuming the owner saw it. Retire the episode when its durable outbox state is settled; a later abnormality receives a new `powerEpisodeId`.
 
-#### Process and reboot recovery
+#### Power-specific recovery behavior
 
-- Persist the immutable armed-profile snapshot, calibration metadata and thresholds, active power episode, transition ordinal, durable owner-notification state, durable outbox, and accepted delivery receipts. Do not persist raw continuous sensor streams or unfinished debounce progress.
-- After service/process restart, restore the same `armedSessionId`, create a new `runtimeObservationGeneration`, re-register sources, reject old-generation callbacks, and require fresh charging and light samples before reporting `Healthy` or `Recovered`. Restart every unfinished 10-second/30-second continuous-observation window from zero.
-- After a device reboot, restore protection only from a valid durable armed snapshot, keep its `armedSessionId` for episode/delivery deduplication, and create a new `runtimeObservationGeneration`. If the immutable profile/configuration snapshot is invalid, protection is `Setup required` and cannot claim to be armed. If only a compatible profile-specific calibration is unavailable, the valid armed profile may continue as `Armed Degraded` using capabilities that remain safe. If durable state does not say armed, remain disarmed; never invent an armed session.
-- Elapsed-realtime timestamps and unfinished 10-second/30-second windows never cross a service/process restart, runtime generation change, sensor-freshness gap, or device reboot. Never persist timer progress as evidence. Restart each confirmation window from fresh continuous samples and use wall-clock time only for customer-visible history.
-- A compatible stored calibration may provide provisional thresholds after restart, but it is valid only when the phone sensor identity, profile/configuration version, and armed session still match. Missing or incompatible calibration yields `Armed Degraded` and cannot produce a confirmed-outage claim.
-- If the last durable state was healthy and fresh dual-signal loss is then observed for 10 seconds after restart, the app may open a confirmed episode but must say that the loss was detected after service recovery; it must not invent the outage start time.
-- If an episode was already open, recovery resumes that episode and reconciles known outbox receipts rather than starting a second episode. An ambiguous Telegram acceptance remains `DELIVERY_UNCERTAIN` under the transport policy above. A powered-off phone cannot observe or send alerts while off; this is distinct from recoverable service/process restart.
+The shared recovery state machine is defined in section 5.2. Power Guard additionally persists the active power episode, transition ordinal, durable owner-notification state, durable outbox, and accepted delivery receipts. It does not persist raw continuous sensor streams or unfinished debounce progress.
+
+- After any runtime-generation change, require fresh charging and light samples before reporting `Healthy` or `Recovered`. Restart every unfinished 10-second/30-second continuous-observation window from zero.
+- A compatible stored calibration may provide provisional thresholds only when the phone sensor identity, profile/configuration version, and armed session still match. Missing or incompatible calibration yields `Armed Degraded` and cannot produce a confirmed-outage claim.
+- If the last durable state was healthy and fresh dual-signal loss is observed for 10 seconds after recovery, the app may open a confirmed episode but must say that loss was detected after recovery; it must not invent its start time.
+- If an episode was already open, recovery resumes the same episode and reconciles known outbox receipts rather than starting another. An ambiguous Telegram acceptance remains `DELIVERY_UNCERTAIN` under the transport policy above.
 
 GPS, Live Map, door-angle controls, and motion alerts are off by default in this profile. Advanced users can opt into supporting motion evidence, but Power Guard's primary claim remains the dual-signal charging-setup state.
 
@@ -266,6 +338,79 @@ SMS eligibility is displayed separately as `Critical-outage SMS fallback eligibl
 
 Capability alone must not be labeled as verified Telegram delivery. Setup offers an explicit, clearly marked Telegram alert test and records its bound route and freshness without sending repeated background test messages. A failed test, loss/change of the tested cellular transport, or age over 24 hours downgrades readiness; a reboot requires fresh passive reachability evidence but does not automatically send another test message. Remote profile switching remains unavailable because Vehicle, Entry, and Power setup each require physical placement and calibration.
 
+### 5.2 Shared automatic-recovery contract
+
+Recovery is orthogonal to the existing top-level protection states; it must not create a second armed-state authority. `ProtectionCoordinator` remains authoritative, while a recovery phase explains how the current truthful state was restored.
+
+```text
+continuitySettings {
+  autoRecoveryAfterBoot
+}
+desiredService = RUNNING | STOPPED_BY_OWNER
+desiredProtection = DISARMED | ARMED
+protectionEpochId
+armedSessionId?
+runtimeObservationGeneration
+recoveryEpisode? {
+  recoveryAttemptId
+  trigger
+  phase
+  startedAtWallClockMs
+  finishedAtWallClockMs?
+  causeEvidence
+  evidenceGapId?
+  deliveryState
+}
+```
+
+`STOPPED_BY_OWNER` implies `desiredProtection = DISARMED`. `RUNNING + DISARMED` is valid: the service may remain online for authorized commands without restoring detectors. `RUNNING + ARMED` is the only combination eligible for same-boot process/package recovery; an Android boot additionally requires `autoRecoveryAfterBoot = true`.
+
+The atomic recovery order is:
+
+1. A sticky restart, `BOOT_COMPLETED`, supported package replacement, or watchdog request first loads durable owner intent and the immutable armed snapshot before heartbeat, Telegram, or sensor claims.
+2. `STOPPED_BY_OWNER` or `DISARMED` is a no-op for automatic protection recovery. Owner Stop increments/fences the runtime generation, invalidates a pending recovery attempt, cancels its watchdog work, and then stops the service. If Android boots while `autoRecoveryAfterBoot = false`, do not restore detectors: atomically transition the prior armed intent to `DISARMED`, retain any interrupted incident as an evidence-gap history item, and record/send at most one truthful `ไม่ได้กลับมาป้องกันอัตโนมัติ เพราะปิดการตั้งค่านี้` status if its authorized delivery path is available.
+3. A valid armed snapshot keeps the same `protectionEpochId` and `armedSessionId` for incident/delivery deduplication, creates a new `runtimeObservationGeneration`, re-registers sources, rejects old-generation callbacks, and begins fresh profile-specific readiness/calibration.
+4. Elapsed-realtime timestamps and unfinished confirmation/quiet windows never cross a process death, reboot, observation-generation change, or evidence gap. Wall-clock timestamps are display/history metadata, not continuity evidence.
+5. Recovery commits exactly one terminal phase: `RECOVERED_HEALTHY`, `RECOVERED_DEGRADED`, or `RECOVERY_BLOCKED`, before autonomous Telegram or heartbeat delivery begins. Invalid/corrupt/future-schema armed state is blocked and visible; it must not silently become disarmed or claim success. `RECOVERY_BLOCKED` is an orthogonal phase projected through the existing `SETUP_REQUIRED` state when owner action can recover it, not a new top-level protection state.
+6. An incident active before the gap remains linked to the same incident and becomes `EVIDENCE_INTERRUPTED`; the app cannot infer what happened while the phone or service was unavailable and must not synthesize an incident close.
+7. An owner Disarm or Stop during recovery supersedes the recovery atomically. No late calibration, detector callback, watchdog, or outbox task may re-arm the app afterward.
+
+Terminal phases have one meaning across profiles:
+
+| Recovery phase | Contract |
+|---|---|
+| `RECOVERED_HEALTHY` | Required profile detectors and the authorized Telegram path are freshly ready |
+| `RECOVERED_DEGRADED` | Safe local protection resumed, but a detector, permission, location, thermal, or Telegram capability is unavailable and named explicitly |
+| `RECOVERY_BLOCKED` | The valid armed protection runtime itself cannot be restored; project through `SETUP_REQUIRED` and require owner action |
+
+Profile-specific recovery truth:
+
+- **Vehicle Guard:** obtain fresh motion/location readiness. Do not start a new Live Map or movement message merely because recovery occurred; existing movement confirmation and GPS privacy/cadence policies remain unchanged.
+- **Entry Guard:** revalidate source freshness, mount fingerprint, hinge model, and closed-position evidence. If the first valid post-recovery observation shows the door open, say `ตรวจพบประตูเปิดหลังระบบกลับมาทำงาน`; do not claim when it opened.
+- **Power Guard:** apply the fresh-sample and restarted-window rules in section 4.3. A powered-off interval is an evidence gap, not proof of an outage start time.
+
+Recovery triggers are recorded distinctly: service/process recreation, Android boot, package replacement, manual reopen after force-stop, and watchdog assistance. Android force-stop cannot self-recover until the owner or platform unstops the app. A fully powered-off phone cannot observe sensors or send Telegram.
+
+Process-exit evidence such as `ApplicationExitInfo`, the latest battery state, and the latest thermal status may explain a recovery only when the platform evidence is available and temporally credible. Otherwise the cause is `ไม่สามารถยืนยันสาเหตุได้`. Battery-low, unplugged, or severe thermal observations may open one deduplicated system-health episode before failure, but they must not predict a shutdown. If the device remains thermally critical after boot, recover as degraded and postpone optional high-load supporting sensors until safe evidence is stable.
+
+### 5.3 Recovery and heartbeat delivery
+
+`SystemStatusDeliveryCoordinator` is the sole owner of autonomous heartbeat and recovery-status delivery. Incident text remains owned by `IncidentDeliveryCoordinator`; Vehicle Live Location remains owned by `LivePursuitCoordinator`. A single source observation must never fan out the same semantic text through multiple owners.
+
+- Use one durable recovery event and per-chat outbox identity for each `recoveryAttemptId`. Determinate accepted receipts suppress duplicates across process death, repeated boot broadcasts, watchdog overlap, polling, and callback replay.
+- If recovery reaches its terminal phase before any message is sent, send only the terminal summary. If a `กำลังกู้คืน` message was already accepted, edit that same Telegram message where possible; if edit is unavailable, allow at most one terminal follow-up with the same visible Event ID.
+- A transport timeout after possible acceptance is `DELIVERY_UNCERTAIN`, not definite failure and not proof of exactly-once delivery. Events exposes the result and stable Event ID.
+- If the network is unavailable after boot, keep the terminal recovery item pending in the durable outbox and send it when the authorized path returns. Do not send a second recovery event or an immediate heartbeat in its place.
+- Heartbeat cannot start before the terminal recovery state is committed. Its first post-recovery Ping waits one complete configured heartbeat interval, preventing an immediate boot Ping from colliding with the recovery summary.
+- A user-issued `/status` command still produces exactly one command reply and does not reset, duplicate, or take ownership of the autonomous recovery message.
+
+Professional Telegram examples, without decorative emoji:
+
+- Healthy: `ระบบกลับมาป้องกันแล้ว เวลา … สถานะปัจจุบัน: พร้อม ช่วงที่เครื่องหรือบริการหยุด ระบบไม่สามารถตรวจจับหรือส่งข้อมูลได้ Event: RCV-…`
+- Degraded: `ระบบกลับมาป้องกันแบบจำกัด เวลา … ต้องตรวจสอบ: … Event: RCV-…`
+- Blocked: `ไม่สามารถกู้สถานะป้องกันเดิมได้ ระบบยังไม่พร้อมป้องกัน กรุณาเปิดแอปตรวจสอบ Event: RCV-…`
+- Secure credential detected while armed: `ตรวจพบ PIN, Pattern หรือ Password การป้องกันยังทำงานอยู่ แต่การกลับมาป้องกันอัตโนมัติหลังบูตจะรอการปลดล็อก กรุณาตรวจสอบการตั้งค่าความต่อเนื่อง Event: SYS-…`
+
 ## 6. Reliability and safety boundaries
 
 - A disconnected charger never auto-disarms the app.
@@ -276,6 +421,9 @@ Capability alone must not be labeled as verified Telegram delivery. Setup offers
 - The app must state these boundaries in setup text and alert copy; it must not make broader claims.
 - Unsupported sensors, missing permissions, weak calibration, or an unavailable charging state make the relevant capability `Degraded`, not silently successful.
 - Existing encryption, authorization, Telegram pinning, and SMS fallback boundaries are unchanged.
+- The app cannot power on a fully powered-off phone, guarantee OEM automatic start on every model, observe events while the device is off, or recover itself from Android force-stop without a later owner/platform interaction.
+- Full unattended boot recovery is not ready while a PIN, Pattern, or Password exists. This release does not bypass the lock screen and does not move Telegram or other secrets into device-protected storage.
+- A reboot test proves only the tested device/OS/app configuration. Charger-triggered power-on after battery exhaustion or thermal shutdown is a separate hardware/OEM capability and must not inherit that verified label.
 
 ## 7. Android architecture boundaries
 
@@ -296,7 +444,12 @@ Required domain additions:
 - Coordinator-owned profile-switch transaction that invalidates the old generation, settles old-profile remote work, clears the old snapshot, and leaves a failed/cancelled new setup disarmed and visibly not ready.
 - Entry-specific orientation baseline, learned hinge-axis quality, configurable door-angle threshold, and `DOOR_OPEN`/`DOOR_CLOSED`/`ENTRY_SOURCE_UNAVAILABLE`/`ENTRY_MOUNT_MOVED` events.
 - Power-specific charging transition detector, commissioned power-witness light detector, durable power-episode arbiter, and `PHONE_POWER_LOST`/`PHONE_POWER_RESTORED` events. The generic ambient-light intrusion detector remains semantically separate.
-- Typed sensor-freshness, calibration-quality, restart-recovery, delivery-path health, and Thai message projection.
+- `SystemContinuitySettings`, typed `RecoveryReadiness`, and a versioned, atomic `RecoveryEpisode` record that extends the existing protection recovery store/policy rather than creating a second state owner.
+- `SystemStatusDeliveryCoordinator` as the single autonomous heartbeat/recovery owner with a durable per-chat outbox; incident text and Live Location retain their existing separate owners.
+- A boot/package-replacement receiver that accepts only trusted platform actions, uses an idempotent trigger token, loads durable owner intent before recovery, and does not trust an unverified vendor quick-boot action as equivalent to a protected system broadcast.
+- A best-effort watchdog that is scheduled from normal running startup, records readiness/failure, checks the durable owner-stop generation before starting work, and is cancelled on owner Stop. It is not presented as a resurrection guarantee.
+- Boot recovery starts the foreground service and its persistent notification; it does not launch or place an Activity over the lock/home screen. The owner opens the UI only when details or corrective action are required.
+- Typed sensor-freshness, calibration-quality, restart-recovery, screen-lock readiness, delivery-path health, and Thai message projection.
 
 The protection coordinator remains the authoritative owner of armed state. Sensor sources publish observations and health; they do not send Telegram messages directly.
 
@@ -318,6 +471,12 @@ The protection coordinator remains the authoritative owner of armed state. Senso
 - Transient abnormality that never produced an accepted/uncertain opening retires silently after the healthy window; pending obsolete copy is superseded, in-flight ambiguity is reconciled before new copy selection, and no orphan recovery is sent.
 - Process restart restores only compatible durable session/calibration metadata, requires fresh samples, resets unfinished continuous-observation windows, resumes open episodes without timer progress, and distinguishes itself from a powered-off phone.
 - Device reboot preserves a valid durable armed session/episode identity but creates a new runtime generation and restarts all monotonic confirmation windows from fresh samples.
+- Automatic recovery is a no-op after owner Stop/Disarm; owner intent wins races against boot, sticky restart, package replacement, watchdog delivery, calibration completion, and late callbacks.
+- With boot recovery disabled, a full Android boot does not restore detectors and settles the prior armed intent to one truthful disarmed state/message, while same-boot process and supported package-replacement recovery remain active.
+- Recovery distinguishes service/process recreation, Android boot, package replacement, force-stop/manual reopen, watchdog assistance, and a fully powered-off evidence gap. Invalid/future/corrupt recovery state becomes visible `RECOVERY_BLOCKED`, not a silent disarm.
+- No-PIN readiness checks cover enabling the switch, Arm, app resume, and continuity reconciliation. Adding a secure credential while armed produces one degraded health episode; removing it settles that same episode only after the encrypted credential store and Telegram configuration also pass fresh checks.
+- Heartbeat is gated until a terminal recovery phase and waits a full interval afterward. Duplicate boot/watchdog triggers share one recovery identity, one per-chat outbox transition, and no duplicate `/status` reply.
+- Battery/thermal cause text is emitted only with credible platform evidence; unknown cause remains explicit. Severe thermal recovery delays optional high-load sources without fabricating a healthy state.
 - Delivery readiness distinguishes a validated cellular-bound Telegram path from site Wi-Fi-only and offline/unknown states without blocking degraded arming; critical SMS fallback eligibility is tested as a separate existing-policy projection.
 - A power episode enqueues at most one durable outbox item for each semantic transition: one-signal health opening, condition change, confirmed-outage opening/escalation, one-signal recovery when no escalation occurred, and final confirmed close. Repeated samples and callback ordering cannot enqueue another item; ambiguous transport may create the single labeled safety retry defined above. Only a confirmed outage uses incident progress/continuation delivery.
 - An uncertain confirmed opening that partially or fully recovers before the 30-second safety-retry deadline supersedes that retry and emits only the appropriate uncertainty-referencing update/settlement for the current episode state.
@@ -329,14 +488,21 @@ The protection coordinator remains the authoritative owner of armed state. Senso
 - Vehicle: arm, calibration, real movement, map start, and clean closure.
 - Entry: two-cycle commissioning followed by 20 repeated open/close cycles, slow opening, off-axis phone/mount movement, orientation-source loss before/during an open episode, 5-second valid source recovery without a false mount claim, forced recommissioning only for mount/fingerprint failure, and a metal-frame location. Verify that invalid evidence never produces a false door-closed message.
 - Power: verify lamp off/on commissioning, immediate first Arm reuse within the 10-minute uninterrupted-flow rule, a later per-arm integrity challenge, skipped challenge yielding `Armed Degraded`, a stable hood baseline, gradual dimming, a shifted hood, stale sensor samples, charger-only loss, witness-only loss, dual loss, single-signal crossover, transient abnormality with no orphan recovery, partial recovery, and complete recovery.
-- Delivery/recovery: repeat Power cases with site Wi-Fi removed, a validated cellular-bound Telegram route available or unavailable, and existing-policy critical SMS fallback eligible or ineligible; kill/restart the service and reboot during healthy, degraded, and open-episode states. Check exact outbox/accepted-receipt counts for determinate outcomes, then inject post-accept/pre-receipt ambiguity and verify `DELIVERY_UNCERTAIN` plus at most the one labeled safety retry.
-- Battery, thermal state, background survival, reboot recovery, and permission-denied paths are recorded separately from host test results.
+- Delivery/recovery: repeat all three profiles with process kill, sticky null intent, duplicate boot/watchdog triggers, package replacement, owner Stop/Disarm races, offline-at-boot then online, healthy/degraded/open-episode states, and post-accept/pre-receipt ambiguity. Check exact recovery, heartbeat, `/status`, incident-text, and Live Location counts by their separate owners.
+- Huawei no-PIN reboot: with a valid armed snapshot, reboot the real device and verify automatic resume, one terminal recovery Telegram message, no immediate duplicate heartbeat, and one current protection status. Repeat with network unavailable at boot and restored later.
+- Screen-lock transition: add a PIN/Pattern/Password while armed, refresh readiness, verify current detection remains active with scoped `Armed Degraded` copy and one warning; remove it, verify encrypted-store/Telegram readiness, settle the same health episode, and re-verify the next controlled reboot. Inject key invalidation and expect visible recovery blocking/re-pair guidance rather than a false Ready state.
+- Force-stop is reported truthfully as not self-recovering. A controlled power-off/manual or verified OEM power-on test is recorded separately from a normal Android reboot and never inferred from it.
+- Battery-low and thermal paths use safe OS overrides or injected fakes where possible; acceptance must not deliberately overheat hardware or require destructive battery exhaustion.
+- Paper-light UI is checked at small/large display sizes, portrait/landscape, 200% font scale, and TalkBack for profile identity, scoped current-versus-boot status, informed no-PIN consent, secure-lock actions, single-banner/live-region precedence, semantic event terminology, complete pressed/focus/disabled/system-bar states, and 48 dp targets.
+- Battery, thermal state, background survival, reboot recovery, OEM auto-start, and permission-denied evidence are recorded separately from host test results.
 
 ## 9. Out of scope for this release
 
 - External control boxes, USB data transport, BLE/Wi-Fi sensors, smart plugs, temperature probes, water-level sensors, and pump control.
 - Claiming a building-wide mains outage, freezer temperature, pond water condition, or compressor/pump state from the phone and witness lamp.
 - Changing current Telegram authorization, encryption, SMS policy, or GPS privacy boundaries.
+- Bypassing PIN/Pattern/Password, running full sensor/Telegram protection with Direct Boot before credential unlock, or moving bot tokens/TOTP/SMS keys into device-protected storage.
+- Guaranteeing that a powered-off phone will start from charger insertion, an RTC schedule, battery recovery, or thermal recovery on every Android/OEM model.
 
 ## 10. Approval checklist
 
@@ -355,3 +521,8 @@ Before implementation, confirm:
 11. Power Guard exposes whether Telegram was validated over a bound cellular route, site-Wi-Fi-only, offline, or unknown; critical SMS fallback eligibility is separate, and non-independent Telegram delivery is `Armed Degraded`, not a blocked arm.
 12. Full Power readiness requires a lamp off/on challenge for each Arm. The successful commissioning challenge may satisfy only the immediately following first Arm within 10 minutes and the same uninterrupted setup; skipping a later challenge is allowed as `Armed Degraded`.
 13. Independent Telegram readiness expires after 24 hours or a tested cellular-transport change/failure. Testing is explicit and route-bound; the app does not send repeated background test messages.
+14. Automatic recovery is shared by all three profiles and resumes durable `RUNNING + ARMED` owner intent after Android boots successfully only when the boot-recovery switch is enabled; owner Stop/Disarm always wins, while same-boot process/package recovery remains a baseline.
+15. Full unattended recovery in this release requires no PIN, Pattern, or Password. The UI shows the approved short explanation and security trade-off; Direct Boot and secret migration are out of scope.
+16. The setting is named **กลับมาป้องกันอัตโนมัติเมื่อเครื่องเปิดอีกครั้ง** and never claims the app can power on a fully powered-off phone. Reboot verification and hardware/OEM power-on verification remain separate.
+17. Recovery has one durable event/outbox identity per chat, blocks heartbeat until terminal state, waits a full heartbeat interval afterward, and preserves the separate owners of incident text and Vehicle Live Location.
+18. The main UI uses the approved paper-light hierarchy and complete state palette, keeps **ปกป้อง · เหตุการณ์ · ตั้งค่า**, supports profile-specific summaries, separates current protection from boot readiness, and passes 200% font scale, landscape, TalkBack, single-live-region, and 48 dp acceptance.
