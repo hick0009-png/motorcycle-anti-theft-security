@@ -551,7 +551,7 @@ git commit -m "feat: switch protection profiles safely"
 - Consumes: Task 2 repository, Task 3 armed snapshot, Task 5 resume policy.
 - Produces: one process-shared profile repository and recovery path used by both UI and `SensorService`.
 
-- [ ] **Step 1: Write failing graph/recovery tests**
+- [x] **Step 1: Write failing graph/recovery tests**
 
 ```kotlin
 @Test fun recoveryUsesPersistedArmedProfileNotEditableSelectedProfile() {
@@ -565,7 +565,7 @@ git commit -m "feat: switch protection profiles safely"
 }
 ```
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionSnapshotStoreTest' --tests '*DirectBootBootstrapPolicyTest'
@@ -573,13 +573,13 @@ git commit -m "feat: switch protection profiles safely"
 
 Expected: armed-profile recovery assertion fails until graph/store wiring is complete; marker-key guard initially lacks its test seam.
 
-- [ ] **Step 3: Wire profile state without expanding Direct Boot**
+- [x] **Step 3: Wire profile state without expanding Direct Boot**
 
 Construct one `SharedPreferencesProtectionProfileRepository` in `ProtectionRuntimeGraph.from(applicationContext)` and inject it into the single `ProtectionCoordinator`. On credential-unlocked service startup, call `resumeProfileSwitchIfNeeded()` before normal armed recovery. Recover detectors only from `liveSnapshot.armedProfileSnapshot`; editable `selectedProfile` is never proof of an armed runtime.
 
 Keep `DirectBootProtectionStore` unchanged except for a package-visible `persistedKeysForTest()` returning exactly the two current marker keys. Do not instantiate profile repository, encrypted preferences, incident repository, Telegram, or full sensor graph in `DirectBootBootstrapService`.
 
-- [ ] **Step 4: Run focused recovery and Direct Boot tests and confirm GREEN**
+- [x] **Step 4: Run focused recovery and Direct Boot tests and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionSnapshotStoreTest' --tests '*ProtectionRecoveryPolicyTest' --tests '*DirectBootBootstrapPolicyTest'
@@ -587,7 +587,7 @@ Keep `DirectBootProtectionStore` unchanged except for a package-visible `persist
 
 Expected: recovery uses frozen profile state, unfinished switches converge to disarmed, and the Direct Boot boundary remains two non-secret booleans.
 
-- [ ] **Step 5: Commit graph/recovery wiring**
+- [x] **Step 5: Commit graph/recovery wiring**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionRuntimeGraph.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStore.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/service/SensorService.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/DirectBootProtectionStore.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionSnapshotStoreTest.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/service/DirectBootBootstrapPolicyTest.kt
