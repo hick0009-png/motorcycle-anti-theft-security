@@ -1,0 +1,62 @@
+﻿{
+    "$schema":  "../schema/hcp-checkpoint.schema.json",
+    "id":  "CKP-20260822-1314-WU0A5T",
+    "timestamp":  "2026-08-22T13:14:23.0385361+07:00",
+    "phase":  "P5",
+    "task_id":  "COM-03",
+    "status":  "IN_PROGRESS",
+    "description":  "Checkpoint after sensor and Telegram delivery changes; host verification passed and Huawei install succeeded; real sensor and Telegram acceptance remains pending.",
+    "progress":  85,
+    "scope":  "",
+    "knowledge":  [
+
+                  ],
+    "assumptions":  [
+
+                    ],
+    "risks":  [
+
+              ],
+    "memory_snapshot":  [
+
+                        ],
+    "dependencies":  [
+
+                     ],
+    "error_info":  null,
+    "agent":  {
+                  "conversation_id":  "7f040a5e-f01f-4b15-9fe4-32b980c6aef1",
+                  "name":  "Codex",
+                  "model":  "GPT-5"
+              },
+    "snapshot":  {
+                     "build_status":  "NOT_RUN",
+                     "build_output_snippet":  "",
+                     "files_changed":  [
+
+                                       ]
+                 },
+    "decisions":  [
+
+                  ],
+    "open_tasks":  [
+
+                   ],
+    "context":  {
+                    "summary":  "Checkpoint after sensor and Telegram delivery changes; host verification passed and Huawei install succeeded; real sensor and Telegram acceptance remains pending.",
+                    "next_steps":  [
+
+                                   ],
+                    "warnings":  [
+
+                                 ]
+                },
+    "git":  {
+                "branch":  "feature/motorcycle-guard-protection",
+                "remote_url":  "",
+                "dirty":  true,
+                "commit_hash":  "a97b393"
+            },
+    "parent_checkpoint_id":  null,
+    "tags":  "sensor-fusion"
+}
