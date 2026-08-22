@@ -22,6 +22,7 @@
 /.kilocode/
 /.mcp.json
 /android-mcp.log
+/docs/sensor-fusion-technician-guide-th.html
 
 # JVM crash reports emitted beneath Android module directories
 /MotorcycleAntiTheftSensor/app/hs_err_pid*.log
