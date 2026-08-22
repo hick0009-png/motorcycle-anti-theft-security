@@ -4,6 +4,7 @@ import android.content.Context
 import android.location.Address
 import android.location.Geocoder
 import android.os.Build
+import androidx.annotation.RequiresApi
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
@@ -33,34 +34,7 @@ class AndroidGeocoderGateway(
         val geocoder = Geocoder(context, locale)
 
         return if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
-            suspendCancellableCoroutine { cont ->
-                try {
-                    geocoder.getFromLocation(
-                        latitude,
-                        longitude,
-                        1,
-                        object : Geocoder.GeocodeListener {
-                            override fun onGeocode(addresses: MutableList<Address>) {
-                                if (cont.isActive) {
-                                    cont.resume(addresses)
-                                }
-                            }
-
-                            override fun onError(errorMessage: String?) {
-                                if (cont.isActive) {
-                                    cont.resume(emptyList())
-                                }
-                            }
-                        }
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    if (cont.isActive) {
-                        cont.resume(emptyList())
-                    }
-                }
-            }
+            Api33Geocoder.reverse(geocoder, latitude, longitude)
         } else {
             withContext(legacyIoDispatcher) {
                 try {
@@ -71,6 +45,42 @@ class AndroidGeocoderGateway(
                 } catch (_: Exception) {
                     emptyList()
                 }
+            }
+        }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private object Api33Geocoder {
+    suspend fun reverse(
+        geocoder: Geocoder,
+        latitude: Double,
+        longitude: Double,
+    ): List<Address> = suspendCancellableCoroutine { cont ->
+        try {
+            geocoder.getFromLocation(
+                latitude,
+                longitude,
+                1,
+                object : Geocoder.GeocodeListener {
+                    override fun onGeocode(addresses: MutableList<Address>) {
+                        if (cont.isActive) {
+                            cont.resume(addresses)
+                        }
+                    }
+
+                    override fun onError(errorMessage: String?) {
+                        if (cont.isActive) {
+                            cont.resume(emptyList())
+                        }
+                    }
+                }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            if (cont.isActive) {
+                cont.resume(emptyList())
             }
         }
     }

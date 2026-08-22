@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,12 +29,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun MainNavigation() {
+fun MainNavigation(
+    onSecureFlagChange: (Boolean) -> Unit = {},
+) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
     val preferences = remember(applicationContext) { EncryptedPrefsManager(applicationContext) }
     val telegram = remember(applicationContext, preferences) {
         TelegramBotClient(preferences)
+    }
+    DisposableEffect(telegram) {
+        onDispose {
+            telegram.stopPolling()
+        }
     }
     val graph = remember(applicationContext) { ProtectionRuntimeGraph.from(applicationContext) }
     val pairingCodePolicy = remember { PairingCodePolicy() }
@@ -61,12 +69,13 @@ fun MainNavigation() {
             }
         }
     }
-    val settingsGateway = remember(preferences, telegram, pairingCodePolicy, refreshControlService) {
+    val settingsGateway = remember(preferences, telegram, pairingCodePolicy, refreshControlService, graph.sensorRepository) {
         AndroidProtectionSettingsGateway(
             preferences = preferences,
             telegram = telegram,
             pairingCodePolicy = pairingCodePolicy,
             refreshControlService = refreshControlService,
+            sensorConfigRepository = graph.sensorRepository,
         )
     }
     val managedPermissions = remember {
@@ -116,6 +125,9 @@ fun MainNavigation() {
             retrySettings = protectionViewModel::retrySettings,
             resetPairing = protectionViewModel::resetPairing,
             consumeMessage = protectionViewModel::consumeMessage,
+            updateSensorConfiguration = protectionViewModel::updateSensorConfiguration,
+            applySensorPreset = protectionViewModel::applySensorPreset,
+            onSecureFlagChange = onSecureFlagChange,
         ),
     )
 }

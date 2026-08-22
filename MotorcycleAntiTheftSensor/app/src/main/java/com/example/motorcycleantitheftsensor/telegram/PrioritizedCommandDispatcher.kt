@@ -18,9 +18,8 @@ class PrioritizedCommandDispatcher<T>(
     fun submit(command: T) {
         when {
             isArm(command) -> {
-                val previous = activeArm
+                activeArm?.cancel()
                 activeArm = scope.launch {
-                    previous?.cancelAndJoin()
                     execute(command)
                 }
             }
@@ -28,7 +27,9 @@ class PrioritizedCommandDispatcher<T>(
             isDisarm(command) -> {
                 activeArm?.cancel()
                 activeArm = null
-                scope.launch { execute(command) }
+                scope.launch {
+                    execute(command)
+                }
             }
 
             else -> scope.launch { execute(command) }

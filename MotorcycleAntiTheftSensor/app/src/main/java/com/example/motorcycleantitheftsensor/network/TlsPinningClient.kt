@@ -17,9 +17,15 @@ object TlsPinningClient {
         .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
         .build()
 
+    private val certificatePinner = CertificatePinner.Builder()
+        .add("api.telegram.org", "sha256/AgyCmTysFOI6aQCSyQJ+QIXpnGn0v7n+D+mv6jWAtQc=")
+        .add("api.telegram.org", "sha256/8Rw90Ej3Ttt8RRkrg+WYDS9n7IS03bk5bjP/UXPtaY8=")
+        .build()
+
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectionSpecs(listOf(modernTlsSpec, ConnectionSpec.CLEARTEXT))
+            .certificatePinner(certificatePinner)
+            .connectionSpecs(listOf(modernTlsSpec))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)

@@ -48,6 +48,9 @@ class TelegramLiveLocationTransportImpl(
         handles
     }
 
+    private val lastUpdateMsByHandle = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val MIN_UPDATE_INTERVAL_MS = 2_000L
+
     override suspend fun update(handle: LiveLocationHandle, fix: TrackedLocationFix): TelegramCallResult<Unit> = withContext(Dispatchers.IO) {
         val owners = prefs.getAllowedChatIds()
         if (!owners.contains(handle.chatId)) {
@@ -55,7 +58,14 @@ class TelegramLiveLocationTransportImpl(
         }
         val botToken = prefs.getBotToken() ?: return@withContext TelegramCallResult.Terminal(TelegramFailureCode.UNAUTHORIZED)
 
-        api.editMessageLiveLocation(
+        val key = "${handle.chatId}:${handle.messageId}"
+        val now = System.currentTimeMillis()
+        val lastUpdate = lastUpdateMsByHandle[key] ?: 0L
+        if (now - lastUpdate < MIN_UPDATE_INTERVAL_MS) {
+            return@withContext TelegramCallResult.Success(Unit)
+        }
+
+        val result = api.editMessageLiveLocation(
             botToken = botToken,
             chatId = handle.chatId,
             messageId = handle.messageId,
@@ -63,6 +73,10 @@ class TelegramLiveLocationTransportImpl(
             longitude = fix.longitude,
             horizontalAccuracyMeters = fix.accuracyMeters,
         )
+        if (result is TelegramCallResult.Success) {
+            lastUpdateMsByHandle[key] = now
+        }
+        result
     }
 
     override suspend fun stop(handle: LiveLocationHandle): TelegramCallResult<Unit> = withContext(Dispatchers.IO) {

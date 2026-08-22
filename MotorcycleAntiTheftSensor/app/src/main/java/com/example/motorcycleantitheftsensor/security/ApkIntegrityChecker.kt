@@ -38,7 +38,14 @@ class ApkIntegrityChecker(private val context: Context) {
             }
 
             val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.signingInfo?.apkContentsSigners
+                val signingInfo = packageInfo.signingInfo
+                if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) {
+                        signingInfo.apkContentsSigners
+                    } else {
+                        signingInfo.signingCertificateHistory
+                    }
+                } else null
             } else {
                 @Suppress("DEPRECATION")
                 packageInfo.signatures

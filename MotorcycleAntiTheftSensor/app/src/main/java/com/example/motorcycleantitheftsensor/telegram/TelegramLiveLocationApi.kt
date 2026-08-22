@@ -50,6 +50,13 @@ interface TelegramLiveLocationApi {
         horizontalAccuracyMeters: Float,
     ): TelegramCallResult<Unit>
 
+    suspend fun editMessageText(
+        botToken: String,
+        chatId: String,
+        messageId: Long,
+        text: String,
+    ): TelegramCallResult<Unit> = TelegramCallResult.Terminal(TelegramFailureCode.INVALID_REQUEST)
+
     suspend fun stopMessageLiveLocation(
         botToken: String,
         chatId: String,
@@ -147,6 +154,27 @@ class TelegramLiveLocationApiImpl(
             url = "https://api.telegram.org/bot$botToken/editMessageLiveLocation",
             jsonBody = json.toString(),
             parseResult = { TelegramCallResult.Success(Unit) }
+        )
+    }
+
+    override suspend fun editMessageText(
+        botToken: String,
+        chatId: String,
+        messageId: Long,
+        text: String,
+    ): TelegramCallResult<Unit> {
+        if (botToken.isBlank() || chatId.isBlank() || messageId <= 0L || text.isBlank()) {
+            return TelegramCallResult.Terminal(TelegramFailureCode.INVALID_REQUEST)
+        }
+        val json = JSONObject().apply {
+            put("chat_id", chatId)
+            put("message_id", messageId)
+            put("text", text)
+        }
+        return executeRequest(
+            url = "https://api.telegram.org/bot$botToken/editMessageText",
+            jsonBody = json.toString(),
+            parseResult = { TelegramCallResult.Success(Unit) },
         )
     }
 

@@ -202,6 +202,95 @@ class AndroidProtectionRuntimeTest {
         assertEquals(1, batches.size)
         assertEquals(IncidentLocation(13.7563, 100.5018, 15f, 5_000L), batches.first().location)
     }
+
+    @Test
+    fun acceptedVibrationFreezesAudioAdaptation() {
+        lateinit var detectors: RecordingDetectorSet
+        val processor = processor()
+        processor.seedBaseline(SensorKind.VIBRATION, SensorBaseline(9.8, 3))
+        val runtime = runtime(
+            processor = processor,
+            elapsedNowMs = 2_000L,
+            state = ProtectionState.ARMED_HEALTHY,
+            detectorCapture = { detectors = it },
+        )
+
+        detectors.emit(vibrationObservation(value = 12.0, eventElapsedMs = 1234L))
+
+        assertEquals(1234L, detectors.frozenAtElapsedMs)
+    }
+
+    @Test
+    fun chargerDisconnectFreezesAudioAdaptation() {
+        lateinit var detectors: RecordingDetectorSet
+        val processor = powerProcessor()
+        val runtime = runtime(
+            processor = processor,
+            state = ProtectionState.ARMED_HEALTHY,
+            detectorCapture = { detectors = it },
+        )
+
+        detectors.emit(powerObservation(value = 1.0, diagnostic = "charger_disconnect"))
+
+        assertEquals(900L, detectors.frozenAtElapsedMs)
+    }
+
+    @Test
+    fun audioStartFailureDegradesOnlyMicrophoneAndKeepsOtherDetectorsRunning() {
+        val health = mapOf(
+            SensorKind.VIBRATION to SensorHealth(SensorHealthState.HEALTHY),
+            SensorKind.MICROPHONE to SensorHealth(SensorHealthState.FAILED, detail = "mic init failed"),
+        )
+        val detectors = RecordingDetectorSet(callback = {}, initialHealth = health)
+        val runtime = runtime(
+            processor = processor(),
+            state = ProtectionState.ARMED_DEGRADED,
+            detectorCapture = { },
+        )
+
+        val reportedHealth = detectors.currentSensorHealth()
+        assertEquals(SensorHealthState.HEALTHY, reportedHealth[SensorKind.VIBRATION]?.state)
+        assertEquals(SensorHealthState.FAILED, reportedHealth[SensorKind.MICROPHONE]?.state)
+    }
+
+    @Test
+    fun audioRecoveryRestoresMicrophoneHealth() {
+        val detectors = RecordingDetectorSet(
+            callback = {},
+            initialHealth = mapOf(SensorKind.MICROPHONE to SensorHealth(SensorHealthState.FAILED)),
+        )
+        assertEquals(SensorHealthState.FAILED, detectors.currentSensorHealth()[SensorKind.MICROPHONE]?.state)
+
+        detectors.emit(microphoneObservation())
+        assertEquals(SensorHealthState.HEALTHY, detectors.currentSensorHealth()[SensorKind.MICROPHONE]?.state)
+    }
+
+    @Test
+    fun stopClearsCandidatesAndCancelsRetry() {
+        lateinit var detectors: RecordingDetectorSet
+        val runtime = runtime(
+            processor = processor(),
+            detectorCapture = { detectors = it },
+        )
+
+        runtime.startDetectors("session-test")
+        runtime.stopDetectors()
+
+        assertEquals(1, detectors.stopCalls)
+    }
+
+    @Test
+    fun newArmPassesOneNewNonblankSessionId() {
+        lateinit var detectors: RecordingDetectorSet
+        val runtime = runtime(
+            processor = processor(),
+            detectorCapture = { detectors = it },
+        )
+
+        runtime.startDetectors("session-abc-123")
+
+        assertEquals("session-abc-123", detectors.startedSessionId)
+    }
 }
 
 private fun processor(): SensorObservationProcessor = SensorObservationProcessor(
@@ -240,11 +329,25 @@ private class RecordingDetectorSet(
     var sensitivity: Int? = null
     var locationObservation: SensorObservation? = null
     var incidentLocation: IncidentLocation? = null
+    var frozenAtElapsedMs: Long? = null
+    var startedSessionId: String? = null
+    var stopCalls: Int = 0
     private val health = initialHealth.toMutableMap()
 
     override fun start(): DetectorStartResult = DetectorStartResult(started = true)
 
-    override fun stop() = Unit
+    override fun start(armedSessionId: String): DetectorStartResult {
+        startedSessionId = armedSessionId
+        return start()
+    }
+
+    override fun stop() {
+        stopCalls++
+    }
+
+    override fun freezeAudioAdaptation(nowElapsedMs: Long) {
+        frozenAtElapsedMs = nowElapsedMs
+    }
 
     override fun applySensitivity(level: Int) {
         sensitivity = level

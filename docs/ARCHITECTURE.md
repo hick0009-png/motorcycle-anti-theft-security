@@ -25,7 +25,8 @@
 - `sensor/VibrationDetector.kt` — Accelerometer, magnitude=sqrt(x²+y²+z²)-g, moving average window=5, dynamic threshold, debounce 3 consecutive
 - `sensor/LightIntrusionDetector.kt` — Light sensor, ambient light level monitoring
 - `sensor/PowerThermalMonitor.kt` — Battery temperature + voltage monitoring
-- `sensor/AudioPeakDetector.kt` — Microphone audio amplitude peak detection
+- `sensor/AudioPeakDetector.kt` — 16 kHz audio threat detection pipeline (YAMNet), adaptive noise floor calibration & signal gating
+- `sensor/audio/AudioThreatPipeline.kt` — Monotonically generated audio capture lifecycle with 15s correlation window and candidate buffering
 
 ### 4. Service Layer (Priority 4)
 - `service/SensorService.kt` — Foreground service, manages all sensor detectors lifecycle
@@ -33,7 +34,7 @@
 - `service/BootCompletedReceiver.kt` — Auto-start SensorService after device boot
 
 ### 5. Communication Layer (Priority 5)
-- `telegram/TelegramBotClient.kt` — Long polling (timeout=30), chat ID whitelist, commands: /status, /arm, /disarm (requires TOTP), /sensitivity, /decode, /help
+- `telegram/TelegramBotClient.kt` — Long polling (timeout=30), chat ID whitelist, commands: /status, /arm, /disarm, /sensitivity, /decode, /help
 - `telegram/HeartbeatPinger.kt` — Periodic status heartbeat to Telegram
 - `telephony/SmsFallbackManager.kt` — Encrypted SMS fallback when internet unavailable
 

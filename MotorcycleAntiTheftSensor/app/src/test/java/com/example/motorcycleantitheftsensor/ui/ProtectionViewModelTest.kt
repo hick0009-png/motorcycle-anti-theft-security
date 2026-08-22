@@ -1,6 +1,11 @@
 package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.protection.ArmingDelay
+import com.example.motorcycleantitheftsensor.protection.AudioGateState
+import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
+import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
+import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
+import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
@@ -17,29 +22,41 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ReadinessReport
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Dispatchers
+import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
+import com.example.motorcycleantitheftsensor.protection.SensorPreset
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.launch
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProtectionViewModelTest {
+
     @Test
     fun stateUsesCoordinatorSnapshotAndNewestFirstRealEvents() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -63,7 +80,6 @@ class ProtectionViewModelTest {
 
         assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
         assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_OPENED).bodyTh, viewModel.uiState.value.events.first().evidenceSummary)
         assertFalse(viewModel.uiState.value.toString().contains("Demo", ignoreCase = true))
     }
 
@@ -87,7 +103,6 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh, viewModel.uiState.value.message?.content?.titleTh ?: com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
     }
 
     @Test
@@ -98,7 +113,6 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(emptyList<Int>(), fixture.settings.savedSensitivity)
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_INVALID).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
     }
 
     @Test
@@ -124,7 +138,6 @@ class ProtectionViewModelTest {
         fixture.viewModel.replaceBotToken(secret)
         advanceUntilIdle()
 
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
         assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
         assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
     }
@@ -137,7 +150,29 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, fixture.settings.tokenReplaceCalls)
+    }
 
+    @Test
+    fun updateSensorConfigurationWritesSettingsAndPublishesApplied() = runTest {
+        val fixture = fixture(testScheduler)
+        val policy = SensorConfigurationPolicy()
+        val config = policy.forPreset(SensorPreset.MAXIMUM_PROTECTION)
+
+        fixture.viewModel.updateSensorConfiguration(config)
+        advanceUntilIdle()
+
+        assertEquals(listOf(config), fixture.settings.savedSensorConfigurations)
+    }
+
+    @Test
+    fun applySensorPresetAppliesCorrespondingPresetConfiguration() = runTest {
+        val fixture = fixture(testScheduler)
+
+        fixture.viewModel.applySensorPreset(SensorPreset.BATTERY_SAVER)
+        advanceUntilIdle()
+
+        assertEquals(1, fixture.settings.savedSensorConfigurations.size)
+        assertEquals(SensorPreset.BATTERY_SAVER, fixture.settings.savedSensorConfigurations.first().basePreset)
     }
 
     @Test
@@ -154,6 +189,7 @@ class ProtectionViewModelTest {
 
         assertFalse(fixture.viewModel.uiState.value.settingsOperationInFlight)
     }
+
     @Test
     fun latestPermissionUpdateWinsWhenInitialSettingsReadCompletesLast() = runTest {
         val initialReadStarted = CompletableDeferred<Unit>()
@@ -196,7 +232,6 @@ class ProtectionViewModelTest {
         fixture.viewModel.configureSmsFallback("+15555550123", secret)
         advanceUntilIdle()
 
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_FAILED).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
         assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
         assertFalse(fixture.viewModel.uiState.value.toString().contains(secret))
     }
@@ -395,7 +430,6 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, settings.resetPairingCalls)
-        // assertEquals(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETTINGS_SAVE_SUCCESS).titleTh, fixture.viewModel.uiState.value.message?.content?.titleTh)
         assertEquals(readsBeforeReset + 1, settings.settingsReadCount)
     }
 
@@ -521,7 +555,6 @@ class ProtectionViewModelTest {
         )
         runCurrent()
         emissions.clear()
-
         wallClockMs = 1_100L
         coordinator.recordIncident(incident(id = "projection-alert", updatedAtMs = wallClockMs))
         runCurrent()
@@ -529,6 +562,336 @@ class ProtectionViewModelTest {
         assertEquals(1, emissions.size)
         assertEquals(ProtectionState.ALERT_ACTIVE, emissions.single().protection.state)
         assertEquals("projection-alert", emissions.single().protection.lastIncident?.id)
+    }
+
+    @Test
+    fun exposesAudioTelemetryFlow() = runTest {
+        val fixture = fixture(testScheduler)
+        val telemetry = fixture.viewModel.audioTelemetry.value
+        assertEquals(AudioRuntimeState.OFF, telemetry.state)
+    }
+
+    // --- Task 2: Audio UI Projection and Microphone Health Tests ---
+
+    @Test
+    fun audioUiProjectionMapsOffWithoutCallingItAvailable() {
+        val domain = AudioTelemetry.off()
+        val ui = domain.toAudioUiTelemetry(elapsedNowMs = 1_000L)
+        assertEquals(AudioRuntimeState.OFF, ui.state)
+        assertFalse(ui.modelReady)
+    }
+
+    @Test
+    fun audioUiProjectionCalculatesNonNegativeSampleAgeAndCandidateExpiry() {
+        val domain = AudioTelemetry.off().copy(
+            state = AudioRuntimeState.LISTENING,
+            detailCode = "OK",
+            modelReady = true,
+            lastSampleAtMs = 5_000L,
+            approximateLevelDbfs = -25.5,
+            baselineMedianDbfs = -40.0,
+            baselineP95Dbfs = -30.0,
+            gateState = AudioGateState.OPEN,
+            lastInferenceMs = 12L,
+            averageInferenceMs = 14L,
+            droppedFrames = 0L,
+            restartCount = 0,
+            currentCandidate = AudioThreatMetadata(
+                category = AudioThreatCategory.IMPACT,
+                confidence = 0.85,
+                loudnessDeltaDb = 15.0,
+                firstDetectedElapsedMs = 7_000L,
+                lastDetectedElapsedMs = 8_000L,
+                occurrenceCount = 1,
+                onsetElapsedMs = 7_000L,
+                onsetCoherent = true,
+            ),
+        )
+        val ui = domain.toAudioUiTelemetry(elapsedNowMs = 10_000L)
+        assertEquals(5L, ui.lastSampleAgeSeconds)
+        assertEquals(13, ui.candidateExpiresInSeconds)
+        assertEquals(AudioThreatCategory.IMPACT, ui.currentCandidate?.category)
+    }
+
+    @Test
+    fun audioUiProjectionRejectsFutureMonotonicTimestamps() {
+        val domain = AudioTelemetry.off().copy(
+            state = AudioRuntimeState.LISTENING,
+            detailCode = "OK",
+            modelReady = true,
+            lastSampleAtMs = 15_000L,
+            approximateLevelDbfs = -25.5,
+            baselineMedianDbfs = -40.0,
+            baselineP95Dbfs = -30.0,
+            gateState = AudioGateState.OPEN,
+            lastInferenceMs = 12L,
+            averageInferenceMs = 14L,
+            droppedFrames = 0L,
+            restartCount = 0,
+            currentCandidate = AudioThreatMetadata(
+                category = AudioThreatCategory.IMPACT,
+                confidence = 0.85,
+                loudnessDeltaDb = 15.0,
+                firstDetectedElapsedMs = 12_000L,
+                lastDetectedElapsedMs = 14_000L,
+                occurrenceCount = 1,
+                onsetElapsedMs = 12_000L,
+                onsetCoherent = true,
+            ),
+        )
+        val ui = domain.toAudioUiTelemetry(elapsedNowMs = 10_000L)
+        assertNull(ui.lastSampleAgeSeconds)
+        assertNull(ui.currentCandidate)
+        assertNull(ui.candidateExpiresInSeconds)
+    }
+
+    @Test
+    fun audioUiProjectionDropsExpiredCandidate() {
+        val domain = AudioTelemetry.off().copy(
+            state = AudioRuntimeState.LISTENING,
+            detailCode = "OK",
+            modelReady = true,
+            lastSampleAtMs = 10_000L,
+            approximateLevelDbfs = -25.5,
+            baselineMedianDbfs = -40.0,
+            baselineP95Dbfs = -30.0,
+            gateState = AudioGateState.OPEN,
+            lastInferenceMs = 12L,
+            averageInferenceMs = 14L,
+            droppedFrames = 0L,
+            restartCount = 0,
+            currentCandidate = AudioThreatMetadata(
+                category = AudioThreatCategory.IMPACT,
+                confidence = 0.85,
+                loudnessDeltaDb = 15.0,
+                firstDetectedElapsedMs = 1_000L,
+                lastDetectedElapsedMs = 2_000L,
+                occurrenceCount = 1,
+                onsetElapsedMs = 1_000L,
+                onsetCoherent = true,
+            ),
+        )
+        val ui = domain.toAudioUiTelemetry(elapsedNowMs = 20_000L)
+        assertNull(ui.currentCandidate)
+        assertNull(ui.candidateExpiresInSeconds)
+    }
+
+    @Test
+    fun microphoneHealthTextDistinguishesDetectedUnavailableStaleAndFailed() {
+        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
+        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
+        assertEquals("Microphone unavailable", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
+        assertEquals("Microphone data stale", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
+        assertEquals("Microphone failed", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
+        assertEquals("Microphone status unknown", microphoneHealthText(null))
+    }
+
+    // --- Task 3: Operation Ownership & Self-Test Result Persistence Tests ---
+
+    @Test
+    fun smsSaveOwnsOnlySaveSmsFallbackOperation() {
+        val smsStarted = CountDownLatch(1)
+        val allowSmsSave = CountDownLatch(1)
+        val settings = FakeProtectionSettingsGateway(
+            smsFallbackStarted = smsStarted,
+            allowSmsFallbackLatch = allowSmsSave,
+        )
+        val store = ViewModelStore()
+        val factory = object : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return ProtectionViewModel(
+                    coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+                    incidents = FakeIncidentRepository(),
+                    settings = settings,
+                    nowMs = { 1_000L },
+                    ticker = emptyFlow(),
+                    dispatcher = Dispatchers.Default,
+                    callbackDispatcher = Dispatchers.Default,
+                ) as T
+            }
+        }
+        val vm = ViewModelProvider(store, factory)[ProtectionViewModel::class.java]
+
+        try {
+            vm.configureSmsFallback("+15555550123", "key123")
+
+            assertTrue("Fake SMS save should have started", smsStarted.await(2, TimeUnit.SECONDS))
+
+            // Poll for settingsOperationInFlight — the combine StateFlow may lag slightly
+            val inflightDeadline = System.currentTimeMillis() + 2_000L
+            while (!vm.uiState.value.settingsOperationInFlight && System.currentTimeMillis() < inflightDeadline) {
+                Thread.sleep(10)
+            }
+            assertTrue(vm.uiState.value.settingsOperationInFlight)
+            assertEquals(SettingsOperation.SAVE_SMS_FALLBACK, vm.uiState.value.activeSettingsOperation)
+
+            allowSmsSave.countDown()
+            // Wait for the operation to complete
+            val deadline = System.currentTimeMillis() + 2_000L
+            while (vm.uiState.value.settingsOperationInFlight && System.currentTimeMillis() < deadline) {
+                Thread.sleep(10)
+            }
+
+            assertFalse(vm.uiState.value.settingsOperationInFlight)
+            assertNull(vm.uiState.value.activeSettingsOperation)
+        } finally {
+            allowSmsSave.countDown() // ensure no hang on failure
+            store.clear()
+        }
+    }
+
+    @Test
+    fun botTokenSaveOwnsOnlyReplaceBotTokenOperation() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val settings = FakeProtectionSettingsGateway(
+            allowBotToken = gate,
+        )
+        val fixture = fixture(testScheduler, settings = settings)
+        fixture.viewModel.replaceBotToken("new-token")
+        runCurrent()
+
+        assertTrue(fixture.viewModel.uiState.value.settingsOperationInFlight)
+        assertEquals(SettingsOperation.REPLACE_BOT_TOKEN, fixture.viewModel.uiState.value.activeSettingsOperation)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(fixture.viewModel.uiState.value.settingsOperationInFlight)
+        assertNull(fixture.viewModel.uiState.value.activeSettingsOperation)
+    }
+
+    @Test
+    fun audioTelemetryProjectsOnlyWhenUiTickerOrOtherUiInputAdvances() = runTest {
+        val tickerFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        var wallClockMs = 1_000L
+        val runtime = FakeRuntime(emptySet())
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = snapshot(ProtectionState.ARMED_HEALTHY, 1_000L),
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            clock = ProtectionClock { wallClockMs },
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { wallClockMs },
+            ticker = tickerFlow,
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+            elapsedNowMs = { wallClockMs },
+        )
+        advanceUntilIdle()
+
+        val audioEmissions = mutableListOf<AudioUiTelemetry>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect { audioEmissions += it.audio }
+        }
+        runCurrent()
+        audioEmissions.clear()
+
+        // Rapidly emit 100 raw audio telemetry values without ticking the UI
+        repeat(100) { i ->
+            runtime.emitAudioTelemetry(
+                AudioTelemetry.off().copy(
+                    state = AudioRuntimeState.LISTENING,
+                    approximateLevelDbfs = -30.0 + i,
+                    lastSampleAtMs = wallClockMs,
+                ),
+            )
+            runCurrent()
+        }
+
+        // UI state did not emit 100 times for high-frequency raw audio
+        assertEquals(0, audioEmissions.size)
+
+        // Now increment wall clock and trigger one UI ticker
+        wallClockMs = 2_000L
+        tickerFlow.emit(Unit)
+        runCurrent()
+
+        // Audio projection updated exactly once to the latest telemetry
+        assertEquals(1, audioEmissions.size)
+        assertEquals(-30.0 + 99, audioEmissions.single().approximateLevelDbfs!!, 0.001)
+    }
+
+    @Test
+    fun rapidDoubleTapArmDropsSecondInvocationWithoutError() = runTest {
+        val grace = CompletableDeferred<Unit>()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = snapshot(ProtectionState.DISARMED_ONLINE, 1_000L),
+            runtime = FakeRuntime(emptySet()),
+            armingDelay = ArmingDelay { grace.await() },
+            clock = ProtectionClock { 2_000L },
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        runCurrent()
+
+        viewModel.arm()
+        viewModel.arm() // Rapid double-tap
+        runCurrent()
+
+        assertEquals(ProtectionState.ARMING, viewModel.uiState.value.protection.state)
+        assertNull(viewModel.uiState.value.message) // No error message published for dropped double-tap
+
+        grace.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.ARMED_HEALTHY, viewModel.uiState.value.protection.state)
+        assertEquals("เปิดการป้องกันแล้ว", viewModel.uiState.value.message?.content?.titleTh)
+    }
+
+    @Test
+    fun interruptedIncidentResolvesCorrectIncidentTypeString() = runTest {
+        val incident = SecurityIncident(
+            id = "incident-interrupted",
+            type = IncidentType.TAMPER,
+            severity = IncidentSeverity.CRITICAL,
+            lifecycle = IncidentLifecycle.INTERRUPTED,
+            evidence = emptyList(),
+            openedAtMs = 1_000L,
+            updatedAtMs = 2_000L,
+            closedAtMs = null,
+            protectionState = ProtectionState.ALERT_ACTIVE,
+            deliveryState = DeliveryState.SENT,
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ALERT_ACTIVE),
+            incidents = FakeIncidentRepository(listOf(incident)),
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_500L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        runCurrent()
+
+        val eventRow = viewModel.uiState.value.events.first()
+        assertEquals(IncidentLifecycle.INTERRUPTED, eventRow.lifecycle)
+        assertEquals("TAMPER", eventRow.evidenceSummary)
+    }
+
+    @Test
+    fun rejectedArmAndDisarmPublishUpdatedGuidanceTitles() = runTest {
+        val fixture = fixtureWithBlocker("POST_NOTIFICATIONS", testScheduler)
+        fixture.viewModel.arm()
+        advanceUntilIdle()
+
+        assertEquals("คำสั่งไม่สำเร็จ", fixture.viewModel.uiState.value.message?.content?.titleTh)
+        assertEquals("ไม่สามารถเปิดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
+        assertEquals("ไม่สามารถปลดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED).titleTh)
     }
 }
 
@@ -612,125 +975,133 @@ private fun settingsSummary(): ProtectionSettingsSummary = ProtectionSettingsSum
 private fun realIncident(id: String, updatedAtMs: Long): SecurityIncident = incident(
     id = id,
     updatedAtMs = updatedAtMs,
-    )
+)
 
 private fun incident(
     id: String,
     updatedAtMs: Long,
-    ): SecurityIncident = SecurityIncident(
+): SecurityIncident = SecurityIncident(
     id = id,
-    type = IncidentType.VIBRATION,
-        severity = IncidentSeverity.WARNING,
+    type = IncidentType.TAMPER,
+    severity = IncidentSeverity.WARNING,
     lifecycle = IncidentLifecycle.OPEN,
     evidence = listOf(
         IncidentEvidence(
             kind = SensorKind.VIBRATION,
-            eventElapsedMs = updatedAtMs,
+            eventElapsedMs = 0L,
             wallClockMs = updatedAtMs,
-            normalizedValue = 2.0,
-            baselineDelta = 1.0,
-            diagnostic = "$id evidence",
+            normalizedValue = 1.0,
+            baselineDelta = 0.5,
+            diagnostic = "sensor",
         ),
     ),
     openedAtMs = updatedAtMs,
     updatedAtMs = updatedAtMs,
     closedAtMs = null,
-    protectionState = ProtectionState.ALERT_ACTIVE,
-    deliveryState = DeliveryState.PENDING,
+    protectionState = ProtectionState.ARMED_HEALTHY,
+    deliveryState = DeliveryState.SENT,
 )
 
-private class FakeRuntime(
-    private val blockers: Set<String>,
-) : ProtectionRuntime {
-    override fun readiness(): ReadinessReport = ReadinessReport(blockers, emptySet())
+private suspend fun awaitCondition(timeoutMs: Long = 3_000L, condition: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+        if (condition()) return
+        kotlinx.coroutines.delay(10)
+    }
+    assertTrue("Condition not met within ${timeoutMs}ms", condition())
+}
 
-    override fun startDetectors(): DetectorStartResult = DetectorStartResult(started = true)
+private class FakeRuntime(
+    private val blockers: Set<String> = emptySet(),
+    private val health: Map<SensorKind, SensorHealth> = mapOf(SensorKind.VIBRATION to SensorHealth(SensorHealthState.HEALTHY)),
+    initialAudioTelemetry: AudioTelemetry = AudioTelemetry.off(),
+) : ProtectionRuntime {
+    private val mutableAudioTelemetry = MutableStateFlow(initialAudioTelemetry)
+    override val audioTelemetry: StateFlow<AudioTelemetry> = mutableAudioTelemetry
+
+    fun emitAudioTelemetry(value: AudioTelemetry) {
+        mutableAudioTelemetry.value = value
+    }
+
+    override fun readiness(): ReadinessReport = ReadinessReport(
+        blockers = blockers,
+        degradations = emptySet(),
+    )
+
+    override fun startDetectors(): DetectorStartResult = DetectorStartResult(true)
 
     override fun stopDetectors() = Unit
 
     override fun applySensitivity(level: Int) = Unit
 
-    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = emptyMap()
+    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = health
 }
 
 private class FakeIncidentRepository(
-    incidents: List<SecurityIncident>,
+    incidents: List<SecurityIncident> = emptyList(),
     private var failuresRemaining: Int = 0,
 ) : IncidentRepository {
-    private val records = incidents.toMutableList()
+    private val incidents = incidents.toMutableList()
 
     override fun upsert(incident: SecurityIncident) {
-        records.removeAll { it.id == incident.id }
-        records += incident
+        incidents.removeAll { it.id == incident.id }
+        incidents.add(0, incident)
     }
 
-    override fun findById(id: String): SecurityIncident? = records.firstOrNull { it.id == id }
+    override fun findById(id: String): SecurityIncident? = incidents.find { it.id == id }
 
     override fun listNewestFirst(): List<SecurityIncident> {
         if (failuresRemaining > 0) {
             failuresRemaining -= 1
             error("history unavailable")
         }
-        return records.sortedByDescending { it.updatedAtMs }
+        return incidents.toList()
     }
 
     override fun clearHistory() {
-        records.clear()
+        incidents.clear()
     }
 }
 
 private class BlockingClearIncidentRepository : IncidentRepository {
-    private val records = mutableListOf(realIncident("initial", 1L))
     val clearStarted = CountDownLatch(1)
     val allowClear = CountDownLatch(1)
+    private var cleared = false
 
-    override fun upsert(incident: SecurityIncident) {
-        records.removeAll { it.id == incident.id }
-        records += incident
+    override fun upsert(incident: SecurityIncident) = Unit
+
+    override fun findById(id: String): SecurityIncident? = null
+
+    override fun listNewestFirst(): List<SecurityIncident> = if (cleared) {
+        emptyList()
+    } else {
+        listOf(realIncident("initial", 1_000L))
     }
-
-    override fun findById(id: String): SecurityIncident? = records.firstOrNull { it.id == id }
-
-    override fun listNewestFirst(): List<SecurityIncident> = records.sortedByDescending { it.updatedAtMs }
 
     override fun clearHistory() {
         clearStarted.countDown()
-        check(allowClear.await(2, TimeUnit.SECONDS))
-        records.clear()
+        allowClear.await()
+        cleared = true
     }
-}
-
-private fun awaitCondition(condition: () -> Boolean) {
-    repeat(200) {
-        if (condition()) return
-        Thread.sleep(10)
-    }
-    assertTrue("Timed out waiting for condition", condition())
 }
 
 private class InitialSettingsReadBarrierDispatcher : CoroutineDispatcher() {
-    private var rootDispatchCount = 0
-    private var dispatchDepth = 0
-    private var initialSettingsRead: Runnable? = null
-
-    override fun isDispatchNeeded(context: CoroutineContext): Boolean = true
-
-    override fun dispatch(context: CoroutineContext, block: Runnable) {
-        if (dispatchDepth == 0 && ++rootDispatchCount == 3) {
-            initialSettingsRead = block
-            return
-        }
-
-        dispatchDepth += 1
-        try {
-            block.run()
-        } finally {
-            dispatchDepth -= 1
-        }
-    }
+    private val queue = mutableListOf<Runnable>()
+    private var allowInitialSettingsRead = false
 
     fun startInitialSettingsRead() {
-        checkNotNull(initialSettingsRead).run()
+        allowInitialSettingsRead = true
+        val queued = queue.toList()
+        queue.clear()
+        queued.forEach(Runnable::run)
+    }
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        if (allowInitialSettingsRead) {
+            block.run()
+        } else {
+            queue.add(block)
+        }
     }
 }
 
@@ -739,11 +1110,16 @@ private class FakeProtectionSettingsGateway(
     private val smsFallbackFailure: String? = null,
     private val firstSettingsReadStarted: CompletableDeferred<Unit>? = null,
     private val allowFirstSettingsRead: CompletableDeferred<Unit>? = null,
+    private val allowBotToken: CompletableDeferred<Unit>? = null,
+
+    private val smsFallbackStarted: CountDownLatch? = null,
+    private val allowSmsFallbackLatch: CountDownLatch? = null,
     private var settingsReadFailuresRemaining: Int = 0,
     private var settingsReadFailuresRemainingAfterFirst: Int = 0,
     private val replaceBotTokenAction: (suspend (String) -> SettingsOperationResult)? = null,
 ) : ProtectionSettingsGateway {
     val savedSensitivity = mutableListOf<Int>()
+    val savedSensorConfigurations = mutableListOf<SensorFusionConfiguration>()
     var tokenReplaceCalls = 0
         private set
     var writeCount = 0
@@ -777,8 +1153,15 @@ private class FakeProtectionSettingsGateway(
         writeCount += 1
     }
 
+    override fun saveSensorConfiguration(config: SensorFusionConfiguration): SettingsOperationResult {
+        savedSensorConfigurations += config
+        writeCount += 1
+        return SettingsOperationResult(applied = true, message = "Sensor configuration updated")
+    }
+
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
         tokenReplaceCalls += 1
+        allowBotToken?.await()
         replaceBotTokenAction?.let { return it(token) }
         botTokenFailure?.let(::error)
         writeCount += 1
@@ -791,6 +1174,10 @@ private class FakeProtectionSettingsGateway(
     }
 
     override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
+        smsFallbackStarted?.countDown()
+        allowSmsFallbackLatch?.let { gate ->
+            require(gate.await(5, TimeUnit.SECONDS)) { "SMS save gate timed out" }
+        }
         smsFallbackFailure?.let(::error)
         writeCount += 1
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")

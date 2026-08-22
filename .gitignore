@@ -15,3 +15,13 @@
 /MotorcycleAntiTheftSensor/replay_pid*.log
 /hs_err_pid*.log
 /logcat*.txt
+
+# Local AI assistant configuration and diagnostics
+/.agents/skills/
+/.claude/
+/.kilocode/
+/.mcp.json
+/android-mcp.log
+
+# JVM crash reports emitted beneath Android module directories
+/MotorcycleAntiTheftSensor/app/hs_err_pid*.log

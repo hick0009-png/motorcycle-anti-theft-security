@@ -13,7 +13,21 @@ import java.io.IOException
 class FileIncidentRepository(
     private val file: File,
     private val maxRecords: Int,
+    private val encryptor: ((ByteArray) -> ByteArray)? = null,
+    private val decryptor: ((ByteArray) -> ByteArray)? = null,
 ) : IncidentRepository {
+
+    constructor(
+        file: File,
+        maxRecords: Int,
+        secureKeyManager: com.example.motorcycleantitheftsensor.security.SecureKeyManager,
+    ) : this(
+        file = file,
+        maxRecords = maxRecords,
+        encryptor = secureKeyManager::encrypt,
+        decryptor = secureKeyManager::decrypt,
+    )
+
     private val records by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         readRecords().associateByTo(linkedMapOf()) { incident -> incident.id }
     }
@@ -23,14 +37,25 @@ class FileIncidentRepository(
     }
 
     @Synchronized
-    override fun upsert(incident: SecurityIncident) {
-        records[incident.id] = incident
-        val retained = records.values
+    fun upsert(incident: SecurityIncident, syncImmediate: Boolean) {
+        val updatedMap = linkedMapOf<String, SecurityIncident>()
+        updatedMap.putAll(records)
+        updatedMap[incident.id] = incident
+        val retained = updatedMap.values
             .sortedBy { item -> item.updatedAtMs }
             .takeLast(maxRecords)
+        persist(retained, syncImmediate = syncImmediate)
         records.clear()
         retained.associateByTo(records) { item -> item.id }
-        persist(records.values.toList())
+    }
+
+    @Synchronized
+    override fun upsert(incident: SecurityIncident) {
+        val isCritical = incident.lifecycle == IncidentLifecycle.OPEN ||
+            incident.lifecycle == IncidentLifecycle.CLOSED ||
+            incident.lifecycle == IncidentLifecycle.INTERRUPTED ||
+            incident.deliveryState == DeliveryState.PENDING
+        upsert(incident, syncImmediate = isCritical)
     }
 
     @Synchronized
@@ -42,19 +67,46 @@ class FileIncidentRepository(
 
     @Synchronized
     override fun clearHistory() {
-        records.clear()
         persist(emptyList())
+        records.clear()
     }
 
     private fun readRecords(): List<SecurityIncident> {
         val backup = backupFile()
-        val source = when {
-            file.exists() && file.length() > 0L -> file
-            backup.exists() && backup.length() > 0L -> backup
-            else -> return emptyList()
+        if (file.exists() && file.length() > 0L) {
+            try {
+                return readFromFile(file)
+            } catch (error: Exception) {
+                if (backup.exists() && backup.length() > 0L) {
+                    try {
+                        return readFromFile(backup)
+                    } catch (_: Exception) {}
+                }
+                if (error is IOException) throw error
+                throw IOException("Corrupted incident file", error)
+            }
         }
+        if (backup.exists() && backup.length() > 0L) {
+            return readFromFile(backup)
+        }
+        return emptyList()
+    }
+
+    private fun readFromFile(source: File): List<SecurityIncident> {
         return try {
-            DataInputStream(BufferedInputStream(FileInputStream(source))).use { input ->
+            val rawBytes = source.readBytes()
+            if (rawBytes.size < 4) throw IOException("Truncated incident file")
+
+            val firstMagic = DataInputStream(java.io.ByteArrayInputStream(rawBytes)).readInt()
+            val bytesToRead = if (firstMagic == FILE_MAGIC_ENCRYPTED) {
+                if (decryptor == null) throw IOException("Encrypted incident file requires decryptor")
+                val ciphertext = rawBytes.copyOfRange(4, rawBytes.size)
+                decryptor.invoke(ciphertext)
+            } else {
+                rawBytes
+            }
+
+            DataInputStream(BufferedInputStream(java.io.ByteArrayInputStream(bytesToRead))).use { input ->
                 val magic = input.readInt()
                 if (magic != FILE_MAGIC) throw IOException("Unsupported incident file")
                 val version = input.readInt()
@@ -62,6 +114,7 @@ class FileIncidentRepository(
                 when (version) {
                     LEGACY_FILE_VERSION -> List(recordCount) { readLegacyV1Incident(input) }.mapNotNull { it }
                     LEGACY_V2_FILE_VERSION -> List(recordCount) { readLegacyV2Incident(input) }
+                    LEGACY_V3_FILE_VERSION -> List(recordCount) { readLegacyV3Incident(input) }
                     FILE_VERSION -> List(recordCount) { readIncident(input) }
                     else -> throw IOException("Unsupported incident version: $version")
                 }
@@ -71,16 +124,36 @@ class FileIncidentRepository(
         }
     }
 
-    private fun persist(incidents: List<SecurityIncident>) {
+    private fun persist(incidents: List<SecurityIncident>, syncImmediate: Boolean = true) {
         file.parentFile?.mkdirs()
         val temporary = temporaryFile()
+
+        val baos = java.io.ByteArrayOutputStream()
+        DataOutputStream(BufferedOutputStream(baos)).use { output ->
+            output.writeInt(FILE_MAGIC)
+            output.writeInt(FILE_VERSION)
+            output.writeInt(incidents.size)
+            incidents.forEach { incident -> writeIncident(output, incident) }
+            output.flush()
+        }
+        val plainBytes = baos.toByteArray()
+        val dataToWrite = if (encryptor != null) {
+            val ciphertext = encryptor.invoke(plainBytes)
+            val encBaos = java.io.ByteArrayOutputStream()
+            DataOutputStream(BufferedOutputStream(encBaos)).use { encOut ->
+                encOut.writeInt(FILE_MAGIC_ENCRYPTED)
+                encOut.write(ciphertext)
+                encOut.flush()
+            }
+            encBaos.toByteArray()
+        } else {
+            plainBytes
+        }
+
         FileOutputStream(temporary).use { outputStream ->
-            DataOutputStream(BufferedOutputStream(outputStream)).use { output ->
-                output.writeInt(FILE_MAGIC)
-                output.writeInt(FILE_VERSION)
-                output.writeInt(incidents.size)
-                incidents.forEach { incident -> writeIncident(output, incident) }
-                output.flush()
+            outputStream.write(dataToWrite)
+            outputStream.flush()
+            if (syncImmediate) {
                 outputStream.fd.sync()
             }
         }
@@ -117,6 +190,20 @@ class FileIncidentRepository(
             output.writeDouble(evidence.normalizedValue)
             output.writeDouble(evidence.baselineDelta)
             output.writeNullableString(evidence.diagnostic)
+            val threat = evidence.audioThreat
+            if (threat != null) {
+                output.writeBoolean(true)
+                output.writeUTF(threat.category.name)
+                output.writeDouble(threat.confidence)
+                output.writeDouble(threat.loudnessDeltaDb)
+                output.writeLong(threat.firstDetectedElapsedMs)
+                output.writeLong(threat.lastDetectedElapsedMs)
+                output.writeInt(threat.occurrenceCount)
+                output.writeLong(threat.onsetElapsedMs)
+                output.writeBoolean(threat.onsetCoherent)
+            } else {
+                output.writeBoolean(false)
+            }
         }
         output.writeLong(incident.openedAtMs)
         output.writeLong(incident.updatedAtMs)
@@ -146,43 +233,52 @@ class FileIncidentRepository(
         val id = input.readUTF()
         val type = IncidentType.valueOf(input.readUTF())
         val legacyOrigin = input.readUTF()
-        val incident = readIncidentBody(input, id, type, null)
+        val incident = readLegacyIncidentBody(input, id, type, null)
         return incident.takeIf { legacyOrigin == REAL_ORIGIN_TOKEN }
     }
 
-    private fun readLegacyV2Incident(input: DataInputStream): SecurityIncident = readIncidentBody(
+    private fun readLegacyV2Incident(input: DataInputStream): SecurityIncident = readLegacyIncidentBody(
         input = input,
         id = input.readUTF(),
         type = IncidentType.valueOf(input.readUTF()),
         location = null,
     )
 
+    private fun readLegacyV3Incident(input: DataInputStream): SecurityIncident {
+        val id = input.readUTF()
+        val type = IncidentType.valueOf(input.readUTF())
+        val base = readLegacyIncidentBody(input, id, type, null)
+        val hasLocation = input.readBoolean()
+        val location = if (hasLocation) readLocation(input) else null
+        return base.copy(location = location)
+    }
+
     private fun readIncident(input: DataInputStream): SecurityIncident {
         val id = input.readUTF()
         val type = IncidentType.valueOf(input.readUTF())
         val base = readIncidentBody(input, id, type, null)
         val hasLocation = input.readBoolean()
-        val location = if (hasLocation) {
-            val lat = input.readDouble()
-            val lon = input.readDouble()
-            val accuracy = input.readFloat()
-            val capturedAt = input.readLong()
-            if (lat.isFinite() && lat in -90.0..90.0 &&
-                lon.isFinite() && lon in -180.0..180.0 &&
-                accuracy.isFinite() && accuracy >= 0f && accuracy <= 1500f &&
-                capturedAt >= 0L
-            ) {
-                IncidentLocation(lat, lon, accuracy, capturedAt)
-            } else {
-                null
-            }
-        } else {
-            null
-        }
+        val location = if (hasLocation) readLocation(input) else null
         return base.copy(location = location)
     }
 
-    private fun readIncidentBody(
+    private fun readLocation(input: DataInputStream): IncidentLocation? {
+        val lat = input.readDouble()
+        val lon = input.readDouble()
+        val accuracy = input.readFloat()
+        val capturedAt = input.readLong()
+        return if (lat.isFinite() && lat in -90.0..90.0 &&
+            lon.isFinite() && lon in -180.0..180.0 &&
+            accuracy.isFinite() && accuracy >= 0f && accuracy <= 1500f &&
+            capturedAt >= 0L
+        ) {
+            IncidentLocation(lat, lon, accuracy, capturedAt)
+        } else {
+            null
+        }
+    }
+
+    private fun readLegacyIncidentBody(
         input: DataInputStream,
         id: String,
         type: IncidentType,
@@ -200,6 +296,77 @@ class FileIncidentRepository(
                 normalizedValue = input.readDouble(),
                 baselineDelta = input.readDouble(),
                 diagnostic = input.readNullableString(),
+                audioThreat = null,
+            )
+        },
+        openedAtMs = input.readLong(),
+        updatedAtMs = input.readLong(),
+        closedAtMs = input.readNullableLong(),
+        protectionState = ProtectionState.valueOf(input.readUTF()),
+        deliveryState = DeliveryState.valueOf(input.readUTF()),
+        deliveryAttempts = List(input.readInt()) {
+            DeliveryAttempt(
+                channel = DeliveryChannel.valueOf(input.readUTF()),
+                state = DeliveryState.valueOf(input.readUTF()),
+                attemptedAtMs = input.readLong(),
+                detail = input.readNullableString(),
+            )
+        },
+        closeReason = input.readNullableString(),
+        location = location,
+    )
+
+    private fun readIncidentBody(
+        input: DataInputStream,
+        id: String,
+        type: IncidentType,
+        location: IncidentLocation?,
+    ): SecurityIncident = SecurityIncident(
+        id = id,
+        type = type,
+        severity = IncidentSeverity.valueOf(input.readUTF()),
+        lifecycle = IncidentLifecycle.valueOf(input.readUTF()),
+        evidence = List(input.readInt()) {
+            val kind = SensorKind.valueOf(input.readUTF())
+            val eventElapsedMs = input.readLong()
+            val wallClockMs = input.readLong()
+            val normalizedValue = input.readDouble()
+            val baselineDelta = input.readDouble()
+            val diagnostic = input.readNullableString()
+            val hasAudioThreat = input.readBoolean()
+            val audioThreat = if (hasAudioThreat) {
+                val categoryToken = input.readUTF()
+                val confidence = input.readDouble()
+                val deltaDb = input.readDouble()
+                val firstDetected = input.readLong()
+                val lastDetected = input.readLong()
+                val count = input.readInt()
+                val onset = input.readLong()
+                val coherent = input.readBoolean()
+
+                runCatching {
+                    AudioThreatMetadata(
+                        category = AudioThreatCategory.valueOf(categoryToken),
+                        confidence = confidence,
+                        loudnessDeltaDb = deltaDb,
+                        firstDetectedElapsedMs = firstDetected,
+                        lastDetectedElapsedMs = lastDetected,
+                        occurrenceCount = count,
+                        onsetElapsedMs = onset,
+                        onsetCoherent = coherent,
+                    )
+                }.getOrNull()
+            } else {
+                null
+            }
+            IncidentEvidence(
+                kind = kind,
+                eventElapsedMs = eventElapsedMs,
+                wallClockMs = wallClockMs,
+                normalizedValue = normalizedValue,
+                baselineDelta = baselineDelta,
+                diagnostic = diagnostic,
+                audioThreat = audioThreat,
             )
         },
         openedAtMs = input.readLong(),
@@ -239,9 +406,11 @@ class FileIncidentRepository(
 
     private companion object {
         const val FILE_MAGIC = 0x4D475249
+        const val FILE_MAGIC_ENCRYPTED = 0x4D475245
         const val LEGACY_FILE_VERSION = 1
         const val LEGACY_V2_FILE_VERSION = 2
-        const val FILE_VERSION = 3
+        const val LEGACY_V3_FILE_VERSION = 3
+        const val FILE_VERSION = 4
         const val REAL_ORIGIN_TOKEN = "REAL"
     }
 }

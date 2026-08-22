@@ -19,16 +19,18 @@ class SecureKeyManager(private val context: Context) {
 
     companion object {
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
-        private const val MASTER_KEY_ALIAS = "motorcycle_anti_theft_master_key"
+        private const val TINK_MASTER_KEY_ALIAS = "motorcycle_anti_theft_tink_master_key"
+        private const val RAW_CIPHER_KEY_ALIAS = "motorcycle_anti_theft_raw_cipher_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
+        private const val MIN_COMBINED_SIZE = 28 // 12-byte IV + 16-byte GCM Tag
     }
 
     val masterKey: MasterKey by lazy {
-        MasterKey.Builder(context, MASTER_KEY_ALIAS)
+        MasterKey.Builder(context, TINK_MASTER_KEY_ALIAS)
             .setKeyGenParameterSpec(
                 KeyGenParameterSpec.Builder(
-                    MASTER_KEY_ALIAS,
+                    TINK_MASTER_KEY_ALIAS,
                     KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
                 )
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -62,7 +64,7 @@ class SecureKeyManager(private val context: Context) {
      * Decrypts combined IV + Ciphertext using AES-256-GCM hardware key.
      */
     fun decrypt(combinedData: ByteArray): ByteArray {
-        require(combinedData.size > 12) { "Invalid encrypted payload size" }
+        require(combinedData.size >= MIN_COMBINED_SIZE) { "Invalid encrypted payload size" }
         val iv = ByteArray(12)
         val ciphertext = ByteArray(combinedData.size - 12)
         System.arraycopy(combinedData, 0, iv, 0, 12)
@@ -75,9 +77,10 @@ class SecureKeyManager(private val context: Context) {
         return cipher.doFinal(ciphertext)
     }
 
+    @Synchronized
     private fun getSecretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
-        return keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
+        return keyStore.getKey(RAW_CIPHER_KEY_ALIAS, null) as? SecretKey
             ?: generateSecretKey()
     }
 
@@ -87,7 +90,7 @@ class SecureKeyManager(private val context: Context) {
             KEYSTORE_PROVIDER
         )
         val keyGenSpec = KeyGenParameterSpec.Builder(
-            MASTER_KEY_ALIAS,
+            RAW_CIPHER_KEY_ALIAS,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)

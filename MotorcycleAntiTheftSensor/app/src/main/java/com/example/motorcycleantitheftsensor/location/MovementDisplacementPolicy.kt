@@ -30,6 +30,7 @@ class MovementDisplacementPolicy {
         const val ACCURACY_MARGIN_METERS = 30.0
         const val REQUIRED_OUTSIDE_FIXES = 2
         const val MIN_CONFIRMATION_SEPARATION_MS = 15_000L
+        const val MAX_CONFIRMATION_SEPARATION_MS = 60_000L
 
         fun calculateHaversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
             val r = 6371000.0 // Earth radius in meters
@@ -38,7 +39,8 @@ class MovementDisplacementPolicy {
             val a = sin(dLat / 2) * sin(dLat / 2) +
                     cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
                     sin(dLon / 2) * sin(dLon / 2)
-            val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            val clampedA = a.coerceIn(0.0, 1.0)
+            val c = 2 * atan2(sqrt(clampedA), sqrt(1.0 - clampedA))
             return r * c
         }
     }
@@ -113,6 +115,11 @@ class MovementDisplacementPolicy {
 
             // We have a previous candidate
             val timeSinceFirstCandidate = fix.elapsedRealtimeMs - outsideCandidateTimestampMs!!
+            if (timeSinceFirstCandidate < 0L || timeSinceFirstCandidate > MAX_CONFIRMATION_SEPARATION_MS) {
+                outsideFixCount = 1
+                outsideCandidateTimestampMs = fix.elapsedRealtimeMs
+                return MovementDecision.Candidate(outsideFixCount, distance)
+            }
             if (timeSinceFirstCandidate >= MIN_CONFIRMATION_SEPARATION_MS) {
                 outsideFixCount++
                 return MovementDecision.Confirmed(fix, distance)

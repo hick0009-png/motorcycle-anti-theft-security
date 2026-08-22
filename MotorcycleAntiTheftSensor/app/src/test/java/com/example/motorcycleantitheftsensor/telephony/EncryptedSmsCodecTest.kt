@@ -17,6 +17,7 @@ class EncryptedSmsCodecTest {
     @Test
     fun modifiedCiphertextIsRejected() {
         val encrypted = EncryptedSmsCodec.encryptSmsPayload("alert", "secret")
-        assertNull(EncryptedSmsCodec.decryptSmsPayload(encrypted.dropLast(1) + "A", "secret"))
+        val replacement = if (encrypted.last() == 'A') 'B' else 'A'
+        assertNull(EncryptedSmsCodec.decryptSmsPayload(encrypted.dropLast(1) + replacement, "secret"))
     }
 }

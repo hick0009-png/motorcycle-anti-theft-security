@@ -97,6 +97,7 @@ class SensorService : Service(), ServiceEnvironment {
     private lateinit var controller: SensorServiceController
     private lateinit var telegramClient: TelegramBotClient
     private lateinit var telegramRefreshBoundary: TelegramPollingRefreshBoundary
+    private lateinit var heartbeatPinger: com.example.motorcycleantitheftsensor.telegram.HeartbeatPinger
 
     override fun onCreate() {
         super.onCreate()
@@ -120,6 +121,12 @@ class SensorService : Service(), ServiceEnvironment {
             },
             start = telegramClient::startPolling,
         )
+        heartbeatPinger = com.example.motorcycleantitheftsensor.telegram.HeartbeatPinger(
+            context = this,
+            prefsManager = preferences,
+            telegramBotClient = telegramClient,
+        )
+        heartbeatPinger.startHeartbeat()
         acquireWakeLock()
         serviceScope.launch {
             val legacyCleanup = withContext(Dispatchers.IO) {
@@ -509,14 +516,22 @@ class SensorService : Service(), ServiceEnvironment {
     private fun commandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
     override fun onDestroy() {
-        graph.livePursuitCoordinator.abortLocal()
-        serviceScope.cancel()
-        graph.runtime.stopDetectors()
-        stopTelegramPolling()
-        graph.coordinator.recordServiceStopped()
-        wakeLock?.release()
-        wakeLock = null
-        super.onDestroy()
+        try {
+            if (::heartbeatPinger.isInitialized) {
+                heartbeatPinger.stopHeartbeat()
+            }
+            graph.livePursuitCoordinator.abortLocal()
+            serviceScope.cancel()
+            graph.runtime.stopDetectors()
+            stopTelegramPolling()
+            graph.coordinator.recordServiceStopped()
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception during SensorService cleanup", e)
+        } finally {
+            wakeLock?.release()
+            wakeLock = null
+            super.onDestroy()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

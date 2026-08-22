@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -41,8 +42,8 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ARMED_HEALTHY ||
         protection.state == ProtectionState.ARMED_DEGRADED ||
         protection.state == ProtectionState.ALERT_ACTIVE
-    val actionEnabled = !state.protectionOperationInFlight &&
-        (disarmAction || protection.state == ProtectionState.DISARMED_ONLINE)
+    val actionEnabled = (!state.protectionOperationInFlight && protection.state == ProtectionState.DISARMED_ONLINE) ||
+        disarmAction
     val blockingPermissionIssues = protection.permissionBlockers
         .map(::friendlyPermissionExplanation)
         .distinct()
@@ -99,7 +100,15 @@ fun ProtectionScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
-                    Text(if (disarmAction) "Disarm protection" else "Arm protection")
+                    Text(
+                        text = when (protection.state) {
+                            ProtectionState.ALERT_ACTIVE -> "ปิดสัญญาณเตือน (Disarm)"
+                            ProtectionState.ARMING,
+                            ProtectionState.ARMED_HEALTHY,
+                            ProtectionState.ARMED_DEGRADED -> "ปิดระบบป้องกัน (Disarm)"
+                            else -> "เปิดระบบป้องกัน (Arm)"
+                        }
+                    )
                 }
             }
         }
@@ -182,10 +191,39 @@ fun ProtectionScreen(
                 modifier = Modifier.semantics { heading() },
             )
         }
+
+        if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
+            item(key = "audio-runtime-card") {
+                StatusCard(
+                    title = "Audio Threat Runtime",
+                    modifier = Modifier.testTag(AUDIO_RUNTIME_CARD_TAG),
+                ) {
+                    StatusRow("Runtime State", state.audio.state.name.lowercase().replace('_', ' '))
+                    StatusRow("Classifier Model", if (state.audio.modelReady) "Ready" else "Not ready")
+                    StatusRow("Gate State", state.audio.gateState.name.lowercase())
+                    state.audio.approximateLevelDbfs?.let { level ->
+                        StatusRow("Audio Level", "%.1f dBFS".format(java.util.Locale.US, level))
+                    }
+                    state.audio.currentCandidate?.let { candidate ->
+                        StatusRow(
+                            "Threat Candidate",
+                            "${candidate.category.name.lowercase().replace('_', ' ')} (${(candidate.confidence * 100).toInt()}%)",
+                        )
+                    }
+                }
+            }
+        }
+
         items(SensorKind.entries, key = { "sensor-${it.name}" }) { sensor ->
             val health = protection.sensorHealth[sensor]
             StatusCard(title = sensor.displayName()) {
-                if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
+                if (sensor == SensorKind.MICROPHONE) {
+                    Text(com.example.motorcycleantitheftsensor.ui.microphoneHealthText(health))
+                    health?.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
+                    if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
+                        Text("Active: ${state.audio.state.name.lowercase().replace('_', ' ')}")
+                    }
+                } else if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
                     Text("Live samples begin after arming")
                 } else if (health == null) {
                     Text("Unavailable")
@@ -249,12 +287,15 @@ fun ProtectionScreen(
     }
 }
 
+const val AUDIO_RUNTIME_CARD_TAG = "audio-threat-status"
+
 @Composable
 private fun StatusCard(
     title: String,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

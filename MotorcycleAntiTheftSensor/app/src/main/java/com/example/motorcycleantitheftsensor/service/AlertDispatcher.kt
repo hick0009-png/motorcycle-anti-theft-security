@@ -19,9 +19,19 @@ class AlertDispatcher(
     private val smsConfigured: Boolean
 ) {
     fun dispatch(alert: AlertEvent): AlertDispatchResult {
-        if (telegram.send(format(alert))) return AlertDispatchResult.TelegramDelivered
+        val telegramSent = try {
+            telegram.send(format(alert))
+        } catch (_: Exception) {
+            false
+        }
+        if (telegramSent) return AlertDispatchResult.TelegramDelivered
         if (!smsConfigured) return AlertDispatchResult.NoFallbackConfigured
-        return if (sms.send(format(alert))) {
+        val smsSent = try {
+            sms.send(format(alert))
+        } catch (_: Exception) {
+            false
+        }
+        return if (smsSent) {
             AlertDispatchResult.SmsFallbackDelivered
         } else {
             AlertDispatchResult.DeliveryFailed

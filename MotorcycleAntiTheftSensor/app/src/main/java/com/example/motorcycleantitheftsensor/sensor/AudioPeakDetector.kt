@@ -5,116 +5,144 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.SystemClock
-import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.AUDIO_SAMPLE_RATE_HZ
+import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
 import com.example.motorcycleantitheftsensor.protection.SensorObservation
-import java.util.concurrent.atomic.AtomicLong
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioRecorderBackend
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatClassifier
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatPipeline
+import com.example.motorcycleantitheftsensor.sensor.audio.YamNetAudioThreatClassifier
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
+
+class AndroidAudioRecorderBackend(
+    private val sampleRate: Int = AUDIO_SAMPLE_RATE_HZ,
+) : AudioRecorderBackend {
+
+    private val channel = AudioFormat.CHANNEL_IN_MONO
+    private val encoding = AudioFormat.ENCODING_PCM_16BIT
+    private val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channel, encoding)
+    private var audioRecord: AudioRecord? = null
+
+    init {
+        if (minBufferSize > 0) {
+            try {
+                @SuppressLint("MissingPermission")
+                audioRecord = AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    channel,
+                    encoding,
+                    minBufferSize * 2
+                )
+            } catch (_: Exception) {
+                audioRecord = null
+            }
+        }
+    }
+
+    override val initialized: Boolean
+        get() = audioRecord?.state == AudioRecord.STATE_INITIALIZED
+
+    override val recording: Boolean
+        get() = audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING
+
+    @Synchronized
+    override fun start() {
+        try {
+            val recorder = audioRecord
+            if (recorder != null && recorder.state == AudioRecord.STATE_INITIALIZED && recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                recorder.startRecording()
+            }
+        } catch (_: Exception) {}
+    }
+
+    override fun read(target: ShortArray): Int {
+        val recorder = audioRecord ?: return AudioRecord.ERROR_INVALID_OPERATION
+        return recorder.read(
+            target,
+            0,
+            target.size,
+            AudioRecord.READ_BLOCKING,
+        )
+    }
+
+    @Synchronized
+    override fun stop() {
+        try {
+            val recorder = audioRecord
+            if (recorder != null && recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                recorder.stop()
+            }
+        } catch (_: Exception) {}
+    }
+
+    @Synchronized
+    override fun release() {
+        try {
+            val recorder = audioRecord
+            if (recorder != null) {
+                if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    try {
+                        recorder.stop()
+                    } catch (_: Exception) {}
+                }
+                recorder.release()
+            }
+        } catch (_: Exception) {} finally {
+            audioRecord = null
+        }
+    }
+}
 
 /**
  * SEN-04: AudioPeakDetector
- * Reports normalized relative microphone amplitude using AudioRecord.
+ * Manages 16 kHz audio capture and integrates with AudioThreatPipeline.
  */
 class AudioPeakDetector(
-    @Suppress("UNUSED_PARAMETER") context: Context,
+    private val context: Context,
     private val onObservation: (SensorObservation) -> Unit,
+    classifierFactory: (() -> AudioThreatClassifier)? = null,
+    candidateBuffer: AudioThreatCandidateBuffer? = null,
+    onHealthFailure: (String) -> Unit = {},
+    onCandidatesReset: () -> Unit = {},
+    var onTelemetryChanged: ((AudioTelemetry) -> Unit)? = null,
 ) {
+    private val _telemetry = MutableStateFlow(AudioTelemetry.off())
+    val telemetry: StateFlow<AudioTelemetry> = _telemetry.asStateFlow()
 
-    companion object {
-        private const val SAMPLE_RATE = 8000
-        private const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
-        private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
-    }
+    private val resolvedClassifierFactory: () -> AudioThreatClassifier =
+        classifierFactory ?: { YamNetAudioThreatClassifier(context) }
 
-    private var audioRecord: AudioRecord? = null
-    @Volatile
-    private var isRecording = false
-    private val sessionEpoch = AtomicLong(0L)
-    @Volatile
-    private var recordingThread: Thread? = null
+    val candidateBuffer = candidateBuffer ?: AudioThreatCandidateBuffer()
 
-    @SuppressLint("MissingPermission")
-    @Synchronized
-    fun startListening(): Boolean {
-        if (isRecording || recordingThread?.isAlive == true) return true
-
-        val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, ENCODING)
-        if (minBufferSize <= 0) return false
-
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            CHANNEL,
-            ENCODING,
-            minBufferSize * 2
+    private val pipeline: AudioThreatPipeline by lazy {
+        AudioThreatPipeline(
+            recorderBackendFactory = { AndroidAudioRecorderBackend() },
+            classifierFactory = resolvedClassifierFactory,
+            candidateBuffer = this.candidateBuffer,
+            onCandidate = onObservation,
+            onTelemetry = {
+                _telemetry.value = it
+                onTelemetryChanged?.invoke(it)
+            },
+            onHealthFailure = onHealthFailure,
+            onCandidatesReset = onCandidatesReset,
         )
-
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            audioRecord?.release()
-            audioRecord = null
-            return false
-        }
-
-        audioRecord?.startRecording()
-        val epoch = sessionEpoch.incrementAndGet()
-        isRecording = true
-
-        val recorder = audioRecord ?: return false
-        recordingThread = Thread {
-            val buffer = ShortArray(minBufferSize)
-            try {
-                while (isRecording && epoch == sessionEpoch.get()) {
-                    val readSize = recorder.read(buffer, 0, buffer.size)
-                    if (readSize > 0) {
-                        var sum = 0.0
-                        for (i in 0 until readSize) {
-                            sum += buffer[i] * buffer[i]
-                        }
-                        val amplitude = Math.sqrt(sum / readSize) / Short.MAX_VALUE.toDouble()
-                        onObservation(
-                            SensorObservation(
-                                kind = SensorKind.MICROPHONE,
-                                eventElapsedMs = SystemClock.elapsedRealtime(),
-                                wallClockMs = System.currentTimeMillis(),
-                                normalizedValue = amplitude.coerceIn(0.0, 1.0),
-                                baselineDelta = 0.0,
-                                valid = amplitude.isFinite(),
-                                diagnostic = "relative_amplitude",
-                            ),
-                        )
-                    }
-                    Thread.sleep(200)
-                }
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-            } catch (_: IllegalStateException) {
-                // stopListening can stop AudioRecord to unblock a pending read.
-            } finally {
-                recorder.release()
-                synchronized(this@AudioPeakDetector) {
-                    if (epoch == sessionEpoch.get()) isRecording = false
-                    if (audioRecord === recorder) audioRecord = null
-                    if (recordingThread === Thread.currentThread()) recordingThread = null
-                }
-            }
-        }
-        recordingThread?.start()
-        return true
     }
 
-    @Synchronized
+    fun startListening(armedSessionId: String = UUID.randomUUID().toString()): Boolean {
+        return pipeline.start(armedSessionId)
+    }
+
     fun stopListening() {
-        sessionEpoch.incrementAndGet()
-        isRecording = false
-        val worker = recordingThread
-        try {
-            audioRecord?.stop()
-        } catch (_: IllegalStateException) {
-            // The recorder may already have stopped on its worker thread.
-        }
-        worker?.interrupt()
-        if (worker == null) {
-            audioRecord?.release()
-            audioRecord = null
-        }
+        pipeline.stop()
+    }
+
+    fun freezeAdaptation(nowElapsedMs: Long) {
+        pipeline.freezeAdaptation(nowElapsedMs)
     }
 }

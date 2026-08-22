@@ -196,7 +196,7 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_ARM_APPLIED -> GuidanceContent(
-                titleTh = "กำลังเปิดการป้องกัน…",
+                titleTh = "เปิดการป้องกันแล้ว",
                 bodyTh = "กำลังเปิดการป้องกัน…",
                 telegramTh = "✅ กำลังเปิดการป้องกัน โปรดรอการปรับเทียบเซนเซอร์",
                 severity = GuidanceSeverity.INFO,
@@ -204,8 +204,8 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_ARM_REJECTED -> GuidanceContent(
-                titleTh = "banner + action จาก reason",
-                bodyTh = "banner + action จาก reason",
+                titleTh = "ไม่สามารถเปิดการป้องกันได้",
+                bodyTh = "ไม่สามารถเปิดการป้องกันได้: {safeReason}",
                 telegramTh = "⚠️ เปิดการป้องกันไม่ได้: {safeReason}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -220,8 +220,8 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_DISARM_REJECTED -> GuidanceContent(
-                titleTh = "banner + action จาก reason",
-                bodyTh = "banner + action จาก reason",
+                titleTh = "ไม่สามารถปลดการป้องกันได้",
+                bodyTh = "ไม่สามารถปลดการป้องกันได้: {safeReason}",
                 telegramTh = "⚠️ ปลดการป้องกันไม่ได้: {safeReason}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -252,7 +252,7 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_UNKNOWN -> GuidanceContent(
-                titleTh = "ไม่มี",
+                titleTh = "คำสั่งไม่สำเร็จ",
                 bodyTh = "ไม่มี",
                 telegramTh = "ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 severity = GuidanceSeverity.INFO,
@@ -310,7 +310,7 @@ object UserGuidanceCatalog {
             GuidanceCode.INCIDENT_ESCALATED -> GuidanceContent(
                 titleTh = "เหตุการณ์รุนแรงขึ้น",
                 bodyTh = "{incidentType}",
-                telegramTh = "🚨 เหตุการณ์รุนแรงขึ้น: {incidentType}",
+                telegramTh = "🚨 เหตุยกระดับเป็นวิกฤต: {incidentType}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false

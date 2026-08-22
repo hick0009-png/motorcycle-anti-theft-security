@@ -14,18 +14,49 @@ import com.example.motorcycleantitheftsensor.sensor.LocationObservationProvider
 import com.example.motorcycleantitheftsensor.sensor.PowerThermalMonitor
 import com.example.motorcycleantitheftsensor.sensor.VibrationDetector
 
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController
+import com.example.motorcycleantitheftsensor.sensor.SensorCapabilityController
+import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
+import com.example.motorcycleantitheftsensor.sensor.SensorHandlerOwner
+
 interface AndroidDetectorSet {
+    val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
+    val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> get() = MutableStateFlow(emptyMap())
+
     fun start(): DetectorStartResult
+
+    fun start(armedSessionId: String): DetectorStartResult = start()
 
     fun stop()
 
     fun applySensitivity(level: Int)
+
+    fun freezeAudioAdaptation(nowElapsedMs: Long) {}
 
     fun currentSensorHealth(): Map<SensorKind, SensorHealth>
 
     fun currentLocationObservation(): SensorObservation? = null
 
     fun currentIncidentLocation(): IncidentLocation? = null
+
+    fun applySensorConfiguration(config: SensorFusionConfiguration): SensorConfigurationApplyResult =
+        SensorConfigurationApplyResult(
+            status = SensorConfigurationApplyResult.Status.APPLIED,
+            affectedCapabilities = emptySet(),
+        )
+
+    fun effectiveSensorConfiguration(): SensorFusionConfiguration =
+        SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED)
+
+    fun currentGenerationId(): Long = 0L
+
+    fun sourceHealth(source: SensorSource): SensorHealthState =
+        currentSensorHealth()[if (source.capability == SensorCapability.LIGHT) SensorKind.LIGHT else SensorKind.VIBRATION]?.state
+            ?: SensorHealthState.UNAVAILABLE
 }
 
 data class IncidentObservationBatch(
@@ -45,11 +76,22 @@ class AndroidProtectionRuntime(
 ) : ProtectionRuntime {
     private val detectors = detectorFactory(::handleObservation)
 
+    override val audioTelemetry: StateFlow<AudioTelemetry>
+        get() = detectors.audioTelemetry
+
+    override val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>>
+        get() = detectors.sensorHealth
+
     override fun readiness(): ReadinessReport = readinessProvider()
 
     override fun startDetectors(): DetectorStartResult {
         observationProcessor.resetSession()
         return detectors.start()
+    }
+
+    override fun startDetectors(armedSessionId: String): DetectorStartResult {
+        observationProcessor.resetSession()
+        return detectors.start(armedSessionId)
     }
 
     override fun stopDetectors() {
@@ -61,7 +103,21 @@ class AndroidProtectionRuntime(
         observationProcessor.setVibrationSensitivity(level)
     }
 
+    override fun applySensorConfiguration(config: SensorFusionConfiguration): SensorConfigurationApplyResult {
+        val result = detectors.applySensorConfiguration(config)
+        observationProcessor.setVibrationSensitivity(config.capability(SensorCapability.MOVEMENT).sensitivity)
+        return result
+    }
+
+    override fun effectiveSensorConfiguration(): SensorFusionConfiguration =
+        detectors.effectiveSensorConfiguration()
+
+    override fun currentGenerationId(): Long = detectors.currentGenerationId()
+
     override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = detectors.currentSensorHealth()
+
+    override fun sourceHealth(source: SensorSource): SensorHealthState = detectors.sourceHealth(source)
+
 
     private fun handleObservation(observation: SensorObservation) {
         val nowElapsedMs = elapsedClock.nowMs()
@@ -81,6 +137,11 @@ class AndroidProtectionRuntime(
             )
         ) {
             is ObservationDecision.Accepted -> {
+                if (decision.observation.kind == SensorKind.VIBRATION ||
+                    (decision.observation.kind == SensorKind.POWER_THERMAL && decision.observation.diagnostic?.contains("charger_disconnect") == true)
+                ) {
+                    detectors.freezeAudioAdaptation(decision.observation.eventElapsedMs)
+                }
                 val supplementalEvidence = if (decision.observation.kind == SensorKind.LOCATION) {
                     emptyList()
                 } else {
@@ -180,25 +241,139 @@ class PlatformAndroidDetectorSet(
     context: Context,
     private val location: LocationObservationProvider,
     private val onObservation: (SensorObservation) -> Unit,
+    audioCandidateBuffer: AudioThreatCandidateBuffer = AudioThreatCandidateBuffer(),
+    onAudioCandidatesReset: () -> Unit = {},
+    private val handlerOwner: SensorHandlerOwner = SensorHandlerOwner("SensorThread"),
+    private val controller: SensorCapabilityController = DefaultSensorCapabilityController(
+        sensorManager = context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager,
+        handlerOwner = handlerOwner,
+    ),
 ) : AndroidDetectorSet {
     private val applicationContext = context.applicationContext
-    private val sensorManager = applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val sensorManager = applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
     private val packageManager = applicationContext.packageManager
+    private val healthLock = Any()
+    private val lifecycleLock = Any()
     private val health = mutableMapOf<SensorKind, SensorHealth>()
+    private val _sensorHealth = MutableStateFlow<Map<SensorKind, SensorHealth>>(emptyMap())
+    override val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> = _sensorHealth.asStateFlow()
+    @Volatile
+    private var sensitivityLevel: Int = 5
+
     private val vibration = VibrationDetector(applicationContext, ::record)
     private val light = LightIntrusionDetector(applicationContext, ::record)
-    private val powerThermal = PowerThermalMonitor(applicationContext, ::record)
-    private val audio = AudioPeakDetector(applicationContext, ::record)
+    private val powerThermal = PowerThermalMonitor(
+        context = applicationContext,
+        onObservation = ::record,
+        onStatusChanged = { status ->
+            publishHealth(
+                SensorKind.POWER_THERMAL,
+                SensorHealth(
+                    state = if (status.sourceAvailable && status.isRegistered) SensorHealthState.HEALTHY else SensorHealthState.UNAVAILABLE,
+                    lastSampleAtMs = status.observedAtWallClockMs,
+                    powerThermalDetail = PowerThermalHealthDetail(
+                        sourceAvailable = status.sourceAvailable,
+                        isRegistered = status.isRegistered,
+                        chargingState = status.chargingState,
+                        batteryLevelPercent = status.batteryLevelPercent,
+                        temperatureCelsius = status.temperatureCelsius,
+                        lastUpdateWallClockMs = status.observedAtWallClockMs,
+                    ),
+                ),
+            )
+        },
+    )
+    private val audio = AudioPeakDetector(
+        context = applicationContext,
+        onObservation = ::record,
+        onHealthFailure = { detail ->
+            publishHealth(
+                SensorKind.MICROPHONE,
+                SensorHealth(
+                    state = SensorHealthState.FAILED,
+                    detail = detail,
+                    microphoneDetail = MicrophoneHealthDetail(
+                        audioState = AudioRuntimeState.OFF,
+                        isRegistered = false,
+                        modelReady = false,
+                        failureReason = detail,
+                    ),
+                ),
+            )
+        },
+        candidateBuffer = audioCandidateBuffer,
+        onCandidatesReset = onAudioCandidatesReset,
+        onTelemetryChanged = { telemetry ->
+            val micHardware = packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
+            val micPerm = hasAudioPermission()
+            val state = when {
+                !micHardware || !micPerm -> SensorHealthState.UNAVAILABLE
+                telemetry.state == AudioRuntimeState.LISTENING -> SensorHealthState.HEALTHY
+                telemetry.state == AudioRuntimeState.CALIBRATING || telemetry.state == AudioRuntimeState.STARTING -> SensorHealthState.AVAILABLE
+                telemetry.state == AudioRuntimeState.OFF -> SensorHealthState.AVAILABLE
+                else -> SensorHealthState.FAILED
+            }
+            val existingMic = synchronized(healthLock) { health[SensorKind.MICROPHONE]?.microphoneDetail }
+            val lastElapsed = if (telemetry.lastSampleAtMs != null) {
+                SystemClock.elapsedRealtime()
+            } else {
+                existingMic?.lastAudioSampleElapsedMs
+            }
+            val isRunning = running
+            publishHealth(
+                SensorKind.MICROPHONE,
+                SensorHealth(
+                    state = state,
+                    lastSampleAtMs = telemetry.lastSampleAtMs,
+                    detail = telemetry.detailCode,
+                    microphoneDetail = MicrophoneHealthDetail(
+                        audioState = telemetry.state,
+                        isRegistered = isRunning && (telemetry.state == AudioRuntimeState.LISTENING || telemetry.state == AudioRuntimeState.CALIBRATING || telemetry.state == AudioRuntimeState.STARTING),
+                        modelReady = telemetry.modelReady,
+                        lastAudioSampleElapsedMs = lastElapsed,
+                        lastAudioSampleAtMs = telemetry.lastSampleAtMs,
+                        hardwareAvailable = micHardware,
+                        permissionGranted = micPerm,
+                        failureReason = telemetry.detailCode,
+                    ),
+                ),
+            )
+        },
+    )
+    @Volatile
     private var running = false
 
     init {
-        health[SensorKind.VIBRATION] = availability(
-            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null,
+        val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+        health[SensorKind.VIBRATION] = SensorHealth(
+            state = if (hasAcc) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+            vibrationDetail = VibrationHealthDetail(
+                hardwareAvailable = hasAcc,
+                isRegistered = false,
+                failureReason = if (!hasAcc) "hardware unavailable" else null,
+            ),
         )
-        health[SensorKind.LIGHT] = availability(
-            sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) != null,
+        val hasLight = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null
+        health[SensorKind.LIGHT] = SensorHealth(
+            state = if (hasLight) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+            lightDetail = LightHealthDetail(
+                hardwareSupported = hasLight,
+                isRegistered = false,
+                failureReason = if (!hasLight) "hardware unavailable" else null,
+            ),
         )
-        health[SensorKind.POWER_THERMAL] = availability(true)
+        val initialPower = PowerThermalMonitor.queryInitialStatus(applicationContext)
+        health[SensorKind.POWER_THERMAL] = SensorHealth(
+            state = if (initialPower.sourceAvailable) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+            powerThermalDetail = PowerThermalHealthDetail(
+                sourceAvailable = initialPower.sourceAvailable,
+                isRegistered = false,
+                chargingState = initialPower.chargingState,
+                batteryLevelPercent = initialPower.batteryLevelPercent,
+                temperatureCelsius = initialPower.temperatureCelsius,
+                lastUpdateWallClockMs = initialPower.observedAtWallClockMs,
+            ),
+        )
         val microphoneHardwareAvailable =
             packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)
         val microphonePermissionGranted = hasAudioPermission()
@@ -213,70 +388,222 @@ class PlatformAndroidDetectorSet(
                 !microphonePermissionGranted -> "permission unavailable"
                 else -> null
             },
+            microphoneDetail = MicrophoneHealthDetail(
+                audioState = AudioRuntimeState.OFF,
+                isRegistered = false,
+                modelReady = false,
+                hardwareAvailable = microphoneHardwareAvailable,
+                permissionGranted = microphonePermissionGranted,
+                failureReason = when {
+                    !microphoneHardwareAvailable -> "hardware unavailable"
+                    !microphonePermissionGranted -> "permission unavailable"
+                    else -> null
+                },
+            ),
         )
-        health[SensorKind.LOCATION] = availability(
-            packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION) && hasLocationPermission(),
+        val hasLocationHw = packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION)
+        val hasLocationPerm = hasLocationPermission()
+        health[SensorKind.LOCATION] = SensorHealth(
+            state = if (hasLocationHw && hasLocationPerm) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+            locationDetail = LocationHealthDetail(
+                trackingState = LocationTrackingState.STOPPED,
+                isRegistered = false,
+                hardwareAvailable = hasLocationHw,
+                permissionGranted = hasLocationPerm,
+                failureCode = when {
+                    !hasLocationHw -> LocationFailureCode.HARDWARE_UNAVAILABLE
+                    !hasLocationPerm -> LocationFailureCode.PERMISSION_DENIED
+                    else -> null
+                },
+                failureReason = when {
+                    !hasLocationHw -> "hardware unavailable"
+                    !hasLocationPerm -> "permission unavailable"
+                    else -> null
+                },
+            ),
         )
+        _sensorHealth.value = health.toMap()
     }
 
-    @Synchronized
-    override fun start(): DetectorStartResult {
-        if (running) return DetectorStartResult(started = true)
-        if (sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) == null) {
-            return DetectorStartResult(started = false, failureReason = "ACCELEROMETER unavailable")
-        }
-        return try {
-            if (!vibration.startListening()) {
-                return DetectorStartResult(
-                    started = false,
-                    failureReason = "ACCELEROMETER listener registration failed",
+    override val audioTelemetry: StateFlow<AudioTelemetry>
+        get() = audio.telemetry
+
+    override fun start(): DetectorStartResult = start(java.util.UUID.randomUUID().toString())
+
+    override fun start(armedSessionId: String): DetectorStartResult {
+        val initialLocationObs: SensorObservation?
+        synchronized(lifecycleLock) {
+            if (running) return DetectorStartResult(started = true)
+            val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+            if (!hasAcc) {
+                publishHealth(
+                    SensorKind.VIBRATION,
+                    SensorHealth(
+                        state = SensorHealthState.UNAVAILABLE,
+                        vibrationDetail = VibrationHealthDetail(
+                            hardwareAvailable = false,
+                            isRegistered = false,
+                            failureReason = "ACCELEROMETER unavailable",
+                        ),
+                    ),
                 )
-            }
-            startOptional(SensorKind.LIGHT) {
-                sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT) != null && light.startListening()
-            }
-            startOptional(SensorKind.POWER_THERMAL, powerThermal::startMonitoring)
-            startOptional(SensorKind.MICROPHONE) {
-                packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) &&
-                    hasAudioPermission() &&
-                    audio.startListening()
+                return DetectorStartResult(started = false, failureReason = "ACCELEROMETER unavailable")
             }
             try {
-                record(location.currentObservation())
+                val controllerResult = controller.start(controller.getEffectiveConfiguration()) { sampleObs ->
+                    record(sampleObs)
+                }
+                if (controllerResult.status == SensorConfigurationApplyResult.Status.REJECTED) {
+                    return DetectorStartResult(
+                        started = false,
+                        failureReason = "Sensor controller startup rejected",
+                    )
+                }
+                running = true
+                publishHealth(
+                    SensorKind.VIBRATION,
+                    SensorHealth(
+                        state = controller.getEffectiveHealth(SensorSource.ACCELEROMETER),
+                        vibrationDetail = VibrationHealthDetail(
+                            hardwareAvailable = true,
+                            isRegistered = true,
+                        ),
+                    ),
+                )
+                startOptional(SensorKind.LIGHT) {
+                    val hasLight = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null
+                    if (hasLight) {
+                        publishHealth(
+                            SensorKind.LIGHT,
+                            SensorHealth(
+                                state = controller.getEffectiveHealth(SensorSource.AMBIENT_LIGHT),
+                                lightDetail = LightHealthDetail(
+                                    hardwareSupported = true,
+                                    isRegistered = true,
+                                ),
+                            ),
+                        )
+                        true
+                    } else false
+                }
+                startOptional(SensorKind.POWER_THERMAL, powerThermal::startMonitoring)
+                startOptional(SensorKind.MICROPHONE) {
+                    packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) &&
+                        hasAudioPermission() &&
+                        audio.startListening(armedSessionId)
+                }
+                initialLocationObs = try {
+                    location.currentObservation()
+                } catch (error: RuntimeException) {
+                    markFailed(SensorKind.LOCATION, error)
+                    null
+                }
+            } catch (error: RuntimeException) {
+                stop()
+                return DetectorStartResult(
+                    started = false,
+                    failureReason = error.message ?: "Detector startup failed",
+                )
+            }
+        }
+        initialLocationObs?.let { obs ->
+            try {
+                record(obs)
             } catch (error: RuntimeException) {
                 markFailed(SensorKind.LOCATION, error)
             }
-            running = true
-            DetectorStartResult(started = true)
-        } catch (error: RuntimeException) {
-            stop()
-            DetectorStartResult(
-                started = false,
-                failureReason = error.message ?: "Detector startup failed",
+        }
+        return DetectorStartResult(started = true)
+    }
+
+    override fun stop() {
+        synchronized(lifecycleLock) {
+            running = false
+            controller.stop()
+            vibration.stopListening()
+            val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+            publishHealth(
+                SensorKind.VIBRATION,
+                SensorHealth(
+                    state = if (hasAcc) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+                    vibrationDetail = VibrationHealthDetail(
+                        hardwareAvailable = hasAcc,
+                        isRegistered = false,
+                    ),
+                ),
             )
+            light.stopListening()
+            val hasLight = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null
+            publishHealth(
+                SensorKind.LIGHT,
+                SensorHealth(
+                    state = if (hasLight) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
+                    lightDetail = LightHealthDetail(
+                        hardwareSupported = hasLight,
+                        isRegistered = false,
+                    ),
+                ),
+            )
+            powerThermal.stopMonitoring()
+            audio.stopListening()
         }
     }
 
-    @Synchronized
-    override fun stop() {
-        vibration.stopListening()
-        light.stopListening()
-        powerThermal.stopMonitoring()
-        audio.stopListening()
-        running = false
-    }
-
     override fun applySensitivity(level: Int) {
-        vibration.setSensitivity(level)
+        val clamped = level.coerceIn(1, 10)
+        this.sensitivityLevel = clamped
+        vibration.setSensitivity(clamped)
+        val current = controller.getEffectiveConfiguration()
+        val policy = SensorConfigurationPolicy()
+        val updated = policy.withGroupSensitivity(
+            config = policy.withGroupSensitivity(current, SensorCapability.MOVEMENT, clamped),
+            capability = SensorCapability.LIGHT,
+            sensitivity = clamped,
+        )
+        controller.applyConfigurationDiff(updated)
     }
 
-    @Synchronized
-    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = health.toMap()
+    override fun applySensorConfiguration(config: SensorFusionConfiguration): SensorConfigurationApplyResult {
+        val res = controller.applyConfigurationDiff(config)
+        synchronized(healthLock) {
+            health[SensorKind.VIBRATION] = SensorHealth(
+                state = controller.getEffectiveHealth(SensorSource.ACCELEROMETER),
+                vibrationDetail = VibrationHealthDetail(
+                    hardwareAvailable = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null,
+                    isRegistered = running,
+                ),
+            )
+            health[SensorKind.LIGHT] = SensorHealth(
+                state = controller.getEffectiveHealth(SensorSource.AMBIENT_LIGHT),
+                lightDetail = LightHealthDetail(
+                    hardwareSupported = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null,
+                    isRegistered = running,
+                ),
+            )
+            _sensorHealth.value = health.toMap()
+        }
+        return res
+    }
 
-    @Synchronized
+    override fun effectiveSensorConfiguration(): SensorFusionConfiguration =
+        controller.getEffectiveConfiguration()
+
+    override fun currentGenerationId(): Long = controller.currentGenerationId()
+
+    override fun sourceHealth(source: SensorSource): SensorHealthState = controller.getEffectiveHealth(source)
+
+    override fun freezeAudioAdaptation(nowElapsedMs: Long) {
+        audio.freezeAdaptation(nowElapsedMs)
+    }
+
+    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> {
+        val current = synchronized(healthLock) { health.toMutableMap() }
+        current[SensorKind.LOCATION] = location.trackingHealth.value.toSensorHealth()
+        return current
+    }
+
     override fun currentLocationObservation(): SensorObservation = location.currentObservation().also(::updateHealth)
 
-    @Synchronized
     override fun currentIncidentLocation(): IncidentLocation? {
         val nowElapsedMs = SystemClock.elapsedRealtime()
         val fix = location.currentUsableFix(nowElapsedMs) ?: return null
@@ -288,26 +615,100 @@ class PlatformAndroidDetectorSet(
         )
     }
 
-    @Synchronized
     private fun record(observation: SensorObservation) {
         updateHealth(observation)
         onObservation(observation)
     }
 
+    private fun publishHealth(kind: SensorKind, newHealth: SensorHealth) {
+        val currentMap = synchronized(healthLock) {
+            health[kind] = newHealth
+            val map = health.toMutableMap()
+            map[SensorKind.LOCATION] = location.trackingHealth.value.toSensorHealth()
+            map
+        }
+        _sensorHealth.value = currentMap
+    }
+
     private fun updateHealth(observation: SensorObservation) {
-        val unavailableLocation = observation.kind == SensorKind.LOCATION &&
-            observation.diagnostic?.startsWith("fix ") != true
         val ageMs = SystemClock.elapsedRealtime() - observation.eventElapsedMs
-        health[observation.kind] = SensorHealth(
-            state = when {
-                !observation.valid -> SensorHealthState.FAILED
-                ageMs < 0L || ageMs > SENSOR_SAMPLE_FRESHNESS_MS -> SensorHealthState.STALE
-                unavailableLocation -> SensorHealthState.UNAVAILABLE
-                else -> SensorHealthState.HEALTHY
-            },
-            lastSampleAtMs = observation.wallClockMs,
-            detail = observation.diagnostic,
-        )
+        val baseState = when {
+            !observation.valid -> SensorHealthState.FAILED
+            ageMs < 0L || ageMs > SENSOR_SAMPLE_FRESHNESS_MS -> SensorHealthState.STALE
+            else -> SensorHealthState.HEALTHY
+        }
+        val isRunning = running
+        val telem = if (observation.kind == SensorKind.MICROPHONE) audio.telemetry.value else null
+        val locHealth = if (observation.kind == SensorKind.LOCATION) location.trackingHealth.value.toSensorHealth() else null
+        val currentMap = synchronized(healthLock) {
+            val existing = health[observation.kind]
+            val updated = when (observation.kind) {
+                SensorKind.VIBRATION -> SensorHealth(
+                    state = baseState,
+                    lastSampleAtMs = observation.wallClockMs,
+                    detail = observation.diagnostic,
+                    vibrationDetail = VibrationHealthDetail(
+                        hardwareAvailable = existing?.vibrationDetail?.hardwareAvailable ?: true,
+                        isRegistered = isRunning,
+                        lastSampleWallClockMs = observation.wallClockMs,
+                        lastSampleElapsedMs = observation.eventElapsedMs,
+                        failureReason = if (!observation.valid) observation.diagnostic else null,
+                    ),
+                )
+                SensorKind.LIGHT -> SensorHealth(
+                    state = baseState,
+                    lastSampleAtMs = observation.wallClockMs,
+                    detail = observation.diagnostic,
+                    lightDetail = LightHealthDetail(
+                        hardwareSupported = existing?.lightDetail?.hardwareSupported ?: true,
+                        isRegistered = isRunning,
+                        lastLux = observation.normalizedValue,
+                        lastSampleWallClockMs = observation.wallClockMs,
+                        lastSampleElapsedMs = observation.eventElapsedMs,
+                        failureReason = if (!observation.valid) observation.diagnostic else null,
+                    ),
+                )
+                SensorKind.MICROPHONE -> {
+                    SensorHealth(
+                        state = baseState,
+                        lastSampleAtMs = observation.wallClockMs,
+                        detail = observation.diagnostic,
+                        microphoneDetail = MicrophoneHealthDetail(
+                            audioState = telem?.state ?: AudioRuntimeState.OFF,
+                            isRegistered = isRunning && (telem?.state == AudioRuntimeState.LISTENING || telem?.state == AudioRuntimeState.CALIBRATING || telem?.state == AudioRuntimeState.STARTING),
+                            modelReady = telem?.modelReady ?: false,
+                            lastAudioSampleElapsedMs = observation.eventElapsedMs,
+                            lastAudioSampleAtMs = observation.wallClockMs,
+                            hardwareAvailable = existing?.microphoneDetail?.hardwareAvailable ?: true,
+                            permissionGranted = existing?.microphoneDetail?.permissionGranted ?: true,
+                            failureReason = if (!observation.valid) observation.diagnostic else null,
+                        ),
+                    )
+                }
+                SensorKind.LOCATION -> {
+                    val lh = locHealth ?: location.trackingHealth.value.toSensorHealth()
+                    lh.copy(
+                        detail = observation.diagnostic ?: lh.detail,
+                    )
+                }
+                SensorKind.POWER_THERMAL -> SensorHealth(
+                    state = SensorHealthState.HEALTHY,
+                    lastSampleAtMs = observation.wallClockMs,
+                    detail = observation.diagnostic,
+                    powerThermalDetail = existing?.powerThermalDetail?.copy(
+                        lastUpdateWallClockMs = observation.wallClockMs,
+                    ) ?: PowerThermalHealthDetail(
+                        chargingState = ChargingState.UNKNOWN,
+                        lastUpdateWallClockMs = observation.wallClockMs,
+                    ),
+                )
+            }
+            health[observation.kind] = updated
+            val map = health.toMutableMap()
+            map[SensorKind.LOCATION] = location.trackingHealth.value.toSensorHealth()
+            map
+        }
+        _sensorHealth.value = currentMap
     }
 
     private fun startOptional(
@@ -316,10 +717,21 @@ class PlatformAndroidDetectorSet(
     ) {
         try {
             if (!starter()) {
-                health[kind] = SensorHealth(
+                val existing: SensorHealth? = synchronized(healthLock) { health[kind] }
+                val detailMsg = "listener unavailable"
+                val updated = existing?.copy(
                     state = SensorHealthState.UNAVAILABLE,
-                    detail = "listener unavailable",
+                    detail = detailMsg,
+                    vibrationDetail = existing.vibrationDetail?.copy(isRegistered = false, failureReason = detailMsg),
+                    lightDetail = existing.lightDetail?.copy(isRegistered = false, failureReason = detailMsg),
+                    powerThermalDetail = existing.powerThermalDetail?.copy(isRegistered = false),
+                    microphoneDetail = existing.microphoneDetail?.copy(isRegistered = false, failureReason = detailMsg),
+                    locationDetail = existing.locationDetail?.copy(isRegistered = false, failureReason = detailMsg),
+                ) ?: SensorHealth(
+                    state = SensorHealthState.UNAVAILABLE,
+                    detail = detailMsg,
                 )
+                publishHealth(kind, updated)
             }
         } catch (error: RuntimeException) {
             markFailed(kind, error)
@@ -330,15 +742,22 @@ class PlatformAndroidDetectorSet(
         kind: SensorKind,
         error: RuntimeException,
     ) {
-        health[kind] = SensorHealth(
+        val existing: SensorHealth? = synchronized(healthLock) { health[kind] }
+        val errorMsg = error.message ?: "startup failed"
+        val updated = existing?.copy(
             state = SensorHealthState.FAILED,
-            detail = error.message ?: "startup failed",
+            detail = errorMsg,
+            vibrationDetail = existing.vibrationDetail?.copy(isRegistered = false, failureReason = errorMsg),
+            lightDetail = existing.lightDetail?.copy(isRegistered = false, failureReason = errorMsg),
+            powerThermalDetail = existing.powerThermalDetail?.copy(isRegistered = false),
+            microphoneDetail = existing.microphoneDetail?.copy(isRegistered = false, failureReason = errorMsg),
+            locationDetail = existing.locationDetail?.copy(isRegistered = false, failureReason = errorMsg),
+        ) ?: SensorHealth(
+            state = SensorHealthState.FAILED,
+            detail = errorMsg,
         )
+        publishHealth(kind, updated)
     }
-
-    private fun availability(available: Boolean): SensorHealth = SensorHealth(
-        state = if (available) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
-    )
 
     private fun hasAudioPermission(): Boolean = applicationContext.checkSelfPermission(
         Manifest.permission.RECORD_AUDIO,

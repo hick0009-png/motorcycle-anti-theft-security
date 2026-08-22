@@ -89,4 +89,7 @@ dependencies {
 
   // Networking (OkHttp with CertificatePinner)
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+  // MediaPipe Tasks Audio
+  implementation(libs.mediapipe.tasks.audio)
 }

@@ -3,10 +3,13 @@ package com.example.motorcycleantitheftsensor.protection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,6 +64,46 @@ class ProtectionCoordinatorTest {
         val result = pending.await()
         assertEquals(CommandOutcome.APPLIED, result.outcome)
         assertEquals(ProtectionState.ARMED_DEGRADED, result.resultingState)
+    }
+
+    @Test
+    fun healthyPrimaryDoesNotSkipMandatoryArmingDelay() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            sourceHealthMap = mapOf(SensorSource.ACCELEROMETER to SensorHealthState.HEALTHY),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { gate.await() })
+
+        val pending = async { coordinator.arm("mandatory-delay", CommandOrigin.LOCAL) }
+        runCurrent()
+
+        assertFalse(pending.isCompleted)
+        assertEquals(ProtectionState.ARMING, coordinator.snapshot.value.state)
+
+        gate.complete(Unit)
+        assertEquals(CommandOutcome.APPLIED, pending.await().outcome)
+    }
+
+    @Test
+    fun oneReadyPrimaryAllowsArmWhenAnotherPrimaryIsUnavailable() = runTest {
+        val config = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            sourceHealthMap = mapOf(
+                SensorSource.ACCELEROMETER to SensorHealthState.HEALTHY,
+                SensorSource.AMBIENT_LIGHT to SensorHealthState.UNAVAILABLE,
+            ),
+            effectiveConfiguration = config,
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+
+        val result = coordinator.arm("one-ready-primary", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertTrue(result.resultingState in setOf(ProtectionState.ARMED_HEALTHY, ProtectionState.ARMED_DEGRADED))
     }
 
     @Test
@@ -220,7 +263,7 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
-    fun sensitivityIsValidatedAndAppliedToRunningRuntime() {
+    fun sensitivityIsValidatedAndAppliedToRunningRuntime() = runTest {
         val runtime = FakeRuntime(
             readiness = ReadinessReport(emptySet(), emptySet()),
             health = healthyVibration(),
@@ -230,6 +273,28 @@ class ProtectionCoordinatorTest {
         assertEquals(CommandOutcome.REJECTED, coordinator.changeSensitivity("bad", 11).outcome)
         assertEquals(CommandOutcome.APPLIED, coordinator.changeSensitivity("ok", 7).outcome)
         assertEquals(7, runtime.appliedSensitivity)
+    }
+
+    @Test
+    fun configurationPersistenceFailureRejectsUpdateSensorConfigurationAndDegradesState() = runTest {
+        val failingRepo = object : SensorConfigurationRepository {
+            override fun hasPersistedConfiguration(): Boolean = true
+            override fun loadConfiguration(): SensorFusionConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED)
+            override fun saveConfiguration(config: SensorFusionConfiguration): Result<Unit> =
+                Result.failure(java.io.IOException("Disk full"))
+        }
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = ProtectionSnapshot.offline(0L),
+            runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()), healthyVibration()),
+            armingDelay = ArmingDelay { },
+            clock = ProtectionClock { 1_000L },
+            sensorRepository = failingRepo,
+        )
+
+        val result = coordinator.changeSensitivity("sens-cmd", 8)
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertTrue(result.reason.contains("Failed to persist sensitivity configuration"))
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains("SNAPSHOT persistence unavailable"))
     }
 
     @Test
@@ -683,11 +748,375 @@ class ProtectionCoordinatorTest {
         assertEquals(ProtectionState.ARMED_HEALTHY, coordinator.snapshot.value.state)
         assertTrue(coordinator.snapshot.value.degradationReasons.isEmpty())
     }
+
+
+    @Test
+    fun armAssignsSessionIdAndDisarmClearsIt() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+
+        assertEquals(null, coordinator.currentArmedSessionId())
+
+        coordinator.arm("cmd-1", CommandOrigin.LOCAL)
+        val sessionId = coordinator.currentArmedSessionId()
+        assertTrue(!sessionId.isNullOrBlank())
+
+        coordinator.disarm("cmd-2", CommandOrigin.LOCAL)
+        assertEquals(null, coordinator.currentArmedSessionId())
+    }
+
+    @Test
+    fun typedHealthUpdatePreservesDetailsAndIncrementsOneRevision() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        val detail = MicrophoneHealthDetail(
+            audioState = AudioRuntimeState.LISTENING,
+            isRegistered = true,
+            modelReady = true,
+            lastAudioSampleElapsedMs = 900L,
+        )
+        val before = c.snapshot.value.revision
+        c.recordSensorHealth(
+            SensorKind.MICROPHONE,
+            SensorHealth(SensorHealthState.HEALTHY, microphoneDetail = detail),
+        )
+        assertEquals(detail, c.snapshot.value.sensorHealth[SensorKind.MICROPHONE]?.microphoneDetail)
+        assertEquals(before + 1L, c.snapshot.value.revision)
+    }
+
+    @Test
+    fun partialHealthSnapshotDoesNotEraseExistingLocation() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        val gps = SensorHealth(
+            SensorHealthState.AVAILABLE,
+            locationDetail = LocationHealthDetail(
+                trackingState = LocationTrackingState.WAITING_FOR_FIX,
+                isRegistered = true,
+            ),
+        )
+        c.recordSensorHealth(SensorKind.LOCATION, gps)
+        c.recordSensorHealthSnapshot(
+            mapOf(SensorKind.MICROPHONE to SensorHealth(SensorHealthState.AVAILABLE)),
+        )
+        assertEquals(gps, c.snapshot.value.sensorHealth[SensorKind.LOCATION])
+        assertTrue(c.snapshot.value.sensorHealth.containsKey(SensorKind.MICROPHONE))
+    }
+
+    @Test
+    fun powerHealthCopiesBatteryTemperatureAndChargingToTopLevelSnapshot() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        c.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                SensorHealthState.HEALTHY,
+                powerThermalDetail = PowerThermalHealthDetail(
+                    sourceAvailable = true,
+                    isRegistered = true,
+                    chargingState = ChargingState.CHARGING,
+                    batteryLevelPercent = 85,
+                    temperatureCelsius = 32.1f,
+                    lastUpdateWallClockMs = 1_000L,
+                ),
+            ),
+        )
+        assertEquals(85, c.snapshot.value.batteryLevelPercent)
+        assertEquals(32.1f, c.snapshot.value.batteryTemperatureCelsius)
+        assertEquals(ChargingState.CHARGING, c.snapshot.value.chargingState)
+    }
+
+    @Test
+    fun genericRecordSensorSampleDoesNotDiscardExistingTypedDetail() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        val detail = VibrationHealthDetail(hardwareAvailable = true, isRegistered = true)
+        c.recordSensorHealth(
+            SensorKind.VIBRATION,
+            SensorHealth(SensorHealthState.AVAILABLE, vibrationDetail = detail),
+        )
+        c.recordSensorSample(SensorKind.VIBRATION, 1_000L, "sample", 9.8)
+        assertEquals(detail, c.snapshot.value.sensorHealth[SensorKind.VIBRATION]?.vibrationDetail)
+    }
+
+    @Test
+    fun successfulArmSetsActivationTimeOnce() = runTest {
+        var now = 1_000L
+        val runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()), healthyVibration())
+        val c = coordinator(runtime, ArmingDelay { }, clock = ProtectionClock { now })
+        c.arm("arm", CommandOrigin.LOCAL)
+        assertEquals(1_000L, c.snapshot.value.protectionActivatedAtMs)
+    }
+
+    @Test
+    fun alertRoundTripDoesNotResetActivationTime() = runTest {
+        var now = 1_000L
+        val runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()), healthyVibration())
+        val c = coordinator(runtime, ArmingDelay { }, clock = ProtectionClock { now })
+        c.arm("arm", CommandOrigin.LOCAL)
+        val activatedAt = c.snapshot.value.protectionActivatedAtMs
+        now = 2_000L
+        val opened = SecurityIncident(
+            id = "550e8400-e29b-41d4-a716-446655440000",
+            type = IncidentType.AUDIO,
+            severity = IncidentSeverity.CRITICAL,
+            lifecycle = IncidentLifecycle.OPEN,
+            openedAtMs = now,
+            updatedAtMs = now,
+            closedAtMs = null,
+            protectionState = ProtectionState.ARMED_HEALTHY,
+            evidence = emptyList(),
+            deliveryState = DeliveryState.PENDING,
+        )
+        c.recordIncident(opened)
+        now = 3_000L
+        c.recordIncident(opened.copy(lifecycle = IncidentLifecycle.CLOSED, updatedAtMs = now, closedAtMs = now))
+        assertEquals(activatedAt, c.snapshot.value.protectionActivatedAtMs)
+    }
+
+    @Test
+    fun disarmClearsActivationTime() = runTest {
+        val runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()), healthyVibration())
+        val c = coordinator(runtime, ArmingDelay { })
+        c.arm("arm", CommandOrigin.LOCAL)
+        c.disarm("disarm", CommandOrigin.LOCAL)
+        org.junit.Assert.assertNull(c.snapshot.value.protectionActivatedAtMs)
+    }
+
+    @Test
+    fun changeSensitivityUpdatesRuntimeAndSnapshot() = runTest {
+        val runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()))
+        val c = coordinator(runtime, ArmingDelay { })
+        assertEquals(CommandOutcome.APPLIED, c.changeSensitivity("s8", 8).outcome)
+        assertEquals(8, runtime.appliedSensitivity)
+        assertEquals(8, c.snapshot.value.sensitivityLevel)
+    }
+
+    @Test
+    fun rejectedSensitivityDoesNotMutateSnapshot() = runTest {
+        val runtime = FakeRuntime(ReadinessReport(emptySet(), emptySet()))
+        val c = coordinator(runtime, ArmingDelay { })
+        val before = c.snapshot.value
+        assertEquals(CommandOutcome.REJECTED, c.changeSensitivity("s0", 0).outcome)
+        assertEquals(CommandOutcome.REJECTED, c.changeSensitivity("s11", 11).outcome)
+        assertEquals(before.sensitivityLevel, c.snapshot.value.sensitivityLevel)
+        org.junit.Assert.assertNull(runtime.appliedSensitivity)
+    }
+
+    @Test
+    fun heartbeatWritesRunningAndTimestampInOneRevision() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        val before = c.snapshot.value.revision
+        c.recordServiceHeartbeat(12_345L)
+        assertTrue(c.snapshot.value.serviceRunning)
+        assertEquals(12_345L, c.snapshot.value.lastServiceHeartbeatAtMs)
+        assertEquals(before + 1L, c.snapshot.value.revision)
+    }
+
+    @Test
+    fun incidentSummaryUsesSecurityIncidentTypeNotUuidText() {
+        val c = coordinator(FakeRuntime(ReadinessReport(emptySet(), emptySet())), ArmingDelay { })
+        val inc = SecurityIncident(
+            id = "550e8400-e29b-41d4-a716-446655440000",
+            type = IncidentType.AUDIO,
+            severity = IncidentSeverity.CRITICAL,
+            lifecycle = IncidentLifecycle.OPEN,
+            openedAtMs = 2_000L,
+            updatedAtMs = 2_000L,
+            closedAtMs = null,
+            protectionState = ProtectionState.ARMED_HEALTHY,
+            evidence = emptyList(),
+            deliveryState = DeliveryState.PENDING,
+        )
+        c.recordIncident(inc)
+        assertEquals(IncidentType.AUDIO, c.snapshot.value.lastIncident?.type)
+    }
+
+    @Test
+    fun armCoroutineCancellationRollsBackToDisarmedOnlineAndStopsDetectors() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { gate.await() })
+
+        val armJob = launch { coordinator.arm("cancel-cmd", CommandOrigin.LOCAL) }
+        runCurrent()
+
+        assertEquals(ProtectionState.ARMING, coordinator.snapshot.value.state)
+        assertTrue(runtime.detectorsRunning)
+        assertNotNull(coordinator.currentArmedSessionId())
+
+        armJob.cancel()
+        runCurrent()
+
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+        assertFalse(runtime.detectorsRunning)
+        assertNull(coordinator.currentArmedSessionId())
+    }
+
+    @Test
+    fun armAcknowledgementWaitsForDurableArmedSnapshot() = runTest {
+        val persistStarted = CompletableDeferred<ProtectionSnapshot>()
+        val allowPersistence = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = ProtectionSnapshot.offline(0L).copy(
+                state = ProtectionState.DISARMED_ONLINE,
+                serviceRunning = true,
+                telegramPolling = true,
+                telegramReachable = true,
+                lastTelegramContactAtMs = 900L,
+            ),
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            clock = ProtectionClock { 1_000L },
+            durableSnapshotWriter = { snapshot ->
+                persistStarted.complete(snapshot)
+                allowPersistence.await()
+            },
+        )
+
+        val arm = async { coordinator.arm("durable-arm", CommandOrigin.LOCAL) }
+        val persisted = persistStarted.await()
+
+        assertEquals(ProtectionState.ARMED_HEALTHY, persisted.state)
+        assertFalse(arm.isCompleted)
+        allowPersistence.complete(Unit)
+        val result = arm.await()
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+    }
+
+    @Test
+    fun durableArmFailureReturnsUnknownAndRecordsPersistenceFailure() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = ProtectionCoordinator(
+            initialSnapshot = ProtectionSnapshot.offline(0L).copy(
+                state = ProtectionState.DISARMED_ONLINE,
+                serviceRunning = true,
+                telegramPolling = true,
+                telegramReachable = true,
+                lastTelegramContactAtMs = 900L,
+            ),
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            clock = ProtectionClock { 1_000L },
+            durableSnapshotWriter = { error("disk failure") },
+        )
+
+        val result = coordinator.arm("failed-durable-arm", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.UNKNOWN, result.outcome)
+        assertEquals(ProtectionState.ARMED_DEGRADED, result.resultingState)
+        assertEquals("Protection armed, but durable state could not be confirmed", result.reason)
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains("SNAPSHOT persistence unavailable"))
+    }
+
+    @Test
+    fun gpsAvailableStateDoesNotDegradeArmedCoordinator() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = mapOf(
+                SensorKind.VIBRATION to SensorHealth(
+                    state = SensorHealthState.HEALTHY,
+                    lastSampleAtMs = 900L,
+                ),
+                SensorKind.LOCATION to SensorHealth(
+                    state = SensorHealthState.AVAILABLE,
+                    lastSampleAtMs = null,
+                ),
+            ),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+        val result = coordinator.arm("arm-with-gps-avail", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertEquals(ProtectionState.ARMED_HEALTHY, result.resultingState)
+        assertFalse(coordinator.snapshot.value.degradationReasons.contains("LOCATION not healthy"))
+
+        coordinator.recordServiceHeartbeat(1_000L)
+        coordinator.recordTelegramContact(1_000L)
+        coordinator.evaluateFreshness(1_000L)
+        assertEquals(ProtectionState.ARMED_HEALTHY, coordinator.snapshot.value.state)
+        assertFalse(coordinator.snapshot.value.degradationReasons.contains("LOCATION not healthy"))
+    }
+
+    @Test
+    fun disarmedStateDoesNotIncludeUnhealthySensorDegradations() {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = mapOf(
+                SensorKind.VIBRATION to SensorHealth(
+                    state = SensorHealthState.UNAVAILABLE,
+                ),
+            ),
+        )
+        val coordinator = coordinator(
+            runtime = runtime,
+            armingDelay = ArmingDelay { },
+            healthPolicy = ProtectionHealthPolicy(5_000L, 10_000L, 20_000L),
+        )
+        coordinator.recordServiceHeartbeat(1_000L)
+        coordinator.recordTelegramContact(1_000L)
+
+        coordinator.evaluateFreshness(10_000L)
+
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+        assertFalse(coordinator.snapshot.value.degradationReasons.contains("VIBRATION not healthy"))
+    }
+
+    @Test
+    fun supersededArmStopsDetectorsWhenStateChangedBeforeGraceCompletes() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { gate.await() })
+        val arm = async { coordinator.arm("superseded-arm", CommandOrigin.LOCAL) }
+        runCurrent()
+
+        assertTrue(runtime.detectorsRunning)
+        coordinator.disarm("disarm-intervene", CommandOrigin.LOCAL)
+        assertFalse(runtime.detectorsRunning)
+
+        gate.complete(Unit)
+        val armResult = arm.await()
+
+        assertEquals(CommandOutcome.UNKNOWN, armResult.outcome)
+        assertFalse(runtime.detectorsRunning)
+        assertNull(coordinator.currentArmedSessionId())
+    }
+
+    @Test
+    fun armRejectsWhenRequiredPrimarySourceHealthFailsOrTimesOut() = runTest {
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            sourceHealthMap = mapOf(
+                SensorSource.ACCELEROMETER to SensorHealthState.FAILED,
+            ),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { })
+
+        val result = coordinator.arm("cmd-fail-source", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.DISARMED_ONLINE, result.resultingState)
+        assertTrue(result.reason.contains("primary sensors not available or calibrated"))
+    }
 }
 
 private fun coordinator(
     runtime: FakeRuntime,
     armingDelay: ArmingDelay,
+    clock: ProtectionClock = ProtectionClock { 1_000L },
     healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
     incidentCloser: suspend (String) -> Boolean = { true },
     durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
@@ -701,7 +1130,7 @@ private fun coordinator(
     ),
     runtime = runtime,
     armingDelay = armingDelay,
-    clock = ProtectionClock { 1_000L },
+    clock = clock,
     healthPolicy = healthPolicy,
     incidentCloser = incidentCloser,
     durableSnapshotWriter = durableSnapshotWriter,
@@ -716,8 +1145,10 @@ private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(
 
 private class FakeRuntime(
     private val readiness: ReadinessReport,
-    private val health: Map<SensorKind, SensorHealth> = emptyMap(),
+    private val health: Map<SensorKind, SensorHealth> = mapOf(SensorKind.VIBRATION to SensorHealth(SensorHealthState.HEALTHY)),
     private val startResult: DetectorStartResult = DetectorStartResult(started = true),
+    private val sourceHealthMap: Map<SensorSource, SensorHealthState> = emptyMap(),
+    private val effectiveConfiguration: SensorFusionConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED),
 ) : ProtectionRuntime {
     var started = false
         private set
@@ -749,4 +1180,10 @@ private class FakeRuntime(
     }
 
     override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = health
+
+    override fun effectiveSensorConfiguration(): SensorFusionConfiguration = effectiveConfiguration
+
+    override fun sourceHealth(source: SensorSource): SensorHealthState =
+        sourceHealthMap[source] ?: super.sourceHealth(source)
+
 }

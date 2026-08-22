@@ -67,13 +67,10 @@ fun AutoResizedText(
     overflow: TextOverflow = TextOverflow.Ellipsis
 ) {
     var resizedTextStyle by remember(text, style) { mutableStateOf(style) }
-    var shouldDraw by remember(text, style) { mutableStateOf(false) }
 
     Text(
         text = text,
-        modifier = modifier.drawWithContent {
-            if (shouldDraw) drawContent()
-        },
+        modifier = modifier,
         color = color,
         fontWeight = fontWeight,
         textAlign = textAlign,
@@ -87,11 +84,7 @@ fun AutoResizedText(
                 if (currentSize > minFontSize) {
                     val nextSize = (currentSize.value * 0.90f).coerceAtLeast(minFontSize.value)
                     resizedTextStyle = resizedTextStyle.copy(fontSize = nextSize.sp)
-                } else {
-                    shouldDraw = true
                 }
-            } else {
-                shouldDraw = true
             }
         }
     )
@@ -121,9 +114,9 @@ fun DashboardScreen(
     onSendTestNotification: () -> Unit = {}
 ) {
 
-    var botTokenInput by remember { mutableStateOf(initialBotToken ?: "") }
-    var tokenSaveStatus by remember { mutableStateOf<String?>(if (!initialBotToken.isNullOrEmpty()) "✅ Telegram Bot Token Saved & Active" else null) }
-    var currentSensitivity by remember { mutableIntStateOf(sensitivity) }
+    var botTokenInput by remember(initialBotToken) { mutableStateOf(initialBotToken ?: "") }
+    var tokenSaveStatus by remember(initialBotToken) { mutableStateOf<String?>(if (!initialBotToken.isNullOrEmpty()) "✅ Telegram Bot Token Saved & Active" else null) }
+    var currentSensitivity by remember(sensitivity) { mutableIntStateOf(sensitivity) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
 
     val scaler = rememberAdaptiveScreenScaler()

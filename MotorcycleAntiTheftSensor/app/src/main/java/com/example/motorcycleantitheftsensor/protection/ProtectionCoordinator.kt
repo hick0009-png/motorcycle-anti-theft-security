@@ -1,15 +1,18 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @JvmInline
@@ -23,6 +26,7 @@ class ProtectionCoordinator(
     private val healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
     private val incidentCloser: suspend (String) -> Boolean = { true },
     private val durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
+    private val sensorRepository: SensorConfigurationRepository? = null,
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -30,6 +34,7 @@ class ProtectionCoordinator(
     private val armingEpoch = AtomicLong(0L)
     private val incidentEpoch = AtomicLong(0L)
     private val recoveryGeneration = AtomicLong(0L)
+    private val currentArmedSessionId = AtomicReference<String?>(null)
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
@@ -38,6 +43,10 @@ class ProtectionCoordinator(
     private val runtimeDegradations = AtomicReference<Set<String>>(emptySet())
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
+    val audioTelemetry: StateFlow<AudioTelemetry> = runtime.audioTelemetry
+
+    fun currentArmedSessionId(): String? = currentArmedSessionId.get()
+
 
     suspend fun arm(
         commandId: String,
@@ -65,6 +74,7 @@ class ProtectionCoordinator(
             incidentEpoch.incrementAndGet()
             val readiness = runtime.readiness()
             if (readiness.blockers.isNotEmpty()) {
+                currentArmedSessionId.set(null)
                 armingEpoch.incrementAndGet()
                 runtime.stopDetectors()
                 transition(
@@ -79,6 +89,24 @@ class ProtectionCoordinator(
                 )
             }
 
+            val sensorConfig = runtime.effectiveSensorConfiguration()
+            val eligibility = SensorConfigurationPolicy().armEligibility(sensorConfig)
+            if (eligibility != SensorArmEligibility.Eligible) {
+                currentArmedSessionId.set(null)
+                armingEpoch.incrementAndGet()
+                runtime.stopDetectors()
+                transition(
+                    state = ProtectionState.SETUP_REQUIRED,
+                    blockers = setOf("No primary sensor configured"),
+                    degradations = readiness.degradations,
+                )
+                return@withLock result(
+                    commandId = commandId,
+                    outcome = CommandOutcome.REJECTED,
+                    reason = "No primary sensor configured",
+                )
+            }
+
             armingDegradations = readiness.degradations
             epoch = armingEpoch.incrementAndGet()
             transition(
@@ -87,8 +115,11 @@ class ProtectionCoordinator(
                 degradations = readiness.degradations,
             )
 
-            val startResult = runtime.startDetectors()
+            val sessionId = UUID.randomUUID().toString()
+            currentArmedSessionId.set(sessionId)
+            val startResult = runtime.startDetectors(sessionId)
             if (!startResult.started) {
+                currentArmedSessionId.set(null)
                 armingEpoch.incrementAndGet()
                 runtime.stopDetectors()
                 val reason = startResult.failureReason ?: "Detector startup failed"
@@ -103,9 +134,41 @@ class ProtectionCoordinator(
         }
         if (immediateResult != null) return immediateResult
 
-        armingDelay.await()
+        val sensorConfig = runtime.effectiveSensorConfiguration()
+        val configuredPrimarySources = SensorSource.entries.filter { sensorConfig.source(it).role == SensorRole.PRIMARY }
+        val requiredPrimarySources = if (configuredPrimarySources.isNotEmpty()) {
+            configuredPrimarySources.toSet()
+        } else {
+            setOf(SensorSource.ACCELEROMETER)
+        }
+
+        try {
+            armingDelay.await()
+            if (!hasReadyPrimary(requiredPrimarySources)) {
+                withTimeoutOrNull(PRIMARY_READINESS_GRACE_MS) {
+                    while (!hasReadyPrimary(requiredPrimarySources)) {
+                        delay(PRIMARY_READINESS_POLL_MS)
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            commandMutex.withLock {
+                if (snapshot.value.state == ProtectionState.ARMING && epoch == armingEpoch.get()) {
+                    currentArmedSessionId.set(null)
+                    runtime.stopDetectors()
+                    transition(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        blockers = emptySet(),
+                        degradations = persistenceDegradations(),
+                        baseDegradations = emptySet(),
+                    )
+                }
+            }
+            throw cancelled
+        }
         return commandMutex.withLock {
             if (!recoveryIsCurrent(origin, recoveryToken)) {
+                currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 if (snapshot.value.state == ProtectionState.ARMING) {
                     transition(
@@ -118,10 +181,27 @@ class ProtectionCoordinator(
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
             if (epoch != armingEpoch.get() || snapshot.value.state != ProtectionState.ARMING) {
+                currentArmedSessionId.set(null)
+                runtime.stopDetectors()
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
 
             val health = runtime.currentSensorHealth()
+
+            val hasReadyPrimary = hasReadyPrimary(requiredPrimarySources)
+
+            if (!hasReadyPrimary) {
+                currentArmedSessionId.set(null)
+                runtime.stopDetectors()
+                transition(
+                    state = ProtectionState.DISARMED_ONLINE,
+                    blockers = emptySet(),
+                    degradations = setOf("Primary sensors not available or calibrated"),
+                    baseDegradations = emptySet(),
+                )
+                return@withLock result(commandId, CommandOutcome.REJECTED, "Arming rejected: primary sensors not available or calibrated")
+            }
+
             val finalDegradations = armingDegradations +
                 unhealthySensorReasons(health) +
                 telegramDegradationReasons(snapshot.value) +
@@ -138,7 +218,18 @@ class ProtectionCoordinator(
                 sensorHealth = health,
                 baseDegradations = armingDegradations,
             )
-            result(commandId, CommandOutcome.APPLIED, "Protection active")
+            try {
+                durableSnapshotWriter(snapshot.value)
+                result(commandId, CommandOutcome.APPLIED, "Protection active")
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+                result(
+                    commandId,
+                    CommandOutcome.UNKNOWN,
+                    "Protection armed, but durable state could not be confirmed",
+                )
+            }
         }
     }
 
@@ -164,6 +255,7 @@ class ProtectionCoordinator(
                 }
                 if (!explicitOwnerCommand) armingEpoch.incrementAndGet()
                 incidentEpoch.incrementAndGet()
+                currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 val incidentHistoryPersisted = incidentCloser("owner disarmed")
                 if (!incidentHistoryPersisted) {
@@ -210,20 +302,99 @@ class ProtectionCoordinator(
         recoveryGeneration.incrementAndGet()
     }
 
-    fun changeSensitivity(
+    suspend fun changeSensitivity(
         commandId: String,
         level: Int,
-    ): ProtectionCommandResult {
+    ): ProtectionCommandResult = commandMutex.withLock {
         if (level !in 1..10) {
-            return result(commandId, CommandOutcome.REJECTED, "Sensitivity must be 1-10")
+            return@withLock result(commandId, CommandOutcome.REJECTED, "Sensitivity must be 1-10")
+        }
+        val currentConfig = snapshot.value.sensorFusionConfiguration ?: SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED)
+        val updatedConfig = SensorConfigurationPolicy().withGroupSensitivity(currentConfig, SensorCapability.MOVEMENT, level)
+        val saveResult = sensorRepository?.saveConfiguration(updatedConfig)
+        if (saveResult != null && saveResult.isFailure) {
+            recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+            val errMessage = saveResult.exceptionOrNull()?.message ?: "Configuration persistence failed"
+            return@withLock result(commandId, CommandOutcome.REJECTED, "Failed to persist sensitivity configuration: $errMessage")
         }
         runtime.applySensitivity(level)
-        return result(commandId, CommandOutcome.APPLIED, "Sensitivity applied: $level")
+        if (saveResult != null && saveResult.isSuccess) {
+            recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
+        }
+        updateSnapshot { current ->
+            current.copy(
+                sensitivityLevel = level,
+                sensorFusionConfiguration = updatedConfig,
+            )
+        }
+        result(commandId, CommandOutcome.APPLIED, "Sensitivity applied: $level")
+    }
+
+    suspend fun updateSensorConfiguration(
+        commandId: String,
+        config: SensorFusionConfiguration,
+    ): ProtectionCommandResult = commandMutex.withLock {
+        val validation = SensorConfigurationPolicy().validateForApply(config)
+        if (validation is SensorConfigurationValidation.Invalid) {
+            val reason = "Sensor configuration validation failed: ${validation.issues.joinToString { "${it.source ?: it.capability ?: "CONFIG"}: ${it.code}" }}"
+            return@withLock result(commandId, CommandOutcome.REJECTED, reason)
+        }
+
+        val saveResult = sensorRepository?.saveConfiguration(config)
+        if (saveResult != null && saveResult.isFailure) {
+            recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+            val errMessage = saveResult.exceptionOrNull()?.message ?: "Configuration persistence failed"
+            return@withLock result(commandId, CommandOutcome.REJECTED, "Failed to persist sensor configuration: $errMessage")
+        }
+
+        val applyResult = runtime.applySensorConfiguration(config)
+        if (applyResult.status == com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult.Status.REJECTED) {
+            val reason = "Sensor configuration rejected: ${applyResult.issues.joinToString { "${it.source ?: it.capability ?: "CONFIG"}: ${it.code}" }}"
+            return@withLock result(commandId, CommandOutcome.REJECTED, reason)
+        }
+
+        if (saveResult != null && saveResult.isSuccess) {
+            recordPersistenceRecovered(PersistenceSource.SNAPSHOT)
+        }
+
+        val currentGenId = runtime.currentGenerationId()
+        val health = runtime.currentSensorHealth()
+
+        val degradedReasons = if (applyResult.status == com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult.Status.APPLIED_DEGRADED) {
+            applyResult.degradedSources.map { "$it not healthy" }.toSet()
+        } else {
+            emptySet()
+        }
+
+        val movementSensitivity = config.capability(SensorCapability.MOVEMENT).sensitivity
+        updateSnapshot { current ->
+            val updatedDegradations = (current.degradationReasons - applyResult.degradedSources.map { "$it not healthy" }.toSet()) + degradedReasons
+            val nextState = when {
+                current.state in ARMED_STATES && updatedDegradations.isNotEmpty() -> ProtectionState.ARMED_DEGRADED
+                current.state == ProtectionState.ARMED_DEGRADED && updatedDegradations.isEmpty() -> ProtectionState.ARMED_HEALTHY
+                else -> current.state
+            }
+            current.copy(
+                state = nextState,
+                sensitivityLevel = movementSensitivity,
+                sensorFusionConfiguration = config,
+                sensorGenerationId = currentGenId,
+                sensorHealth = current.sensorHealth + health,
+                degradationReasons = updatedDegradations,
+            )
+        }
+
+        val outcomeReason = if (applyResult.status == com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult.Status.APPLIED_DEGRADED) {
+            "Sensor configuration applied with degraded sources: ${applyResult.degradedSources.joinToString()}"
+        } else {
+            "Sensor configuration applied"
+        }
+        result(commandId, CommandOutcome.APPLIED, outcomeReason)
     }
 
     fun recordServiceHeartbeat(atMs: Long) {
         lastServiceHeartbeatAtMs = atMs
-        updateSnapshot { current -> current.copy(serviceRunning = true) }
+        updateSnapshot { current -> current.copy(serviceRunning = true, lastServiceHeartbeatAtMs = atMs) }
     }
 
     fun recordPersistenceFailure(source: PersistenceSource) {
@@ -330,6 +501,30 @@ class ProtectionCoordinator(
         }
     }
 
+    fun recordSensorHealth(kind: SensorKind, health: SensorHealth) {
+        updateSnapshot { current ->
+            val power = health.powerThermalDetail.takeIf { kind == SensorKind.POWER_THERMAL }
+            current.copy(
+                sensorHealth = current.sensorHealth + (kind to health),
+                batteryLevelPercent = power?.batteryLevelPercent ?: current.batteryLevelPercent,
+                batteryTemperatureCelsius = power?.temperatureCelsius ?: current.batteryTemperatureCelsius,
+                chargingState = if (power != null && power.chargingState != ChargingState.UNKNOWN) power.chargingState else current.chargingState,
+            )
+        }
+    }
+
+    fun recordSensorHealthSnapshot(healthByKind: Map<SensorKind, SensorHealth>) {
+        updateSnapshot { current ->
+            val power = healthByKind[SensorKind.POWER_THERMAL]?.powerThermalDetail
+            current.copy(
+                sensorHealth = current.sensorHealth + healthByKind,
+                batteryLevelPercent = power?.batteryLevelPercent ?: current.batteryLevelPercent,
+                batteryTemperatureCelsius = power?.temperatureCelsius ?: current.batteryTemperatureCelsius,
+                chargingState = if (power != null && power.chargingState != ChargingState.UNKNOWN) power.chargingState else current.chargingState,
+            )
+        }
+    }
+
     fun recordSensorSample(
         kind: SensorKind,
         atMs: Long,
@@ -337,15 +532,15 @@ class ProtectionCoordinator(
         normalizedValue: Double? = null,
     ) {
         updateSnapshot { current ->
+            val existing = current.sensorHealth[kind]
+            val updatedHealth = (existing ?: SensorHealth(SensorHealthState.HEALTHY)).copy(
+                state = SensorHealthState.HEALTHY,
+                lastSampleAtMs = atMs,
+                detail = detail ?: existing?.detail,
+                latestReading = createReadingSummary(kind, normalizedValue) ?: existing?.latestReading,
+            )
             current.copy(
-                sensorHealth = current.sensorHealth + (
-                    kind to SensorHealth(
-                        state = SensorHealthState.HEALTHY,
-                        lastSampleAtMs = atMs,
-                        detail = detail,
-                        latestReading = createReadingSummary(kind, normalizedValue),
-                    )
-                ),
+                sensorHealth = current.sensorHealth + (kind to updatedHealth),
                 batteryLevelPercent = if (
                     kind == SensorKind.POWER_THERMAL &&
                     detail == "battery_level_percent" &&
@@ -405,6 +600,7 @@ class ProtectionCoordinator(
                     lifecycle = incident.lifecycle,
                     updatedAtMs = incident.updatedAtMs,
                     deliveryState = incident.deliveryState,
+                    type = incident.type,
                 ),
                 lastDeliveryState = incident.deliveryState,
             )
@@ -413,8 +609,8 @@ class ProtectionCoordinator(
 
     fun evaluateFreshness(nowMs: Long) {
         updateSnapshot { current ->
-            val evaluatedSensors = current.sensorHealth.mapValues { (_, health) ->
-                health.copy(state = healthPolicy.sensorState(health, nowMs))
+            val evaluatedSensors = current.sensorHealth.mapValues { (kind, health) ->
+                health.copy(state = healthPolicy.sensorState(kind, health, nowMs))
             }
             val serviceFresh = healthPolicy.serviceIsFresh(
                 lastServiceHeartbeatAtMs = lastServiceHeartbeatAtMs,
@@ -435,8 +631,13 @@ class ProtectionCoordinator(
             } else {
                 emptySet()
             }
+            val sensorDegradations = if (liveState in ARMED_STATES || liveState == ProtectionState.ARMING) {
+                unhealthySensorReasons(evaluatedSensors)
+            } else {
+                emptySet()
+            }
             val degradations = baseDegradationReasons +
-                unhealthySensorReasons(evaluatedSensors) +
+                sensorDegradations +
                 channelDegradations +
                 persistenceDegradations() +
                 runtimeDegradations.get()
@@ -470,10 +671,22 @@ class ProtectionCoordinator(
         baseDegradations: Set<String> = degradations,
     ) {
         baseDegradationReasons = baseDegradations
+        val now = clock.nowMs()
         updateSnapshot { current ->
+            val nextActivatedAt = when (state) {
+                ProtectionState.ARMED_HEALTHY, ProtectionState.ARMED_DEGRADED ->
+                    current.protectionActivatedAtMs ?: now
+                ProtectionState.ALERT_ACTIVE ->
+                    current.protectionActivatedAtMs ?: now
+                ProtectionState.ARMING ->
+                    current.protectionActivatedAtMs ?: now
+                ProtectionState.DISARMED_ONLINE, ProtectionState.SETUP_REQUIRED, ProtectionState.OFFLINE ->
+                    null
+            }
             current.copy(
                 state = state,
-                lastTransitionAtMs = clock.nowMs(),
+                lastTransitionAtMs = now,
+                protectionActivatedAtMs = nextActivatedAt,
                 permissionBlockers = blockers,
                 degradationReasons = degradations,
                 sensorHealth = sensorHealth,
@@ -536,9 +749,16 @@ class ProtectionCoordinator(
     private fun unhealthySensorReasons(
         health: Map<SensorKind, SensorHealth>,
     ): Set<String> = health
-        .filterValues { item -> item.state != SensorHealthState.HEALTHY }
+        .filterValues { item ->
+            item.state == SensorHealthState.UNAVAILABLE ||
+                item.state == SensorHealthState.STALE ||
+                item.state == SensorHealthState.FAILED
+        }
         .keys
         .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+
+    private fun hasReadyPrimary(primarySources: Set<SensorSource>): Boolean =
+        primarySources.any { source -> runtime.sourceHealth(source) == SensorHealthState.HEALTHY }
 
     private fun telegramDegradationReasons(snapshot: ProtectionSnapshot): Set<String> = buildSet {
         if (!snapshot.telegramPolling) add("TELEGRAM polling inactive")
@@ -562,6 +782,8 @@ class ProtectionCoordinator(
         const val SNAPSHOT_PERSISTENCE_DEGRADATION = "SNAPSHOT persistence unavailable"
         const val INCIDENT_PERSISTENCE_DEGRADATION = "INCIDENT history unavailable"
         const val MOVEMENT_TRACKING_PERSISTENCE_DEGRADATION = "Movement tracking persistence unavailable"
+        const val PRIMARY_READINESS_GRACE_MS = 1_000L
+        const val PRIMARY_READINESS_POLL_MS = 50L
         val PERSISTENCE_REASON_LABELS = setOf(
             SNAPSHOT_PERSISTENCE_DEGRADATION,
             INCIDENT_PERSISTENCE_DEGRADATION,

@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 
 /**
  * SEC-06: AntiTamperKioskManager
@@ -13,6 +14,10 @@ import android.provider.Settings
  * Prevents thieves from shutting down or accessing Quick Settings on stolen/alarm devices.
  */
 class AntiTamperKioskManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "AntiTamperKiosk"
+    }
 
     private val devicePolicyManager =
         context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -22,7 +27,11 @@ class AntiTamperKioskManager(private val context: Context) {
      * Checks if the app is configured as Device Owner.
      */
     fun isDeviceOwner(): Boolean {
-        return devicePolicyManager.isDeviceOwnerApp(context.packageName)
+        return try {
+            devicePolicyManager.isDeviceOwnerApp(context.packageName)
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -30,20 +39,32 @@ class AntiTamperKioskManager(private val context: Context) {
      */
     fun enableKioskMode(activity: Activity) {
         if (isDeviceOwner()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val flags = DevicePolicyManager.LOCK_TASK_FEATURE_NONE
-                devicePolicyManager.setLockTaskFeatures(adminComponent, flags)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val flags = DevicePolicyManager.LOCK_TASK_FEATURE_NONE
+                    devicePolicyManager.setLockTaskFeatures(adminComponent, flags)
+                }
+                devicePolicyManager.setLockTaskPackages(adminComponent, arrayOf(context.packageName))
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed setting lock task features/packages", e)
             }
-            devicePolicyManager.setLockTaskPackages(adminComponent, arrayOf(context.packageName))
         }
-        activity.startLockTask()
+        try {
+            activity.startLockTask()
+        } catch (e: Exception) {
+            Log.w(TAG, "startLockTask failed", e)
+        }
     }
 
     /**
      * Disables Lock Task Mode (requires authorized admin disarm).
      */
     fun disableKioskMode(activity: Activity) {
-        activity.stopLockTask()
+        try {
+            activity.stopLockTask()
+        } catch (e: Exception) {
+            Log.w(TAG, "stopLockTask failed", e)
+        }
     }
 
     /**
@@ -51,11 +72,15 @@ class AntiTamperKioskManager(private val context: Context) {
      */
     fun disableUsbDebugging() {
         if (isDeviceOwner()) {
-            devicePolicyManager.setGlobalSetting(
-                adminComponent,
-                Settings.Global.ADB_ENABLED,
-                "0"
-            )
+            try {
+                devicePolicyManager.setGlobalSetting(
+                    adminComponent,
+                    Settings.Global.ADB_ENABLED,
+                    "0"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "disableUsbDebugging failed", e)
+            }
         }
     }
 

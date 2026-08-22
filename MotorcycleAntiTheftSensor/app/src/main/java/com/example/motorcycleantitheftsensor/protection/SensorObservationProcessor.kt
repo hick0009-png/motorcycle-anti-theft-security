@@ -8,7 +8,12 @@ class SensorObservationProcessor(
     thresholdDeltas: Map<SensorKind, Double>,
     private val absoluteMinimumsByDiagnostic: Map<String, Double> = emptyMap(),
 ) {
-    private val baselines = mutableMapOf<SensorKind, SensorBaseline>()
+    private data class BaselineKey(
+        val kind: SensorKind,
+        val source: SensorSource?,
+    )
+
+    private val baselines = mutableMapOf<BaselineKey, SensorBaseline>()
     private val consecutiveSamples = mutableMapOf<SensorKind, Int>()
     private val thresholds = thresholdDeltas.toMutableMap()
 
@@ -21,6 +26,15 @@ class SensorObservationProcessor(
         rejectionReason(observation, nowElapsedMs)?.let { reason ->
             return ObservationDecision.Rejected(reason)
         }
+        if (observation.kind == SensorKind.MICROPHONE) {
+            val threat = observation.audioThreat
+            return if (threat != null) {
+                ObservationDecision.Accepted(observation)
+            } else {
+                ObservationDecision.Rejected("untyped microphone observation")
+            }
+        }
+
         if (arming) {
             updateBaseline(observation)
             consecutiveSamples.remove(observation.kind)
@@ -33,7 +47,7 @@ class SensorObservationProcessor(
                 consecutiveSamples.remove(observation.kind)
                 return ObservationDecision.Debounced
             }
-            val baselineDelta = baselines[observation.kind]
+            val baselineDelta = baselines[baselineKey(observation)]
                 ?.let { baseline -> observation.normalizedValue - baseline.average }
                 ?: observation.baselineDelta
             return ObservationDecision.Accepted(observation.copy(baselineDelta = baselineDelta))
@@ -41,9 +55,17 @@ class SensorObservationProcessor(
 
         val threshold = thresholds[observation.kind]
             ?: return ObservationDecision.Accepted(observation)
-        val baseline = baselines[observation.kind]
-            ?: return ObservationDecision.Rejected("baseline unavailable")
-        val delta = observation.normalizedValue - baseline.average
+        val baseline = baselines[baselineKey(observation)]
+        val delta = if (observation.source != null) {
+            // Continuous sources are emitted only after SensorCalibrationManager has
+            // established their own baseline. Keep that source-specific delta instead
+            // of comparing values with a different VIBRATION source or unit.
+            observation.baselineDelta
+        } else if (baseline != null) {
+            observation.normalizedValue - baseline.average
+        } else {
+            observation.baselineDelta
+        }
         if (abs(delta) <= threshold) {
             consecutiveSamples.remove(observation.kind)
             return ObservationDecision.Debounced
@@ -61,7 +83,11 @@ class SensorObservationProcessor(
     }
 
     @Synchronized
-    fun baseline(kind: SensorKind): SensorBaseline? = baselines[kind]
+    fun baseline(kind: SensorKind): SensorBaseline? = baselines[BaselineKey(kind, null)]
+
+    @Synchronized
+    fun baseline(kind: SensorKind, source: SensorSource): SensorBaseline? =
+        baselines[BaselineKey(kind, source)]
 
     @Synchronized
     fun resetSession() {
@@ -79,7 +105,17 @@ class SensorObservationProcessor(
         kind: SensorKind,
         baseline: SensorBaseline,
     ) {
-        baselines[kind] = baseline
+        baselines[BaselineKey(kind, null)] = baseline
+        consecutiveSamples.remove(kind)
+    }
+
+    @Synchronized
+    fun seedBaseline(
+        kind: SensorKind,
+        source: SensorSource,
+        baseline: SensorBaseline,
+    ) {
+        baselines[BaselineKey(kind, source)] = baseline
         consecutiveSamples.remove(kind)
     }
 
@@ -92,20 +128,24 @@ class SensorObservationProcessor(
     }
 
     @Synchronized
-    fun thresholdDelta(kind: SensorKind): Double = thresholds.getValue(kind)
+    fun thresholdDelta(kind: SensorKind): Double = thresholds[kind] ?: 0.0
 
     private fun updateBaseline(observation: SensorObservation) {
-        val current = baselines[observation.kind] ?: SensorBaseline(
+        val key = baselineKey(observation)
+        val current = baselines[key] ?: SensorBaseline(
             average = 0.0,
             sampleCount = 0,
         )
         val nextCount = current.sampleCount + 1
         val nextAverage = current.average + (observation.normalizedValue - current.average) / nextCount
-        baselines[observation.kind] = SensorBaseline(
+        baselines[key] = SensorBaseline(
             average = nextAverage,
             sampleCount = nextCount,
         )
     }
+
+    private fun baselineKey(observation: SensorObservation): BaselineKey =
+        BaselineKey(observation.kind, observation.source)
 
     private fun rejectionReason(
         observation: SensorObservation,

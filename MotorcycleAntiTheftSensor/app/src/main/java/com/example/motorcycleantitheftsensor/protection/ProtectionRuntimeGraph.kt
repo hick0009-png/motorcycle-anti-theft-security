@@ -11,14 +11,18 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.example.motorcycleantitheftsensor.location.EncryptedMovementTrackingStore
 import com.example.motorcycleantitheftsensor.location.MovementDisplacementPolicy
 import com.example.motorcycleantitheftsensor.sensor.LocationObservationProvider
+import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
 
 object ProtectionRuntimeGraph {
     @Volatile
@@ -37,6 +41,7 @@ object ProtectionRuntimeGraph {
         val statePersistence: ProtectionStatePersistenceArbiter,
         val scope: CoroutineScope,
         val livePursuitCoordinator: LivePursuitCoordinator,
+        val sensorRepository: SensorConfigurationRepository? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -44,9 +49,11 @@ object ProtectionRuntimeGraph {
         val wallClock = ProtectionClock(System::currentTimeMillis)
         val elapsedClock = ProtectionClock(SystemClock::elapsedRealtime)
         val snapshotStore = ProtectionSnapshotStore(context, wallClock)
+        val secureKeyManager = com.example.motorcycleantitheftsensor.security.SecureKeyManager(context)
         val repository = FileIncidentRepository(
             file = File(context.filesDir, "protection_incidents.bin"),
             maxRecords = 200,
+            secureKeyManager = secureKeyManager,
         )
         val preferences = EncryptedPrefsManager(context)
         val statePersistence = ProtectionStatePersistenceArbiter(
@@ -67,21 +74,28 @@ object ProtectionRuntimeGraph {
             prefsManager = preferences,
             onTelegramContact = { atMs -> coordinator.recordTelegramContact(atMs) },
         )
+        val progressTelegram = com.example.motorcycleantitheftsensor.telegram.TelegramIncidentProgressTransport(
+            httpClient = com.example.motorcycleantitheftsensor.network.TlsPinningClient.client,
+            prefs = preferences,
+            onTelegramContact = { atMs -> coordinator.recordTelegramContact(atMs) },
+        )
         val sms = SmsFallbackManager(context, preferences)
         val labelResolver = com.example.motorcycleantitheftsensor.location.AndroidLocationLabelResolver(context)
+        val locationProvider = LocationObservationProvider(context)
         val delivery = IncidentDeliveryCoordinator(
             repository = repository,
             formatter = IncidentMessageFormatter { coordinator.snapshot.value },
             telegram = IncidentTransport(telegram::sendTelegramAlert),
-            sms = IncidentTransport { message ->
+            sms = IncidentTransport { _ ->
                 val destination = preferences.getSmsDestination()
                 if (destination.isNullOrBlank() || preferences.getSmsAesKey().isNullOrBlank()) {
                     false
                 } else {
-                    sms.sendEncryptedSmsAlert(destination, "SECURITY_INCIDENT", message)
+                    sms.sendEncryptedSmsAlert(destination, "SECURITY_INCIDENT")
                 }
             },
             labelResolver = labelResolver,
+            progressTelegram = progressTelegram,
         )
         val processor = SensorObservationProcessor(
             staleAfterMs = 5_000L,
@@ -89,13 +103,11 @@ object ProtectionRuntimeGraph {
                 SensorKind.VIBRATION to 3,
                 SensorKind.LIGHT to 1,
                 SensorKind.POWER_THERMAL to 1,
-                SensorKind.MICROPHONE to 2,
             ),
             thresholdDeltas = mapOf(
                 SensorKind.VIBRATION to 2.0,
                 SensorKind.LIGHT to 10.0,
                 SensorKind.POWER_THERMAL to 5.0,
-                SensorKind.MICROPHONE to 0.25,
             ),
             absoluteMinimumsByDiagnostic = mapOf(
                 "temperature_celsius" to 45.0,
@@ -118,13 +130,28 @@ object ProtectionRuntimeGraph {
                     coordinator.recordIncident(incident)
                 }
 
+                DeliveryAction.PERSIST_AND_EDIT -> {
+                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                    coordinator.recordIncident(incident)
+                    delivery.updateProgress(incident)
+                }
+
+                DeliveryAction.SEND_CONTINUATION -> {
+                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                    coordinator.recordIncident(incident)
+                    delivery.updateProgress(incident)
+                    delivery.sendContinuation(incident)
+                }
+
                 DeliveryAction.SEND,
                 DeliveryAction.SEND_CLOSE_SUMMARY,
                 -> {
                     coordinator.recordIncident(incident)
                     val delivered = withContext(Dispatchers.IO) {
                         delivery.deliver(
-                            incident = incident,
+                            update = update,
                             configuration = DeliveryConfiguration(
                                 smsConfigured = !preferences.getSmsDestination().isNullOrBlank() &&
                                     !preferences.getSmsAesKey().isNullOrBlank(),
@@ -156,12 +183,61 @@ object ProtectionRuntimeGraph {
             },
             onExternalFailure = { Log.w(TAG, "Incident close delivery failed") },
         )
-        val consumeIncidentBatch: (IncidentObservationBatch) -> Unit = { batch ->
-            val sessionEpoch = coordinator.currentIncidentEpoch()
+        val candidateBuffer = AudioThreatCandidateBuffer()
+        val onAudioCandidatesReset: () -> Unit = {
             scope.launch {
+                incidentMutex.withLock {
+                    incidentEngine.clearPendingAudio()
+                }
+            }
+        }
+        var quietWatchdogJob: Job? = null
+        val watchdogLock = Any()
+
+        fun scheduleQuietWatchdog() {
+            synchronized(watchdogLock) {
+                quietWatchdogJob?.cancel()
+                quietWatchdogJob = scope.launch {
+                    while (isActive) {
+                        delay(INCIDENT_QUIET_WINDOW_MS)
+                        val closed = incidentMutex.withLock {
+                            if (!incidentEngine.hasActiveIncident) {
+                                return@withLock null
+                            }
+                            incidentEngine.closeIfQuiet(
+                                nowElapsedMs = elapsedClock.nowMs(),
+                                quietWindowMs = INCIDENT_QUIET_WINDOW_MS,
+                            )
+                        }
+                        if (closed != null) {
+                            process(closed)
+                            break
+                        } else {
+                            val stillActive = incidentMutex.withLock { incidentEngine.hasActiveIncident }
+                            if (!stillActive) {
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val incidentChannel = PriorityChannel<Pair<Long, IncidentObservationBatch>>(
+            capacity = 1000,
+            priorityOf = { (_, batch) ->
+                var score = 0
+                if (batch.primary.audioThreat != null) score += 10
+                if (batch.location != null) score += 5
+                if (batch.supplementalEvidence.any { it.audioThreat != null }) score += 10
+                score
+            }
+        )
+
+        scope.launch {
+            while (isActive) {
+                val (sessionEpoch, batch) = incidentChannel.receive()
                 try {
-                    incidentMutex.lock()
-                    val accepted = try {
+                    val updateToProcess = incidentMutex.withLock {
                         val primaryUpdate = if (coordinator.acceptsIncident(sessionEpoch)) {
                             incidentEngine.accept(
                                 observation = batch.primary,
@@ -183,20 +259,21 @@ object ProtectionRuntimeGraph {
                                 evidenceUpdate.incidentOrNull()?.let { latest -> update.withIncident(latest) } ?: update
                             }
                         }
-                        enrichedUpdate.also { update -> process(update) }
-                    } finally {
-                        incidentMutex.unlock()
+                        val incident = enrichedUpdate.incidentOrNull()
+                        val currentArmedSession = coordinator.currentArmedSessionId()
+                        if (incident != null && currentArmedSession != null) {
+                            incident.evidence.forEach { ev ->
+                                val threat = ev.audioThreat
+                                if (threat != null) {
+                                    candidateBuffer.consume(threat.category, currentArmedSession)
+                                }
+                            }
+                        }
+                        enrichedUpdate
                     }
-                    if (accepted == IncidentUpdate.Ignored) return@launch
-                    delay(INCIDENT_QUIET_WINDOW_MS)
-                    incidentMutex.lock()
-                    try {
-                        incidentEngine.closeIfQuiet(
-                            nowElapsedMs = elapsedClock.nowMs(),
-                            quietWindowMs = INCIDENT_QUIET_WINDOW_MS,
-                        )?.let { closed -> process(closed) }
-                    } finally {
-                        incidentMutex.unlock()
+                    if (updateToProcess != IncidentUpdate.Ignored) {
+                        process(updateToProcess)
+                        scheduleQuietWatchdog()
                     }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -206,7 +283,11 @@ object ProtectionRuntimeGraph {
             }
         }
 
-        val locationProvider = LocationObservationProvider(context)
+        val consumeIncidentBatch: (IncidentObservationBatch) -> Unit = { batch ->
+            val sessionEpoch = coordinator.currentIncidentEpoch()
+            incidentChannel.trySend(sessionEpoch to batch)
+        }
+
         val movementTrackingStore = EncryptedMovementTrackingStore(preferences)
         val displacementPolicy = MovementDisplacementPolicy()
         val liveLocationTransport = com.example.motorcycleantitheftsensor.telegram.TelegramLiveLocationTransportImpl(
@@ -222,7 +303,85 @@ object ProtectionRuntimeGraph {
             labelResolver = labelResolver,
             expiryScheduler = expiryScheduler,
             scope = scope,
+            coordinatorProvider = { coordinator },
+            onMovementConfirmed = { fix ->
+                val sessionEpoch = coordinator.currentIncidentEpoch()
+                val armedSessionId = coordinator.currentArmedSessionId()
+                scope.launch {
+                    try {
+                        val updateToProcess = incidentMutex.withLock {
+                            if (!coordinator.acceptsIncident(sessionEpoch) || armedSessionId.isNullOrBlank()) return@withLock null
+                            val obs = SensorObservation(
+                                kind = SensorKind.LOCATION,
+                                eventElapsedMs = fix.elapsedRealtimeMs,
+                                wallClockMs = fix.wallClockMs,
+                                normalizedValue = 1.0,
+                                baselineDelta = 0.0,
+                                valid = true,
+                                diagnostic = "confirmed_movement",
+                            )
+                            val update = incidentEngine.onConfirmedMovement(
+                                observation = obs,
+                                protectionState = coordinator.snapshot.value.state,
+                                location = IncidentLocation(
+                                    latitude = fix.latitude,
+                                    longitude = fix.longitude,
+                                    accuracyMeters = fix.accuracyMeters,
+                                    capturedAtWallClockMs = fix.wallClockMs,
+                                ),
+                            )
+                            val incident = update.incidentOrNull()
+                            if (incident != null) {
+                                incident.evidence.forEach { ev ->
+                                    val threat = ev.audioThreat
+                                    if (threat != null) {
+                                        candidateBuffer.consume(threat.category, armedSessionId)
+                                    }
+                                }
+                                update
+                            } else {
+                                null
+                            }
+                        }
+                        if (updateToProcess != null) {
+                            process(updateToProcess)
+                            scheduleQuietWatchdog()
+                        }
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        coordinator.recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+                        Log.e(TAG, "Confirmed movement processing failed", error)
+                    }
+                }
+            },
         )
+
+        val sensorHandlerOwner = com.example.motorcycleantitheftsensor.sensor.SensorHandlerOwner("SensorThread")
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        val sensorCatalog = com.example.motorcycleantitheftsensor.sensor.AndroidSensorCatalog(sensorManager)
+        val sensorNormalizer = com.example.motorcycleantitheftsensor.sensor.SensorObservationNormalizer()
+        val sensorCalibrationManager = com.example.motorcycleantitheftsensor.sensor.SensorCalibrationManager()
+        val sensorPolicy = SensorConfigurationPolicy()
+        val sensorController = com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController(
+            sensorManager = sensorManager,
+            catalog = sensorCatalog,
+            calibrationManager = sensorCalibrationManager,
+            normalizer = sensorNormalizer,
+            policy = sensorPolicy,
+            handlerOwner = sensorHandlerOwner,
+        )
+        val sharedPrefs = try {
+            androidx.security.crypto.EncryptedSharedPreferences.create(
+                context,
+                "motorcycle_anti_theft_encrypted_prefs",
+                com.example.motorcycleantitheftsensor.security.SecureKeyManager(context).masterKey,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (_: Exception) {
+            context.getSharedPreferences("motorcycle_anti_theft_encrypted_prefs", Context.MODE_PRIVATE)
+        }
+        val sensorRepository = EncryptedPrefsSensorConfigurationRepository(sharedPrefs)
 
         val runtime = AndroidProtectionRuntime(
             readinessProvider = AndroidRuntimeReadiness(context) {
@@ -231,7 +390,17 @@ object ProtectionRuntimeGraph {
                     ownerPaired = preferences.getAllowedChatIds().isNotEmpty(),
                 )
             }::report,
-            detectorFactory = { callback -> PlatformAndroidDetectorSet(context, locationProvider, callback) },
+            detectorFactory = { callback ->
+                PlatformAndroidDetectorSet(
+                    context = context,
+                    location = locationProvider,
+                    onObservation = callback,
+                    audioCandidateBuffer = candidateBuffer,
+                    onAudioCandidatesReset = onAudioCandidatesReset,
+                    handlerOwner = sensorHandlerOwner,
+                    controller = sensorController,
+                )
+            },
             observationProcessor = processor,
             elapsedClock = elapsedClock,
             stateProvider = { coordinator.snapshot.value.state },
@@ -241,12 +410,25 @@ object ProtectionRuntimeGraph {
             incidentConsumer = consumeIncidentBatch,
         )
 
+        val initialConfig = sensorRepository.loadConfiguration()
+        runtime.applySensorConfiguration(initialConfig)
+
+        val configuredSensitivity = initialConfig.capability(SensorCapability.MOVEMENT).sensitivity
+        preferences.setSensitivity(configuredSensitivity)
+        runtime.applySensitivity(configuredSensitivity)
         coordinator = ProtectionCoordinator(
-            initialSnapshot = ProtectionSnapshot.offline(wallClock.nowMs()),
+            initialSnapshot = ProtectionSnapshot.offline(wallClock.nowMs()).copy(
+                sensitivityLevel = configuredSensitivity,
+                sensorFusionConfiguration = initialConfig,
+            ),
             runtime = runtime,
             armingDelay = ArmingDelay { delay(10_000L) },
             clock = wallClock,
             incidentCloser = { reason ->
+                synchronized(watchdogLock) {
+                    quietWatchdogJob?.cancel()
+                    quietWatchdogJob = null
+                }
                 incidentMutex.lock()
                 val closed = try {
                     incidentEngine.close(
@@ -263,25 +445,42 @@ object ProtectionRuntimeGraph {
                     ProtectionPersistenceRequest(snapshot, wallClock.nowMs()),
                 )
             },
+            sensorRepository = sensorRepository,
         )
-        runtime.applySensitivity(preferences.getSensitivity())
+        runtime.applySensitivity(configuredSensitivity)
+        coordinator.recordSensorHealthSnapshot(runtime.currentSensorHealth())
         scope.launch {
-            var activeSessionId: String? = null
+            runtime.sensorHealth.collect { healthMap ->
+                val healthWithLocation = healthMap.toMutableMap()
+                healthWithLocation[SensorKind.LOCATION] = locationProvider.trackingHealth.value.toSensorHealth()
+                coordinator.recordSensorHealthSnapshot(healthWithLocation)
+            }
+        }
+        coordinator.recordSensorHealth(SensorKind.LOCATION, locationProvider.trackingHealth.value.toSensorHealth())
+        scope.launch {
+            locationProvider.trackingHealth.collect { health ->
+                coordinator.recordSensorHealth(SensorKind.LOCATION, health.toSensorHealth())
+            }
+        }
+        var previousNotifiedState: ProtectionState? = null
+        val stateNotifier = ProtectionStateTelegramNotifier()
+        scope.launch {
             coordinator.snapshot.collect { snapshot ->
-                when (snapshot.state) {
-                    ProtectionState.ARMING -> {
-                        if (activeSessionId == null) {
-                            activeSessionId = UUID.randomUUID().toString()
+                livePursuitCoordinator.onProtectionStateChanged(snapshot.state, coordinator.currentArmedSessionId())
+                val current = snapshot.state
+                val prev = previousNotifiedState
+                previousNotifiedState = current
+
+                val messages = stateNotifier.messagesFor(prev, current, snapshot.degradationReasons)
+                if (messages.isNotEmpty()) {
+                    scope.launch(Dispatchers.IO) {
+                        for (msg in messages) {
+                            try {
+                                telegram.sendTelegramAlert(msg)
+                            } catch (_: Exception) {}
                         }
                     }
-                    ProtectionState.DISARMED_ONLINE,
-                    ProtectionState.OFFLINE,
-                    ProtectionState.SETUP_REQUIRED -> {
-                        activeSessionId = null
-                    }
-                    else -> Unit
                 }
-                livePursuitCoordinator.onProtectionStateChanged(snapshot.state, activeSessionId)
             }
         }
         return Graph(
@@ -293,6 +492,7 @@ object ProtectionRuntimeGraph {
             statePersistence = statePersistence,
             scope = scope,
             livePursuitCoordinator = livePursuitCoordinator,
+            sensorRepository = sensorRepository,
         )
     }
 

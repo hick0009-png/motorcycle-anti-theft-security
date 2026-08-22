@@ -47,4 +47,21 @@ class RemoteCommandTest {
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/shutdown"))
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/ping"))
     }
+
+    @Test
+    fun parsesCommandsWithBotMentionSuffix() {
+        assertEquals(RemoteCommand.Help, RemoteCommand.parse("/start@MyGuardBot"))
+        assertEquals(RemoteCommand.Help, RemoteCommand.parse("/help@MyGuardBot"))
+        assertEquals(RemoteCommand.Status, RemoteCommand.parse("/status@MyGuardBot"))
+        assertEquals(RemoteCommand.Arm, RemoteCommand.parse("/arm@MyGuardBot"))
+        assertEquals(RemoteCommand.Disarm, RemoteCommand.parse("/disarm@MyGuardBot"))
+        assertEquals(RemoteCommand.Disarm, RemoteCommand.parse("/DISARM@MyGuardBot"))
+        assertEquals(RemoteCommand.Sensitivity(5), RemoteCommand.parse("/sensitivity@MyGuardBot 5"))
+        assertEquals(RemoteCommand.Decode("sample_payload"), RemoteCommand.parse("/decode@MyGuardBot sample_payload"))
+        assertEquals(RemoteCommand.Pair("CODE999"), RemoteCommand.parse("/pair@MyGuardBot CODE999"))
+
+        // Disarm with extra arguments even with bot name must be Unknown
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/disarm@MyGuardBot 123456"))
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/status@MyGuardBot extra"))
+    }
 }

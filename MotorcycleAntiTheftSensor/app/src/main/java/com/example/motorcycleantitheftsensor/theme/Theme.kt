@@ -5,15 +5,30 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val BlackWhiteColorScheme = darkColorScheme(
-    primary = Color.White,
-    onPrimary = Color.Black,
-    secondary = Color(0xFFA0A0A0),
+val OledSecurityColorScheme = darkColorScheme(
+    primary = TrustBlue,
+    onPrimary = Color.White,
+    primaryContainer = TrustBlueDark,
+    onPrimaryContainer = Color.White,
+    secondary = CyanAccent,
     onSecondary = Color.Black,
-    background = Color.Black,
-    onBackground = Color.White,
-    surface = Color(0xFF121212),
-    onSurface = Color.White
+    secondaryContainer = Color(0xFF083344),
+    onSecondaryContainer = Color(0xFFE0F2FE),
+    tertiary = ArmedGreen,
+    onTertiary = Color.Black,
+    tertiaryContainer = ArmedGreenDark,
+    onTertiaryContainer = Color.White,
+    background = DarkBackground,
+    onBackground = TextHighEmphasis,
+    surface = DarkSurface,
+    onSurface = TextHighEmphasis,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = TextMediumEmphasis,
+    outline = DarkBorder,
+    error = AlertRed,
+    onError = Color.White,
+    errorContainer = AlertRedDark,
+    onErrorContainer = Color.White,
 )
 
 @Composable
@@ -23,9 +38,8 @@ fun MotorcycleAntiTheftSensorTheme(
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = BlackWhiteColorScheme,
+        colorScheme = OledSecurityColorScheme,
         typography = Typography,
-        content = content
+        content = content,
     )
 }
-

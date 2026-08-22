@@ -1,42 +1,85 @@
 package com.example.motorcycleantitheftsensor.telegram
 
-import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
-import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.GuidanceCode
-import com.example.motorcycleantitheftsensor.protection.GuidanceDetail
-import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
-import com.example.motorcycleantitheftsensor.protection.SensorHealthState
+import com.example.motorcycleantitheftsensor.protection.SensorKind
 
-class ProtectionStatusFormatter {
-    fun format(snapshot: ProtectionSnapshot): String = buildString {
-        val protectionCode = snapshot.state.toGuidanceCode()
-        val protectionStatusTh = UserGuidanceCatalog.content(protectionCode).titleTh
-
-        val template = UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS).telegramTh!!
-        appendLine(template.replace("{protectionStatus}", protectionStatusTh))
-
-        if (!snapshot.serviceRunning) {
-            val offlineCode = GuidanceCode.OFFLINE
-            appendLine(UserGuidanceCatalog.content(offlineCode).telegramTh!!)
+class ProtectionStatusFormatter(
+    private val wallClock: () -> Long = { System.currentTimeMillis() },
+    private val elapsedClock: () -> Long = {
+        try {
+            android.os.SystemClock.elapsedRealtime()
+        } catch (_: Throwable) {
+            System.currentTimeMillis()
         }
-
-        if (!snapshot.telegramReachable) {
-            val unreachableCode = GuidanceCode.TELEGRAM_UNREACHABLE
-            appendLine(UserGuidanceCatalog.content(unreachableCode).telegramTh!!)
+    },
+) {
+    fun format(
+        snapshot: ProtectionSnapshot,
+        nowWallClockMs: Long = wallClock(),
+        nowElapsedMs: Long = elapsedClock(),
+    ): String {
+        return try {
+            val projection = ProtectionStatusProjection.evaluate(snapshot, nowWallClockMs, nowElapsedMs)
+            format(projection)
+        } catch (e: RuntimeException) {
+            "⚠️ ไม่สามารถสร้างรายงานสถานะฉบับเต็มได้ โปรดลองใหม่อีกครั้ง"
         }
+    }
 
-        SensorKind.entries.forEach { kind ->
-            val health = snapshot.sensorHealth[kind]
-            if (health?.state == SensorHealthState.UNAVAILABLE) {
-                appendLine("⚠️ ${kind.name}: ${health.detail ?: "Unknown"}")
-            } else if (health?.state == SensorHealthState.FAILED) {
-                appendLine("⚠️ ${kind.name}: อ่านค่าเซนเซอร์ไม่สำเร็จ")
+    fun format(projection: ProtectionStatusProjection): String = buildString {
+        appendLine("🛡️ สถานะระบบป้องกัน")
+        appendLine()
+        appendLine("สถานะรถ: ${projection.protectionState.displayStatusTh}")
+        projection.protectionState.armDurationTh?.let {
+            appendLine("ทำงานมาแล้ว: $it")
+        }
+        appendLine(projection.protectionState.sensitivityTh)
+        appendLine()
+        appendLine("📡 ระบบหลัก")
+        appendLine(projection.primarySystems.serviceStatusTh)
+        appendLine(projection.primarySystems.telegramStatusTh)
+        appendLine()
+        appendLine(projection.sensorSummary.headerTh)
+
+        val orderedKinds = listOf(
+            SensorKind.VIBRATION,
+            SensorKind.LIGHT,
+            SensorKind.MICROPHONE,
+            SensorKind.LOCATION,
+            SensorKind.POWER_THERMAL,
+        )
+        orderedKinds.forEach { kind ->
+            projection.sensorSummary.sensors[kind]?.let { item ->
+                appendLine(item.statusLineTh)
             }
         }
+        appendLine()
+        appendLine(projection.batteryPower.batteryPercentTh)
+        appendLine(projection.batteryPower.temperatureTh)
+        appendLine(projection.batteryPower.powerSourceTh)
 
-        snapshot.batteryLevelPercent?.let { appendLine("🔋 แบตเตอรี่: $it%") }
-    }
+        val inc = projection.lastIncident
+        if (inc != null && inc.hasIncident) {
+            appendLine()
+            appendLine("🚨 เหตุการณ์ล่าสุด")
+            inc.typeTh?.let { appendLine("ประเภท: $it") }
+            inc.timeTh?.let { appendLine("เวลา: $it") }
+            inc.statusTh?.let { appendLine("สถานะ: $it") }
+            inc.deliveryTh?.let { appendLine("📤 Telegram: $it") }
+        }
+
+        appendLine()
+        if (!projection.issuesSummary.hasIssues) {
+            append(projection.issuesSummary.summaryMessageTh)
+        } else {
+            val issueText = projection.issuesSummary.issues.joinToString("\n\n") { issue ->
+                "${issue.issueTh}\nวิธีแก้: ${issue.guidanceTh}"
+            }
+            append(issueText)
+        }
+    }.trimEnd()
 }
 
 fun ProtectionState.toGuidanceCode(): GuidanceCode = when (this) {

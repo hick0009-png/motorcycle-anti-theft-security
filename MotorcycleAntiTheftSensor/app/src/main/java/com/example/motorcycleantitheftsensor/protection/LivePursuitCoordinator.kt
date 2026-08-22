@@ -20,7 +20,6 @@ import com.example.motorcycleantitheftsensor.telegram.TelegramFailureCode
 import com.example.motorcycleantitheftsensor.telegram.TelegramLiveLocationTransport
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -35,6 +34,8 @@ interface LivePursuitCoordinator {
     fun shutdown()
 }
 
+private val NO_OP_MOVEMENT_CONFIRMED: (TrackedLocationFix) -> Unit = {}
+
 class DefaultLivePursuitCoordinator(
     private val locationTracking: MovementLocationTracking,
     private val store: MovementTrackingStore,
@@ -43,7 +44,8 @@ class DefaultLivePursuitCoordinator(
     private val labelResolver: LocationLabelResolver,
     private val expiryScheduler: PursuitExpiryScheduler,
     private val scope: CoroutineScope,
-    private val coordinator: ProtectionCoordinator? = null,
+    private val coordinatorProvider: () -> ProtectionCoordinator? = { null },
+    private val onMovementConfirmed: (TrackedLocationFix) -> Unit = NO_OP_MOVEMENT_CONFIRMED,
     private val wallClockMs: () -> Long = System::currentTimeMillis,
     private val elapsedClockMs: () -> Long = SystemClock::elapsedRealtime,
     private val armedSessionIdFactory: () -> String = { UUID.randomUUID().toString() },
@@ -112,11 +114,11 @@ class DefaultLivePursuitCoordinator(
     }
 
     private fun recordStoreFailure() {
-        coordinator?.recordPersistenceFailure(PersistenceSource.MOVEMENT_TRACKING)
+        coordinatorProvider()?.recordPersistenceFailure(PersistenceSource.MOVEMENT_TRACKING)
     }
 
     private fun recordStoreSuccess() {
-        coordinator?.recordPersistenceRecovered(PersistenceSource.MOVEMENT_TRACKING)
+        coordinatorProvider()?.recordPersistenceRecovered(PersistenceSource.MOVEMENT_TRACKING)
     }
 
     private suspend fun safeStoreLoad(): MovementTrackingState {
@@ -373,6 +375,7 @@ class DefaultLivePursuitCoordinator(
         var startRequest: StartPursuitRequest? = null
         var updateRequests: List<UpdatePursuitRequest> = emptyList()
         var currentGen = 0L
+        var confirmedFixToNotify: TrackedLocationFix? = null
 
         stateMutex.withLock {
             if (!currentState.isPursuitEligible()) {
@@ -391,6 +394,7 @@ class DefaultLivePursuitCoordinator(
                 val eval = displacementPolicy.evaluate(fix, nowElapsed)
                 if (eval is MovementDecision.Confirmed && !pursuitAttempted) {
                     pursuitAttempted = true
+                    confirmedFixToNotify = fix
                     val nowWall = wallClockMs()
                     val expiresAtMs = nowWall + 900_000L
                     startRequest = StartPursuitRequest(
@@ -431,6 +435,8 @@ class DefaultLivePursuitCoordinator(
         }
 
         // Side effects outside stateMutex:
+        confirmedFixToNotify?.let(onMovementConfirmed)
+
         if (anchorToSave != null) {
             val anchor = anchorToSave
             val saved = safeStoreSave(MovementTrackingState(anchor = anchor, session = null))
@@ -540,26 +546,6 @@ class DefaultLivePursuitCoordinator(
 
         if (enterPursuit) {
             locationTracking.enterPursuitMode()
-        }
-
-        if (handles.isNotEmpty() && enterPursuit) {
-            scope.launch {
-                val presentation = try {
-                    presentationFactory.create(req.fix)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    null
-                }
-                remoteMutex.withLock {
-                    val allowed = stateMutex.withLock {
-                        isCurrentAttemptLocked(req.sid, req.generation) && activeHandles.isNotEmpty()
-                    }
-                    if (allowed) {
-                        transport.alertOwners(formatMovementAlert(presentation))
-                    }
-                }
-            }
         }
     }
 

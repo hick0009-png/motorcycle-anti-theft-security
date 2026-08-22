@@ -12,15 +12,32 @@ import android.os.Looper
 import android.os.SystemClock
 import com.example.motorcycleantitheftsensor.location.LocationFixArbiter
 import com.example.motorcycleantitheftsensor.location.TrackedLocationFix
+import com.example.motorcycleantitheftsensor.protection.LocationFailureCode
+import com.example.motorcycleantitheftsensor.protection.LocationTrackingState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorObservation
 import java.util.Locale
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 data class LocationFix(
     val latitude: Double,
     val longitude: Double,
     val elapsedRealtimeMs: Long,
     val accuracyMeters: Float,
+)
+
+data class LocationTrackingHealth(
+    val trackingState: LocationTrackingState,
+    val isRegistered: Boolean,
+    val hardwareAvailable: Boolean = true,
+    val permissionGranted: Boolean = true,
+    val lastFixWallClockMs: Long? = null,
+    val lastFixElapsedMs: Long? = null,
+    val accuracyMeters: Float? = null,
+    val failureCode: LocationFailureCode? = null,
+    val failureReason: String? = null,
 )
 
 sealed interface LocationEvidence {
@@ -166,7 +183,7 @@ class AndroidLocationUpdatesClient(
                 )
                 successfulProviders += provider
             } catch (_: Exception) {
-                // Ignore failure for individual provider registration
+                // If any provider fails, continue trying others
             }
         }
 
@@ -174,28 +191,20 @@ class AndroidLocationUpdatesClient(
             return LocationRegistrationResult.Unavailable(LocationStartFailure.REGISTRATION_FAILED)
         }
 
-        val registration = LocationRegistration {
+        return LocationRegistrationResult.Started {
             try {
                 locationManager.removeUpdates(listener)
             } catch (_: Exception) {
-                // Ignore removal failure
+                // Ignore cleanup errors
             }
         }
-
-        return LocationRegistrationResult.Started(registration)
     }
 
     @SuppressLint("MissingPermission")
     override fun lastKnownFixes(): List<TrackedLocationFix> {
         if (!hasLocationPermission()) return emptyList()
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        return providers.filter { provider ->
-            try {
-                locationManager.isProviderEnabled(provider)
-            } catch (_: Exception) {
-                false
-            }
-        }.mapNotNull { provider ->
+        return providers.mapNotNull { provider ->
             try {
                 locationManager.getLastKnownLocation(provider)?.let { location ->
                     TrackedLocationFix(
@@ -240,6 +249,16 @@ class LocationObservationProvider(
     private var registrationGeneration: Long = 0L
     private var activeGeneration: Long = 0L
 
+    private val _trackingHealth = MutableStateFlow(
+        LocationTrackingHealth(
+            trackingState = LocationTrackingState.STOPPED,
+            isRegistered = false,
+            hardwareAvailable = true,
+            permissionGranted = true,
+        )
+    )
+    val trackingHealth: StateFlow<LocationTrackingHealth> = _trackingHealth.asStateFlow()
+
     private enum class TrackingMode { STOPPED, ARMED, PURSUIT }
 
     private val armedRequest = LocationTrackingRequest(
@@ -262,6 +281,17 @@ class LocationObservationProvider(
             if (trackingMode == TrackingMode.STOPPED || generation != activeGeneration) return
             if (!arbiter.accept(fix, nowElapsedMs)) return
             lastDiagnostic = "fix age_ms=${nowElapsedMs - fix.elapsedRealtimeMs} accuracy_m=${fix.accuracyMeters}"
+            _trackingHealth.value = LocationTrackingHealth(
+                trackingState = LocationTrackingState.TRACKING,
+                isRegistered = true,
+                hardwareAvailable = true,
+                permissionGranted = true,
+                lastFixWallClockMs = fix.wallClockMs,
+                lastFixElapsedMs = fix.elapsedRealtimeMs,
+                accuracyMeters = fix.accuracyMeters,
+                failureCode = null,
+                failureReason = null,
+            )
             currentCallback
         }
         callback?.invoke(fix)
@@ -299,6 +329,19 @@ class LocationObservationProvider(
                         activeGeneration = gen
                         trackingMode = TrackingMode.ARMED
                         lastDiagnostic = "tracking armed"
+                        val currentFix = arbiter.currentFix()
+                        val state = if (currentFix != null) LocationTrackingState.TRACKING else LocationTrackingState.WAITING_FOR_FIX
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = state,
+                            isRegistered = true,
+                            hardwareAvailable = true,
+                            permissionGranted = true,
+                            lastFixWallClockMs = currentFix?.wallClockMs ?: _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = currentFix?.elapsedRealtimeMs ?: _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = currentFix?.accuracyMeters ?: _trackingHealth.value.accuracyMeters,
+                            failureCode = null,
+                            failureReason = null,
+                        )
                         true
                     }
                     is LocationRegistrationResult.Unavailable -> {
@@ -306,6 +349,22 @@ class LocationObservationProvider(
                             trackingMode = TrackingMode.STOPPED
                         }
                         lastDiagnostic = "provider/permission failure"
+                        val (code, reason, perm) = when (result.reason) {
+                            LocationStartFailure.PERMISSION_DENIED -> Triple(LocationFailureCode.PERMISSION_DENIED, "permission unavailable", false)
+                            LocationStartFailure.NO_PROVIDERS_AVAILABLE -> Triple(LocationFailureCode.NO_PROVIDERS_AVAILABLE, "no providers available", true)
+                            LocationStartFailure.REGISTRATION_FAILED -> Triple(LocationFailureCode.REGISTRATION_FAILED, "registration failed", true)
+                        }
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = LocationTrackingState.UNAVAILABLE,
+                            isRegistered = false,
+                            hardwareAvailable = true,
+                            permissionGranted = perm,
+                            lastFixWallClockMs = _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = _trackingHealth.value.accuracyMeters,
+                            failureCode = code,
+                            failureReason = reason,
+                        )
                         false
                     }
                 }
@@ -345,10 +404,39 @@ class LocationObservationProvider(
                         activeGeneration = gen
                         trackingMode = TrackingMode.PURSUIT
                         lastDiagnostic = "tracking pursuit"
+                        val currentFix = arbiter.currentFix()
+                        val state = if (currentFix != null) LocationTrackingState.TRACKING else LocationTrackingState.WAITING_FOR_FIX
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = state,
+                            isRegistered = true,
+                            hardwareAvailable = true,
+                            permissionGranted = true,
+                            lastFixWallClockMs = currentFix?.wallClockMs ?: _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = currentFix?.elapsedRealtimeMs ?: _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = currentFix?.accuracyMeters ?: _trackingHealth.value.accuracyMeters,
+                            failureCode = null,
+                            failureReason = null,
+                        )
                         true
                     }
                     is LocationRegistrationResult.Unavailable -> {
                         lastDiagnostic = "provider/permission failure"
+                        val (code, reason, perm) = when (result.reason) {
+                            LocationStartFailure.PERMISSION_DENIED -> Triple(LocationFailureCode.PERMISSION_DENIED, "permission unavailable", false)
+                            LocationStartFailure.NO_PROVIDERS_AVAILABLE -> Triple(LocationFailureCode.NO_PROVIDERS_AVAILABLE, "no providers available", true)
+                            LocationStartFailure.REGISTRATION_FAILED -> Triple(LocationFailureCode.REGISTRATION_FAILED, "registration failed", true)
+                        }
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = LocationTrackingState.UNAVAILABLE,
+                            isRegistered = false,
+                            hardwareAvailable = true,
+                            permissionGranted = perm,
+                            lastFixWallClockMs = _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = _trackingHealth.value.accuracyMeters,
+                            failureCode = code,
+                            failureReason = reason,
+                        )
                         false
                     }
                 }
@@ -385,10 +473,39 @@ class LocationObservationProvider(
                         activeGeneration = gen
                         trackingMode = TrackingMode.ARMED
                         lastDiagnostic = "tracking armed"
+                        val currentFix = arbiter.currentFix()
+                        val state = if (currentFix != null) LocationTrackingState.TRACKING else LocationTrackingState.WAITING_FOR_FIX
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = state,
+                            isRegistered = true,
+                            hardwareAvailable = true,
+                            permissionGranted = true,
+                            lastFixWallClockMs = currentFix?.wallClockMs ?: _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = currentFix?.elapsedRealtimeMs ?: _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = currentFix?.accuracyMeters ?: _trackingHealth.value.accuracyMeters,
+                            failureCode = null,
+                            failureReason = null,
+                        )
                         true
                     }
                     is LocationRegistrationResult.Unavailable -> {
                         lastDiagnostic = "provider/permission failure"
+                        val (code, reason, perm) = when (result.reason) {
+                            LocationStartFailure.PERMISSION_DENIED -> Triple(LocationFailureCode.PERMISSION_DENIED, "permission unavailable", false)
+                            LocationStartFailure.NO_PROVIDERS_AVAILABLE -> Triple(LocationFailureCode.NO_PROVIDERS_AVAILABLE, "no providers available", true)
+                            LocationStartFailure.REGISTRATION_FAILED -> Triple(LocationFailureCode.REGISTRATION_FAILED, "registration failed", true)
+                        }
+                        _trackingHealth.value = LocationTrackingHealth(
+                            trackingState = LocationTrackingState.UNAVAILABLE,
+                            isRegistered = false,
+                            hardwareAvailable = true,
+                            permissionGranted = perm,
+                            lastFixWallClockMs = _trackingHealth.value.lastFixWallClockMs,
+                            lastFixElapsedMs = _trackingHealth.value.lastFixElapsedMs,
+                            accuracyMeters = _trackingHealth.value.accuracyMeters,
+                            failureCode = code,
+                            failureReason = reason,
+                        )
                         false
                     }
                 }
@@ -408,6 +525,12 @@ class LocationObservationProvider(
             lastDiagnostic = "stopped"
             val reg = currentRegistration
             currentRegistration = null
+            _trackingHealth.value = _trackingHealth.value.copy(
+                trackingState = LocationTrackingState.STOPPED,
+                isRegistered = false,
+                failureCode = null,
+                failureReason = null,
+            )
             reg
         }
         toCancel?.cancel()
@@ -442,11 +565,21 @@ class LocationObservationProvider(
                 )
             }
             val ageMs = nowElapsedMs - fix.elapsedRealtimeMs
-            if (ageMs > 30_000L || fix.accuracyMeters > 100f || !fix.latitude.isFinite() || fix.elapsedRealtimeMs > nowElapsedMs) {
+            val isInvalid = ageMs > 30_000L ||
+                fix.elapsedRealtimeMs > nowElapsedMs ||
+                !fix.accuracyMeters.isFinite() ||
+                fix.accuracyMeters < 0f ||
+                fix.accuracyMeters > 100f ||
+                !fix.latitude.isFinite() ||
+                fix.latitude !in -90.0..90.0 ||
+                !fix.longitude.isFinite() ||
+                fix.longitude !in -180.0..180.0
+
+            if (isInvalid) {
                 return SensorObservation(
                     kind = SensorKind.LOCATION,
-                    eventElapsedMs = nowElapsedMs,
-                    wallClockMs = nowWallClockMs,
+                    eventElapsedMs = fix.elapsedRealtimeMs,
+                    wallClockMs = fix.wallClockMs,
                     normalizedValue = 0.0,
                     baselineDelta = 0.0,
                     valid = true,
@@ -455,8 +588,8 @@ class LocationObservationProvider(
             }
             return SensorObservation(
                 kind = SensorKind.LOCATION,
-                eventElapsedMs = nowElapsedMs,
-                wallClockMs = nowWallClockMs,
+                eventElapsedMs = fix.elapsedRealtimeMs,
+                wallClockMs = fix.wallClockMs,
                 normalizedValue = 1.0,
                 baselineDelta = 0.0,
                 valid = true,

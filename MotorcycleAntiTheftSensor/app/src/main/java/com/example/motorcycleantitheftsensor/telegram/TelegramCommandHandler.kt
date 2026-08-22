@@ -21,7 +21,6 @@ class TelegramCommandHandler(
     ) {
         when (command) {
             RemoteCommand.Arm -> {
-                reply(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_APPLIED).telegramTh!!)
                 var armCompleted = false
                 try {
                     val result = withTimeoutOrNull(commandTimeoutMs) {
@@ -29,7 +28,13 @@ class TelegramCommandHandler(
                     }
                     if (result == null) {
                         coordinator.disarm("$commandId-timeout", CommandOrigin.TELEGRAM)
-                        reply(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_UNREACHABLE).telegramTh!!)
+                        val rejectResult = ProtectionCommandResult(
+                            commandId = "$commandId-timeout",
+                            outcome = CommandOutcome.REJECTED,
+                            resultingState = coordinator.snapshot.value.state,
+                            reason = "Arming calibration timed out",
+                        )
+                        reply(rejectResult.toTelegramText())
                     } else {
                         armCompleted = true
                         reply(result.toTelegramText())
@@ -54,7 +59,12 @@ class TelegramCommandHandler(
                 if (command.level != null) {
                     val r = coordinator.changeSensitivity(commandId, command.level)
                     if (r.outcome == CommandOutcome.APPLIED) {
-                        reply(com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_APPLIED).telegramTh!!.replace("{level}", command.level.toString()))
+                        reply(
+                            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                                com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_APPLIED,
+                                com.example.motorcycleantitheftsensor.protection.GuidanceDetail.SensitivityLevel(command.level),
+                            ).telegramTh!!
+                        )
                     } else {
                         reply(r.toTelegramText())
                     }
@@ -86,9 +96,19 @@ class TelegramCommandHandler(
             else if (reason.contains("Sensitivity", ignoreCase = true)) com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_SENSITIVITY_INVALID
             else com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_UNKNOWN
         }
-        val template = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(code).telegramTh ?: ""
-        return template.replace("{safeReason}", reason).replace("{level}", reason.filter { it.isDigit() }).replace("{protectionStatus}", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
-            resultingState.toGuidanceCode()
-        ).titleTh)
+        val base = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(code).telegramTh ?: ""
+        val withReason = when (code) {
+            com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED -> "⚠️ เปิดการป้องกันไม่ได้: $reason"
+            com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED -> "⚠️ ปลดการป้องกันไม่ได้: $reason"
+            else -> base
+        }
+        return withReason
+            .replace("{level}", reason.filter { it.isDigit() })
+            .replace(
+                "{protectionStatus}",
+                com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                    resultingState.toGuidanceCode()
+                ).titleTh,
+            )
     }
 }

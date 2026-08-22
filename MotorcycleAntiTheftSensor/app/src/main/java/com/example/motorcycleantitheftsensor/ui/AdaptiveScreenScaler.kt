@@ -46,8 +46,10 @@ class AdaptiveScreenScaler(
 @Composable
 fun rememberAdaptiveScreenScaler(): AdaptiveScreenScaler {
     val configuration = LocalConfiguration.current
-    return AdaptiveScreenScaler(
-        screenWidthDp = configuration.screenWidthDp,
-        screenHeightDp = configuration.screenHeightDp
-    )
+    return androidx.compose.runtime.remember(configuration.screenWidthDp, configuration.screenHeightDp) {
+        AdaptiveScreenScaler(
+            screenWidthDp = configuration.screenWidthDp,
+            screenHeightDp = configuration.screenHeightDp
+        )
+    }
 }

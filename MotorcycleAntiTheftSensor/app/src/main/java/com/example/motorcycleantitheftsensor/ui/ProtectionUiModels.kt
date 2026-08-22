@@ -1,7 +1,12 @@
 package com.example.motorcycleantitheftsensor.ui
 
-import com.example.motorcycleantitheftsensor.protection.GuidanceContent
+import com.example.motorcycleantitheftsensor.protection.AUDIO_CORRELATION_WINDOW_MS
+import com.example.motorcycleantitheftsensor.protection.AudioGateState
+import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
+import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
+import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
+import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
@@ -9,10 +14,38 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import kotlin.math.ceil
 
 enum class ProtectionDestination { PROTECTION, EVENTS, SETTINGS }
+
+enum class SettingsOperation {
+    CHANGE_SENSITIVITY,
+    REFRESH_PERMISSIONS,
+    REPLACE_BOT_TOKEN,
+    SAVE_SMS_FALLBACK,
+    RETRY_SETTINGS,
+    RESET_PAIRING,
+    UPDATE_SENSOR_CONFIG,
+}
+
+data class AudioUiTelemetry(
+    val state: AudioRuntimeState = AudioRuntimeState.OFF,
+    val detailCode: String? = null,
+    val modelReady: Boolean = false,
+    val lastSampleAgeSeconds: Long? = null,
+    val approximateLevelDbfs: Double? = null,
+    val baselineMedianDbfs: Double? = null,
+    val baselineP95Dbfs: Double? = null,
+    val gateState: AudioGateState = AudioGateState.DISABLED,
+    val lastInferenceMs: Long? = null,
+    val averageInferenceMs: Long? = null,
+    val droppedFrames: Long = 0L,
+    val restartCount: Int = 0,
+    val currentCandidate: AudioThreatMetadata? = null,
+    val candidateExpiresInSeconds: Int? = null,
+)
 
 data class ProtectionSettingsSummary(
     val tokenConfigured: Boolean,
@@ -21,6 +54,26 @@ data class ProtectionSettingsSummary(
     val sensitivity: Int,
     val smsFallbackConfigured: Boolean,
     val missingPermissions: Set<String>,
+    val sensorConfiguration: com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration? = null,
+    val sensorDisplayPreset: com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay? = null,
+)
+
+data class SensorGroupUiModel(
+    val capability: com.example.motorcycleantitheftsensor.protection.SensorCapability,
+    val nameTh: String,
+    val sensitivity: Int,
+    val roleSummaryTh: String,
+    val isDegraded: Boolean,
+    val calibrationProgress: Float? = null,
+)
+
+data class SensorSourceUiModel(
+    val source: com.example.motorcycleantitheftsensor.protection.SensorSource,
+    val nameTh: String,
+    val role: com.example.motorcycleantitheftsensor.protection.SensorRole,
+    val isAvailable: Boolean,
+    val thresholdOverride: Double? = null,
+    val debounceOverrideMs: Long? = null,
 )
 
 data class ProtectionEventRow(
@@ -68,6 +121,8 @@ interface ProtectionSettingsGateway {
     suspend fun replaceBotToken(token: String): SettingsOperationResult
     suspend fun resetPairing(): SettingsOperationResult
     fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
+    fun saveSensorConfiguration(config: com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration): SettingsOperationResult =
+        SettingsOperationResult(applied = true, message = "Sensor configuration updated")
 }
 
 data class ProtectionUiState(
@@ -86,6 +141,8 @@ data class ProtectionUiState(
     val protectionOperationInFlight: Boolean = false,
     val settingsOperationInFlight: Boolean = false,
     val eventsOperationInFlight: Boolean = false,
+    val activeSettingsOperation: SettingsOperation? = null,
+    val audio: AudioUiTelemetry = AudioUiTelemetry(),
 ) {
     companion object {
         fun from(
@@ -104,6 +161,8 @@ data class ProtectionUiState(
             protectionOperationInFlight: Boolean = false,
             settingsOperationInFlight: Boolean = false,
             eventsOperationInFlight: Boolean = false,
+            activeSettingsOperation: SettingsOperation? = null,
+            audio: AudioUiTelemetry = AudioUiTelemetry(),
         ): ProtectionUiState = ProtectionUiState(
             destination = destination,
             protection = snapshot.toStatusUiState(),
@@ -124,6 +183,8 @@ data class ProtectionUiState(
             protectionOperationInFlight = protectionOperationInFlight,
             settingsOperationInFlight = settingsOperationInFlight,
             eventsOperationInFlight = eventsOperationInFlight,
+            activeSettingsOperation = activeSettingsOperation,
+            audio = audio,
         )
     }
 }
@@ -170,7 +231,10 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
     lifecycle = lifecycle,
     evidenceSummary = when (lifecycle) {
         com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.OPEN -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_OPENED).bodyTh
-        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.INTERRUPTED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_ESCALATED).bodyTh.replace("{incidentType}", type.name)
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.INTERRUPTED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+            com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_ESCALATED,
+            com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
+        ).bodyTh
         com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED).bodyTh
         else -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_UPDATED).bodyTh
     },
@@ -187,3 +251,46 @@ private fun ProtectionSnapshot.armingSecondsRemaining(nowMs: Long): Int? {
 
 private const val ARMING_DURATION_MS = 10_000L
 private const val MILLIS_PER_SECOND = 1_000.0
+
+internal fun AudioTelemetry.toAudioUiTelemetry(
+    elapsedNowMs: Long,
+): AudioUiTelemetry {
+    val sampleAgeMs = lastSampleAtMs?.let { elapsedNowMs - it }
+    val sampleAgeSeconds = sampleAgeMs
+        ?.takeIf { it >= 0L }
+        ?.div(1_000L)
+
+    val candidateAgeMs = currentCandidate?.let { elapsedNowMs - it.lastDetectedElapsedMs }
+    val candidateIsFresh = candidateAgeMs != null &&
+        candidateAgeMs in 0L..AUDIO_CORRELATION_WINDOW_MS
+    val expiresInSeconds = candidateAgeMs
+        ?.takeIf { candidateIsFresh }
+        ?.let { age -> ceil((AUDIO_CORRELATION_WINDOW_MS - age) / 1_000.0).toInt() }
+
+    return AudioUiTelemetry(
+        state = state,
+        detailCode = detailCode?.substringBefore(':')?.trim()?.take(64),
+        modelReady = modelReady,
+        lastSampleAgeSeconds = sampleAgeSeconds,
+        approximateLevelDbfs = approximateLevelDbfs?.takeIf(Double::isFinite),
+        baselineMedianDbfs = baselineMedianDbfs?.takeIf(Double::isFinite),
+        baselineP95Dbfs = baselineP95Dbfs?.takeIf(Double::isFinite),
+        gateState = gateState,
+        lastInferenceMs = lastInferenceMs,
+        averageInferenceMs = averageInferenceMs,
+        droppedFrames = droppedFrames,
+        restartCount = restartCount,
+        currentCandidate = currentCandidate?.takeIf { candidateIsFresh },
+        candidateExpiresInSeconds = expiresInSeconds,
+    )
+}
+
+internal fun microphoneHealthText(health: SensorHealth?): String {
+    if (health == null) return "Microphone status unknown"
+    return when (health.state) {
+        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "Microphone detected"
+        SensorHealthState.UNAVAILABLE -> "Microphone unavailable"
+        SensorHealthState.STALE -> "Microphone data stale"
+        SensorHealthState.FAILED -> "Microphone failed"
+    }
+}

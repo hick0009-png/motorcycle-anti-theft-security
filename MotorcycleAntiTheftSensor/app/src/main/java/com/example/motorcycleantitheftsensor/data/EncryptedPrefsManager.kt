@@ -14,7 +14,7 @@ import java.util.UUID
  * Wrapper around EncryptedSharedPreferences (AES-256-SIV key + AES-256-GCM value encryption).
  * Stores Telegram Bot Token, TOTP Seed, Chat ID Whitelist, and Device UUID securely at rest.
  */
-class EncryptedPrefsManager(context: Context) {
+class EncryptedPrefsManager(private val context: Context) {
 
     companion object {
         private const val PREF_FILE_NAME = "motorcycle_anti_theft_encrypted_prefs"
@@ -38,7 +38,23 @@ class EncryptedPrefsManager(context: Context) {
     private val secureKeyManager = SecureKeyManager(context)
 
     private val prefs: SharedPreferences by lazy {
-        EncryptedSharedPreferences.create(
+        try {
+            createEncryptedPrefs()
+        } catch (e: Exception) {
+            android.util.Log.w("EncryptedPrefsManager", "EncryptedSharedPreferences corrupted, recovering...", e)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    context.deleteSharedPreferences(PREF_FILE_NAME)
+                } else {
+                    context.getSharedPreferences(PREF_FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+                }
+            } catch (_: Exception) {}
+            createEncryptedPrefs()
+        }
+    }
+
+    private fun createEncryptedPrefs(): SharedPreferences {
+        return EncryptedSharedPreferences.create(
             context,
             PREF_FILE_NAME,
             secureKeyManager.masterKey,
@@ -61,11 +77,11 @@ class EncryptedPrefsManager(context: Context) {
 
     // --- Telegram Chat ID Whitelist ---
     fun saveAllowedChatIds(chatIds: Set<String>) {
-        prefs.edit().putStringSet(KEY_ALLOWED_CHAT_IDS, chatIds).apply()
+        prefs.edit().putStringSet(KEY_ALLOWED_CHAT_IDS, HashSet(chatIds)).apply()
     }
 
     fun getAllowedChatIds(): Set<String> {
-        return prefs.getStringSet(KEY_ALLOWED_CHAT_IDS, emptySet()) ?: emptySet()
+        return prefs.getStringSet(KEY_ALLOWED_CHAT_IDS, emptySet())?.toSet() ?: emptySet()
     }
 
     fun isChatIdAllowed(chatId: String): Boolean {

@@ -4,7 +4,7 @@ import kotlin.math.abs
 
 class IncidentEngine(
     private val idGenerator: IncidentIdGenerator,
-    private val correlationWindowMs: Long,
+    private val correlationWindowMs: Long = AUDIO_CORRELATION_WINDOW_MS,
 ) {
     private data class ActiveIncident(
         val incident: SecurityIncident,
@@ -12,7 +12,13 @@ class IncidentEngine(
     )
 
     private var activeIncident: ActiveIncident? = null
+    val hasActiveIncident: Boolean
+        @Synchronized get() = activeIncident != null
     private var lightPrecursor: IncidentEvidence? = null
+    private val audioPrecursors = mutableListOf<IncidentEvidence>()
+    private var vibrationPrecursor: IncidentEvidence? = null
+    private var chargerPrecursor: IncidentEvidence? = null
+    private var locationPrecursor: IncidentEvidence? = null
 
     @Synchronized
     fun accept(
@@ -21,47 +27,164 @@ class IncidentEngine(
         location: IncidentLocation? = null,
     ): IncidentUpdate {
         if (protectionState !in ACTIVE_PROTECTION_STATES) {
+            clearAllPrecursors()
             return IncidentUpdate.Ignored
         }
 
+        purgePrecursors(observation.eventElapsedMs)
         val evidence = observation.toEvidence()
         val active = activeIncident
+
         if (active == null) {
             if (observation.kind == SensorKind.LIGHT) {
                 lightPrecursor = evidence
                 return IncidentUpdate.Ignored
             }
-            val classification = initialClassification(observation) ?: return IncidentUpdate.Ignored
-            val priorLight = lightPrecursor
-                ?.takeIf { light ->
-                    observation.kind == SensorKind.VIBRATION &&
-                        abs(observation.eventElapsedMs - light.eventElapsedMs) <= correlationWindowMs
+
+            if (observation.kind == SensorKind.MICROPHONE) {
+                val threat = observation.audioThreat ?: return IncidentUpdate.Ignored
+                val matchedVibration = vibrationPrecursor?.takeIf {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
                 }
-            lightPrecursor = null
-            val openingClassification = if (priorLight != null) {
-                Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
-            } else {
-                classification
+                val matchedCharger = chargerPrecursor?.takeIf {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+                }
+                val matchedLocation = locationPrecursor?.takeIf {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+                }
+
+                val primaryPresent = hasPrimaryRole(observation, matchedVibration, matchedCharger, matchedLocation)
+
+                if (matchedVibration != null && primaryPresent) {
+                    vibrationPrecursor = null
+                    val coherent = abs(matchedVibration.eventElapsedMs - observation.eventElapsedMs) <= 250L
+                    val finalAudio = if (coherent) {
+                        evidence.copy(audioThreat = threat.copy(onsetCoherent = true))
+                    } else {
+                        evidence
+                    }
+                    val classification = classifyAudioVibration(threat, isRepeated = threat.occurrenceCount >= 2)
+                    val openingEvidence = listOf(matchedVibration, finalAudio)
+                    return openIncident(classification, openingEvidence, observation, protectionState, location)
+                }
+
+                if (matchedCharger != null && primaryPresent) {
+                    chargerPrecursor = null
+                    val classification = Classification(IncidentType.POWER, IncidentSeverity.CRITICAL)
+                    val openingEvidence = listOf(matchedCharger, evidence)
+                    return openIncident(classification, openingEvidence, observation, protectionState, location)
+                }
+
+                if (matchedLocation != null && primaryPresent) {
+                    locationPrecursor = null
+                    val classification = Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
+                    val openingEvidence = listOf(matchedLocation, evidence)
+                    return openIncident(classification, openingEvidence, observation, protectionState, location)
+                }
+
+                recordAudioPrecursor(evidence)
+                return IncidentUpdate.Ignored
             }
-            val openingEvidence = listOfNotNull(priorLight, evidence)
-            val incident = SecurityIncident(
-                id = idGenerator.nextId(),
-                type = openingClassification.type,
-                severity = openingClassification.severity,
-                lifecycle = IncidentLifecycle.OPEN,
-                evidence = openingEvidence,
-                openedAtMs = openingEvidence.minOf(IncidentEvidence::wallClockMs),
-                updatedAtMs = observation.wallClockMs,
-                closedAtMs = null,
-                protectionState = protectionState,
-                deliveryState = DeliveryState.PENDING,
-                location = location,
-            )
-            activeIncident = ActiveIncident(incident, observation.eventElapsedMs)
-            return IncidentUpdate.Opened(incident)
+
+            if (observation.kind == SensorKind.VIBRATION) {
+                val priorVibration = vibrationPrecursor?.takeIf {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs && it.source != observation.source
+                }
+                vibrationPrecursor = evidence
+                val matchedAudio = audioPrecursors.lastOrNull {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+                }
+                val priorLight = lightPrecursor?.takeIf {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+                }
+
+                val primaryPresent = hasPrimaryRole(observation, matchedAudio, priorLight, priorVibration)
+                if (!primaryPresent) {
+                    return IncidentUpdate.Ignored
+                }
+
+                if (matchedAudio != null) {
+                    audioPrecursors.remove(matchedAudio)
+                    val threat = matchedAudio.audioThreat
+                    val coherent = abs(observation.eventElapsedMs - matchedAudio.eventElapsedMs) <= 250L
+                    val finalAudio = if (coherent && threat != null) {
+                        matchedAudio.copy(audioThreat = threat.copy(onsetCoherent = true))
+                    } else {
+                        matchedAudio
+                    }
+                    val classification = if (priorLight != null) {
+                        lightPrecursor = null
+                        Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
+                    } else if (threat != null) {
+                        classifyAudioVibration(threat, isRepeated = threat.occurrenceCount >= 2)
+                    } else {
+                        Classification(IncidentType.VIBRATION, IncidentSeverity.WARNING)
+                    }
+                    val openingEvidence = listOfNotNull(priorLight, priorVibration, finalAudio, evidence)
+                    return openIncident(classification, openingEvidence, observation, protectionState, location)
+                }
+
+                val openingClassification = if (priorLight != null) {
+                    lightPrecursor = null
+                    Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
+                } else {
+                    Classification(IncidentType.VIBRATION, IncidentSeverity.WARNING)
+                }
+                val openingEvidence = listOfNotNull(priorLight, priorVibration, evidence)
+                return openIncident(openingClassification, openingEvidence, observation, protectionState, location)
+            }
+
+            if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "charger_disconnected") {
+                chargerPrecursor = evidence
+                val matchedAudio = audioPrecursors.lastOrNull {
+                    abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+                }
+                val primaryPresent = hasPrimaryRole(observation, matchedAudio)
+                if (!primaryPresent) {
+                    return IncidentUpdate.Ignored
+                }
+                if (matchedAudio != null) {
+                    audioPrecursors.remove(matchedAudio)
+                }
+                val classification = Classification(IncidentType.POWER, IncidentSeverity.CRITICAL)
+                val openingEvidence = listOfNotNull(matchedAudio, evidence)
+                return openIncident(classification, openingEvidence, observation, protectionState, location)
+            }
+
+            if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "temperature_celsius") {
+                if (!isPrimaryRole(observation.role)) {
+                    return IncidentUpdate.Ignored
+                }
+                val classification = Classification(IncidentType.THERMAL, IncidentSeverity.WARNING)
+                return openIncident(classification, listOf(evidence), observation, protectionState, location)
+            }
+
+            // Ordinary location observation does not open incident or act as confirmed movement
+            return IncidentUpdate.Ignored
         }
 
-        val evidenceList = active.incident.evidence + evidence
+        // Active incident is open
+        if (observation.kind == SensorKind.MICROPHONE) {
+            val matchedVibration = vibrationPrecursor?.takeIf {
+                abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+            }
+            val matchedCharger = chargerPrecursor?.takeIf {
+                abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+            }
+            val matchedLocation = locationPrecursor?.takeIf {
+                abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+            }
+            val hasRecentVibrationInEvidence = active.incident.evidence.any {
+                it.kind == SensorKind.VIBRATION && abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+            }
+
+            if (matchedVibration == null && matchedCharger == null && matchedLocation == null && !hasRecentVibrationInEvidence) {
+                recordAudioPrecursor(evidence)
+                return IncidentUpdate.Ignored
+            }
+        }
+
+        val evidenceList = appendEvidence(active.incident.evidence, evidence)
         val classification = updatedClassification(active.incident, observation, evidenceList)
         val updated = active.incident.copy(
             type = classification.type,
@@ -81,10 +204,62 @@ class IncidentEngine(
     }
 
     @Synchronized
+    fun onConfirmedMovement(
+        observation: SensorObservation,
+        protectionState: ProtectionState,
+        location: IncidentLocation? = null,
+    ): IncidentUpdate {
+        if (protectionState !in ACTIVE_PROTECTION_STATES) {
+            clearAllPrecursors()
+            return IncidentUpdate.Ignored
+        }
+        if (observation.kind != SensorKind.LOCATION) return IncidentUpdate.Ignored
+
+        purgePrecursors(observation.eventElapsedMs)
+        val evidence = observation.toEvidence()
+        val active = activeIncident
+
+        if (active == null) {
+            val matchedAudio = audioPrecursors.lastOrNull {
+                abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
+            }
+            if (matchedAudio != null) {
+                audioPrecursors.remove(matchedAudio)
+                val classification = Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
+                val openingEvidence = listOf(matchedAudio, evidence)
+                return openIncident(classification, openingEvidence, observation, protectionState, location)
+            }
+            locationPrecursor = evidence
+            return IncidentUpdate.Ignored
+        } else {
+            val evidenceList = appendEvidence(active.incident.evidence, evidence)
+            val updated = active.incident.copy(
+                severity = IncidentSeverity.CRITICAL,
+                evidence = evidenceList,
+                updatedAtMs = observation.wallClockMs,
+                protectionState = protectionState,
+                location = location ?: active.incident.location,
+            )
+            activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+            return if (updated.severity.ordinal > active.incident.severity.ordinal) {
+                IncidentUpdate.Escalated(updated)
+            } else {
+                IncidentUpdate.Updated(updated)
+            }
+        }
+    }
+
+    @Synchronized
+    fun clearPendingAudio() {
+        clearAudioPrecursors()
+    }
+
+    @Synchronized
     fun close(
         nowMs: Long,
         reason: String,
     ): IncidentUpdate.Closed? {
+        clearAllPrecursors()
         val active = activeIncident ?: return null
         activeIncident = null
         val closed = active.incident.copy(
@@ -112,6 +287,7 @@ class IncidentEngine(
     fun interrupted(
         nowMs: Long,
     ): IncidentUpdate.Closed? {
+        clearAllPrecursors()
         val active = activeIncident ?: return null
         activeIncident = null
         val interrupted = active.incident.copy(
@@ -123,19 +299,95 @@ class IncidentEngine(
         return IncidentUpdate.Closed(interrupted)
     }
 
-    private fun initialClassification(observation: SensorObservation): Classification? = when {
-        observation.kind == SensorKind.VIBRATION -> Classification(
-            IncidentType.VIBRATION,
-            IncidentSeverity.WARNING,
+    private fun clearAudioPrecursors() {
+        audioPrecursors.clear()
+    }
+
+    private fun clearAllPrecursors() {
+        lightPrecursor = null
+        audioPrecursors.clear()
+        vibrationPrecursor = null
+        chargerPrecursor = null
+        locationPrecursor = null
+    }
+
+    private fun recordAudioPrecursor(evidence: IncidentEvidence) {
+        audioPrecursors.add(evidence)
+        if (audioPrecursors.size > AUDIO_MAX_CANDIDATES) {
+            audioPrecursors.removeAt(0)
+        }
+    }
+
+    private fun openIncident(
+        classification: Classification,
+        openingEvidence: List<IncidentEvidence>,
+        observation: SensorObservation,
+        protectionState: ProtectionState,
+        location: IncidentLocation?,
+    ): IncidentUpdate.Opened {
+        val incident = SecurityIncident(
+            id = idGenerator.nextId(),
+            type = classification.type,
+            severity = classification.severity,
+            lifecycle = IncidentLifecycle.OPEN,
+            evidence = openingEvidence,
+            openedAtMs = openingEvidence.minOf(IncidentEvidence::wallClockMs),
+            updatedAtMs = observation.wallClockMs,
+            closedAtMs = null,
+            protectionState = protectionState,
+            deliveryState = DeliveryState.PENDING,
+            location = location,
         )
+        activeIncident = ActiveIncident(incident, observation.eventElapsedMs)
+        return IncidentUpdate.Opened(incident)
+    }
 
-        observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "charger_disconnected" ->
-            Classification(IncidentType.POWER, IncidentSeverity.CRITICAL)
+    private fun classificationFromAudioThreat(audioThreat: AudioThreatMetadata): Classification {
+        return when (audioThreat.category) {
+            AudioThreatCategory.IMPACT,
+            AudioThreatCategory.BREAKING,
+            AudioThreatCategory.POWER_TOOL,
+            AudioThreatCategory.ENGINE_START -> {
+                Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
+            }
+            AudioThreatCategory.METAL_TAMPER,
+            AudioThreatCategory.ENGINE_RUNNING -> {
+                Classification(IncidentType.AUDIO, IncidentSeverity.WARNING)
+            }
+        }
+    }
 
-        observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "temperature_celsius" ->
-            Classification(IncidentType.THERMAL, IncidentSeverity.WARNING)
+    private fun appendEvidence(
+        existing: List<IncidentEvidence>,
+        newEvidence: IncidentEvidence,
+        maxCount: Int = 30
+    ): List<IncidentEvidence> {
+        if (existing.size < maxCount) return existing + newEvidence
+        val initialPrecursors = existing.take(5)
+        val remainingSlots = maxCount - initialPrecursors.size
+        val recent = (existing.drop(5) + newEvidence).takeLast(remainingSlots)
+        return initialPrecursors + recent
+    }
 
-        else -> null
+    private fun classifyAudioVibration(threat: AudioThreatMetadata, isRepeated: Boolean): Classification {
+        return when (threat.category) {
+            AudioThreatCategory.IMPACT -> {
+                if (isRepeated) {
+                    Classification(IncidentType.VIBRATION, IncidentSeverity.CRITICAL)
+                } else {
+                    Classification(IncidentType.VIBRATION, IncidentSeverity.WARNING)
+                }
+            }
+            AudioThreatCategory.BREAKING,
+            AudioThreatCategory.POWER_TOOL,
+            AudioThreatCategory.ENGINE_START -> {
+                Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
+            }
+            AudioThreatCategory.METAL_TAMPER,
+            AudioThreatCategory.ENGINE_RUNNING -> {
+                Classification(IncidentType.AUDIO, IncidentSeverity.WARNING)
+            }
+        }
     }
 
     private fun updatedClassification(
@@ -149,6 +401,12 @@ class IncidentEngine(
 
         val vibration = evidence.lastOrNull { item -> item.kind == SensorKind.VIBRATION }
         val light = evidence.lastOrNull { item -> item.kind == SensorKind.LIGHT }
+        val powerTool = evidence.lastOrNull { item -> item.kind == SensorKind.MICROPHONE && item.audioThreat?.category == AudioThreatCategory.POWER_TOOL }
+
+        if (powerTool != null && light != null && vibration != null) {
+            return Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
+        }
+
         if (
             vibration != null &&
             light != null &&
@@ -157,7 +415,47 @@ class IncidentEngine(
             return Classification(IncidentType.TAMPER, IncidentSeverity.CRITICAL)
         }
 
+        val audioThreat = observation.audioThreat ?: evidence.lastOrNull { it.kind == SensorKind.MICROPHONE }?.audioThreat
+        if (audioThreat != null && (
+            audioThreat.category == AudioThreatCategory.BREAKING ||
+            audioThreat.category == AudioThreatCategory.POWER_TOOL ||
+            audioThreat.category == AudioThreatCategory.ENGINE_START
+        )) {
+            val updatedType = if (current.type == IncidentType.TAMPER) IncidentType.TAMPER else IncidentType.AUDIO
+            return Classification(updatedType, IncidentSeverity.CRITICAL)
+        }
+
         return Classification(current.type, current.severity)
+    }
+
+    private fun purgePrecursors(nowElapsedMs: Long) {
+        if (lightPrecursor != null && (nowElapsedMs - lightPrecursor!!.eventElapsedMs > correlationWindowMs)) {
+            lightPrecursor = null
+        }
+        audioPrecursors.removeAll { nowElapsedMs - it.eventElapsedMs > correlationWindowMs }
+        if (vibrationPrecursor != null && (nowElapsedMs - vibrationPrecursor!!.eventElapsedMs > correlationWindowMs)) {
+            vibrationPrecursor = null
+        }
+        if (chargerPrecursor != null && (nowElapsedMs - chargerPrecursor!!.eventElapsedMs > correlationWindowMs)) {
+            chargerPrecursor = null
+        }
+        if (locationPrecursor != null && (nowElapsedMs - locationPrecursor!!.eventElapsedMs > correlationWindowMs)) {
+            locationPrecursor = null
+        }
+    }
+
+    private fun isPrimaryRole(role: SensorRole?): Boolean {
+        return role == SensorRole.PRIMARY || role == null
+    }
+
+    private fun hasPrimaryRole(vararg items: Any?): Boolean {
+        return items.any { item ->
+            when (item) {
+                is SensorObservation -> isPrimaryRole(item.role)
+                is IncidentEvidence -> isPrimaryRole(item.role)
+                else -> false
+            }
+        }
     }
 
     private data class Classification(
@@ -165,14 +463,7 @@ class IncidentEngine(
         val severity: IncidentSeverity,
     )
 
-    private fun SensorObservation.toEvidence(): IncidentEvidence = IncidentEvidence(
-        kind = kind,
-        eventElapsedMs = eventElapsedMs,
-        wallClockMs = wallClockMs,
-        normalizedValue = normalizedValue,
-        baselineDelta = baselineDelta,
-        diagnostic = diagnostic,
-    )
+
 
     private companion object {
         val ACTIVE_PROTECTION_STATES = setOf(

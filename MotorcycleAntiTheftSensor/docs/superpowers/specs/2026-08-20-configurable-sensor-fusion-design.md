@@ -1,7 +1,7 @@
 # Configurable Multi-Sensor Fusion Design
 
 Date: 2026-08-20  
-Status: Approved in chat; pending written-spec review  
+Status: Approved by owner on 2026-08-20; implementation planning authorized
 Project: MotorcycleAntiTheftSensor
 
 ## 1. Goal
@@ -729,4 +729,4 @@ The design is implemented only when all of the following are true:
 
 ## 19. Written-spec review gate
 
-This document captures the approved conversational design. Production implementation must not begin until the user reviews this written file and explicitly approves it. After approval, create a separate detailed implementation plan and agent handoff with exact paths, task dependencies, RED-GREEN-REFACTOR order, verification commands, device acceptance, and security boundaries.
+This document captures the approved design. The owner approved this written file on 2026-08-20 and authorized a separate detailed implementation plan and agent handoff. Production implementation remains a later execution step and must follow those task dependencies, RED-GREEN-REFACTOR gates, verification commands, device acceptance checks, and security boundaries.

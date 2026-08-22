@@ -275,7 +275,7 @@ class ProtectionAppScreenTest {
             ProtectionAppScreen(degradedState("VIBRATION not healthy"), fakeActions())
         }
 
-        compose.onNodeWithText("Protection degraded").assertExists()
+        compose.onNodeWithText("การป้องกันทำงานแบบจำกัด").assertExists()
         compose.onNodeWithText("VIBRATION not healthy").assertExists()
     }
 
@@ -510,6 +510,49 @@ class ProtectionAppScreenTest {
         compose.onAllNodes(hasText("Replace authenticator")).assertCountEquals(0)
         compose.onAllNodes(hasText("Show QR code")).assertCountEquals(0)
         compose.onAllNodes(hasTestTag("authenticator_qr_code")).assertCountEquals(0)
+    }
+
+    @Test
+    fun protectionScreenDisplaysTruthfulMicrophoneSensorHealth() {
+        val state = baseState(ProtectionState.ARMED_HEALTHY).copy(
+            protection = baseState(ProtectionState.ARMED_HEALTHY).protection.copy(
+                sensorHealth = mapOf(
+                    SensorKind.MICROPHONE to SensorHealth(SensorHealthState.AVAILABLE),
+                ),
+            ),
+        )
+        showWithLocalNavigation(state)
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Microphone detected"))
+        compose.onNodeWithText("Microphone detected").assertExists()
+    }
+
+    @Test
+    fun audioThreatRuntimeCardRendersWhenAudioIsActive() {
+        val state = baseState(ProtectionState.ARMED_HEALTHY).copy(
+            audio = AudioUiTelemetry(
+                state = com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.LISTENING,
+                modelReady = true,
+                approximateLevelDbfs = -32.5,
+            ),
+        )
+        showWithLocalNavigation(state)
+
+        compose.onNodeWithTag(com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG).assertExists()
+        compose.onNodeWithText("listening", substring = true, ignoreCase = true).assertExists()
+    }
+
+    @Test
+    fun settingsHasAutomaticAudioDiagnosticsButNoManualMicrophoneTest() {
+        showWithLocalNavigation(configuredSettingsState())
+        openSettings()
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Audio Threat Detection"))
+        compose.onNodeWithText("Audio Threat Detection").assertExists()
+        compose.onNodeWithText("Audio Runtime").assertExists()
+        compose.onNodeWithText("Last Sample Age").assertExists()
+        compose.onAllNodes(hasText("Test Microphone", substring = true)).assertCountEquals(0)
+        compose.onAllNodes(hasText("Last Self-Test", substring = true)).assertCountEquals(0)
     }
 
     private fun showWithLocalNavigation(

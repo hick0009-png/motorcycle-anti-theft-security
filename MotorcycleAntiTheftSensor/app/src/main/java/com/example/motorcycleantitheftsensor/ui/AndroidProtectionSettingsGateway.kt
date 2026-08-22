@@ -1,6 +1,11 @@
 package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import com.example.motorcycleantitheftsensor.protection.SensorCapability
+import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
+import com.example.motorcycleantitheftsensor.protection.SensorConfigurationRepository
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
+import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
@@ -20,11 +25,13 @@ class AndroidProtectionSettingsGateway internal constructor(
         pairingCodePolicy: PairingCodePolicy,
         refreshControlService: () -> Unit,
         verificationTimeoutMs: Long = 12_000L,
+        sensorConfigRepository: SensorConfigurationRepository? = null,
     ) : this(
         operations = EncryptedAndroidProtectionSettingsOperations(
             preferences = preferences,
             telegram = telegram,
             refreshService = refreshControlService,
+            sensorConfigRepository = sensorConfigRepository,
         ),
         pairingCodePolicy = pairingCodePolicy,
         verificationTimeoutMs = verificationTimeoutMs,
@@ -40,6 +47,10 @@ class AndroidProtectionSettingsGateway internal constructor(
                 stored.value
             }
         }
+        val sensorConfig = operations.getSensorConfiguration()
+        val displayPreset = sensorConfig?.let {
+            SensorConfigurationPolicy().displayPreset(it)
+        }
         return ProtectionSettingsSummary(
             tokenConfigured = !operations.getBotToken().isNullOrBlank(),
             pairedOwnerCount = allowedChatIds.size,
@@ -48,11 +59,22 @@ class AndroidProtectionSettingsGateway internal constructor(
             smsFallbackConfigured = !operations.getSmsDestination().isNullOrBlank() &&
                 !operations.getSmsAesKey().isNullOrBlank(),
             missingPermissions = missingPermissions,
+            sensorConfiguration = sensorConfig,
+            sensorDisplayPreset = displayPreset,
         )
     }
 
     override fun saveSensitivity(level: Int) {
         operations.setSensitivity(level)
+    }
+
+    override fun saveSensorConfiguration(config: SensorFusionConfiguration): SettingsOperationResult {
+        val success = operations.saveSensorConfiguration(config)
+        return if (success) {
+            SettingsOperationResult(applied = true, message = "Sensor configuration updated")
+        } else {
+            SettingsOperationResult(applied = false, message = "Failed to save sensor configuration")
+        }
     }
 
     override suspend fun replaceBotToken(token: String): SettingsOperationResult {
@@ -121,13 +143,18 @@ internal interface AndroidProtectionSettingsOperations {
     fun saveSmsAesKey(aesKey: String)
     suspend fun verifyBotToken(token: String): TelegramBotVerificationResult
     fun refreshControlService()
+    fun getSensorConfiguration(): SensorFusionConfiguration? = null
+    fun saveSensorConfiguration(config: SensorFusionConfiguration): Boolean = true
 }
 
 private class EncryptedAndroidProtectionSettingsOperations(
     private val preferences: EncryptedPrefsManager,
     private val telegram: TelegramBotClient,
     private val refreshService: () -> Unit,
+    private val sensorConfigRepository: SensorConfigurationRepository? = null,
 ) : AndroidProtectionSettingsOperations {
+    private var inMemoryConfig: SensorFusionConfiguration? = null
+
     override fun getAllowedChatIds(): Set<String> = preferences.getAllowedChatIds()
     override fun saveAllowedChatIds(chatIds: Set<String>) = preferences.saveAllowedChatIds(chatIds)
     override fun getPairingCode(): PairingCode? = preferences.getPairingCode()
@@ -144,4 +171,38 @@ private class EncryptedAndroidProtectionSettingsOperations(
         return telegram.verifyBotTokenResult(token)
     }
     override fun refreshControlService() = refreshService()
+
+    override fun getSensorConfiguration(): SensorFusionConfiguration {
+        val repo = sensorConfigRepository
+        if (repo != null) {
+            return repo.loadConfiguration()
+        }
+        if (inMemoryConfig == null) {
+            val legacySensitivity = preferences.getSensitivity()
+            val policy = SensorConfigurationPolicy()
+            val balanced = policy.forPreset(SensorPreset.BALANCED)
+            inMemoryConfig = policy.withGroupSensitivity(
+                config = policy.withGroupSensitivity(balanced, SensorCapability.MOVEMENT, legacySensitivity),
+                capability = SensorCapability.LIGHT,
+                sensitivity = legacySensitivity,
+            )
+        }
+        return inMemoryConfig!!
+    }
+
+    override fun saveSensorConfiguration(config: SensorFusionConfiguration): Boolean {
+        val repo = sensorConfigRepository
+        if (repo != null) {
+            val saveResult = repo.saveConfiguration(config)
+            if (saveResult.isSuccess) {
+                inMemoryConfig = config
+                preferences.setSensitivity(config.capability(SensorCapability.MOVEMENT).sensitivity)
+                return true
+            }
+            return false
+        }
+        inMemoryConfig = config
+        preferences.setSensitivity(config.capability(SensorCapability.MOVEMENT).sensitivity)
+        return true
+    }
 }

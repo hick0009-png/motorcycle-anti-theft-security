@@ -226,6 +226,30 @@ class MovementDisplacementPolicyTest {
         assertFalse(policy.isValidStoredFix(invalidAccuracy))
     }
 
+    @Test
+    fun haversineAntipodalDistanceDoesNotProduceNaN() {
+        // Distance between antipodal coordinates (e.g. 0.0, 0.0 to 0.0, 180.0)
+        val distance = MovementDisplacementPolicy.calculateHaversineDistance(0.0, 0.0, 0.0, 180.0)
+        assertFalse("Haversine calculation must not return NaN", distance.isNaN())
+        assertTrue("Antipodal distance should be ~20,000 km", distance > 19_000_000.0)
+    }
+
+    @Test
+    fun candidateExpiresAfterMaxConfirmationSeparation() {
+        val policy = MovementDisplacementPolicy()
+        policy.reset(ParkingAnchor(fix(0.0, 0.0, 1_000L, 5f), "armed-1"))
+
+        // First candidate fix at 2_000L
+        val r1 = policy.evaluate(fix(0.002, 0.0, 2_000L, 5f), 2_000L)
+        assertTrue(r1 is MovementDecision.Candidate)
+
+        // Second fix comes after 65 seconds (exceeds MAX_CONFIRMATION_SEPARATION_MS = 60s)
+        val r2 = policy.evaluate(fix(0.002, 0.0, 68_000L, 5f), 68_000L)
+        // Should start a new candidate cycle (count = 1), not confirm
+        assertTrue(r2 is MovementDecision.Candidate)
+        assertEquals(1, (r2 as MovementDecision.Candidate).consecutiveOutsideFixes)
+    }
+
     private fun fix(lat: Double, lon: Double, elapsed: Long, accuracy: Float) =
         TrackedLocationFix(lat, lon, elapsed, elapsed, accuracy)
 }

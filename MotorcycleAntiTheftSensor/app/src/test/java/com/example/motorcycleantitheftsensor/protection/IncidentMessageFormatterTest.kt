@@ -62,14 +62,14 @@ class IncidentMessageFormatterTest {
     }
 
     @Test
-    fun formatsEscalatedIncidentCorrectly() {
+    fun formatsInterruptedIncidentCorrectly() {
         val incident = criticalIncident().copy(
             type = IncidentType.AUDIO,
             lifecycle = IncidentLifecycle.INTERRUPTED
         )
 
         val message = formatter.format(incident)
-        // INTERRUPTED maps to ESCALATED guidance code
+        assertTrue(message.contains(UserGuidanceCatalog.content(GuidanceCode.INCIDENT_OPENED).telegramTh!!.replace("{incidentType}", "AUDIO")))
     }
 
     @Test
@@ -168,6 +168,64 @@ class IncidentMessageFormatterTest {
         assertFalse(message.contains("100.5018"))
         assertFalse(message.contains("ตำแหน่ง"))
         assertFalse(message.contains("พิกัด"))
+    }
+
+    @Test
+    fun formatsTypedAudioThreatEvidenceCorrectly() {
+        val audioThreat = AudioThreatMetadata(
+            category = AudioThreatCategory.POWER_TOOL,
+            confidence = 0.92,
+            loudnessDeltaDb = 14.5,
+            firstDetectedElapsedMs = 1000L,
+            lastDetectedElapsedMs = 2000L,
+            occurrenceCount = 2,
+            onsetElapsedMs = 1000L,
+            onsetCoherent = true,
+        )
+        val evidenceList = listOf(
+            IncidentEvidence(
+                kind = SensorKind.MICROPHONE,
+                eventElapsedMs = 1000L,
+                wallClockMs = 1000L,
+                normalizedValue = 0.92,
+                baselineDelta = 14.5,
+                diagnostic = "power_tool",
+                audioThreat = audioThreat,
+            )
+        )
+        val incident = criticalIncident().copy(
+            type = IncidentType.AUDIO,
+            evidence = evidenceList,
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(incident)
+        assertTrue(message.contains("เสียง: เสียงเครื่องมือช่าง/หินเจียร์ (ความมั่นใจ 92%, +14.5 dB, 2 ครั้ง) [ตรงกับการสั่น]"))
+    }
+
+    @Test
+    fun formatsEscalatedIncidentWithDistinctHeaderAndUrgencyMarker() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            evidence = listOf(
+                IncidentEvidence(
+                    kind = SensorKind.VIBRATION,
+                    eventElapsedMs = 1000L,
+                    wallClockMs = 1000L,
+                    normalizedValue = 15.0,
+                    baselineDelta = 5.0,
+                    diagnostic = "accelerometer",
+                )
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+        val update = IncidentUpdate.Escalated(incident)
+
+        val message = formatter.format(update)
+        assertTrue("Message must contain escalated header", message.contains("🚨 เหตุยกระดับเป็นวิกฤต"))
+        assertTrue("Message must contain urgency marker", message.contains("⚠️ ระดับความรุนแรง: วิกฤต (CRITICAL)"))
+        assertTrue("Message must contain evidence chain", message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป"))
+        assertFalse("Message must not contain opened header", message.contains("🚨 ตรวจพบ TAMPER"))
     }
 
     private fun criticalIncident() = SecurityIncident(

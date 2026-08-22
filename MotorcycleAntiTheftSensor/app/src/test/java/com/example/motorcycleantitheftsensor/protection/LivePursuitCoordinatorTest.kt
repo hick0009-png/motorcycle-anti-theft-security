@@ -772,14 +772,12 @@ class LivePursuitCoordinatorTest {
     }
 
     @Test
-    fun nativeLiveLocationStartsBeforePresentationResolution() = runBlocking {
+    fun nativeLiveLocationDoesNotResolveOrSendMovementAlertText() = runBlocking {
         var startCalled = false
-        var labelResolvedAfterStart = false
+        var labelResolverInvoked = false
 
         val slowResolver = LocationLabelResolver {
-            if (startCalled) {
-                labelResolvedAfterStart = true
-            }
+            labelResolverInvoked = true
             "Bangkok"
         }
         val customTransport = object : TelegramLiveLocationTransport by fakeTransport {
@@ -812,11 +810,12 @@ class LivePursuitCoordinatorTest {
         testCoordinator.onLocationFix(fix(0.002, 0.0, 17000L, 5f))
 
         assertTrue(startCalled)
-        assertTrue(labelResolvedAfterStart)
+        assertFalse(labelResolverInvoked)
+        assertTrue(fakeTransport.alerts.isEmpty())
     }
 
     @Test
-    fun movementAlertAlwaysContainsMapAndAccuracy() = runBlocking {
+    fun livePursuitOwnsOnlyLiveLocationForConfirmedMovement() = runBlocking {
         simulatedElapsedClockMs = 1000L
         coordinator.onProtectionStateChanged(ProtectionState.ARMED_HEALTHY, "arm-1")
         coordinator.onLocationFix(fix(0.0, 0.0, 1000L, 5f))
@@ -827,15 +826,46 @@ class LivePursuitCoordinatorTest {
         simulatedElapsedClockMs = 17000L
         coordinator.onLocationFix(fix(0.002, 0.0, 17000L, 5f))
 
-        var retries = 0
-        while (fakeTransport.alerts.isEmpty() && retries++ < 50) {
-            kotlinx.coroutines.delay(10)
-        }
+        assertEquals(1, fakeTransport.starts.size)
+        assertTrue(fakeTransport.alerts.isEmpty())
+    }
 
-        assertEquals(1, fakeTransport.alerts.size)
-        val alert = fakeTransport.alerts.first()
-        assertTrue(alert.contains("https://maps.google.com/?q="))
-        assertTrue(alert.contains("ความแม่นยำ ~"))
+    @Test
+    fun onConfirmedMovementCallbackIsInvokedOnConfirmedMovement() = runBlocking {
+        var confirmedFix: TrackedLocationFix? = null
+        simulatedElapsedClockMs = 10_000L
+        simulatedWallClockMs = 10_000L
+        val customCoordinator = DefaultLivePursuitCoordinator(
+            locationTracking = fakeTracking,
+            store = fakeStore,
+            displacementPolicy = MovementDisplacementPolicy(),
+            transport = fakeTransport,
+            labelResolver = fakeLabelResolver,
+            expiryScheduler = fakeScheduler,
+            scope = testScope,
+            onMovementConfirmed = { confirmedFix = it },
+            wallClockMs = { simulatedWallClockMs },
+            elapsedClockMs = { simulatedElapsedClockMs },
+        )
+
+        customCoordinator.onProtectionStateChanged(ProtectionState.ARMED_HEALTHY, "sess-1")
+        // Set anchor fix
+        customCoordinator.onLocationFix(fix(13.7563, 100.5018, 10_000L, 5f))
+        assertNull(confirmedFix)
+
+        // First outside fix (>50m)
+        simulatedElapsedClockMs = 12_000L
+        simulatedWallClockMs = 12_000L
+        customCoordinator.onLocationFix(fix(13.7580, 100.5018, 12_000L, 5f))
+        assertNull(confirmedFix)
+
+        // Second outside fix >= 15s later -> Confirmed
+        simulatedElapsedClockMs = 27_001L
+        simulatedWallClockMs = 27_001L
+        customCoordinator.onLocationFix(fix(13.7582, 100.5018, 27_001L, 5f))
+
+        assertNotNull(confirmedFix)
+        assertEquals(13.7582, confirmedFix!!.latitude, 0.0001)
     }
 
     private fun fix(

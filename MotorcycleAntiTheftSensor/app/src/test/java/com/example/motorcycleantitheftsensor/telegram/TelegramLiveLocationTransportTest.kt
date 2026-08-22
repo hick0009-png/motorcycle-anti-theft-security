@@ -186,4 +186,20 @@ class TelegramLiveLocationTransportTest {
         assertEquals("456", json2.getString("chat_id"))
         assertEquals("Alert!", json2.getString("text"))
     }
+
+    @Test
+    fun rapidConsecutiveUpdatesAreThrottledWithoutNetworkIo() = runBlocking {
+        val handle = LiveLocationHandle("123", 42L)
+        val fix1 = TrackedLocationFix(13.7565, 100.5020, 2000L, 2000L, 15f)
+        val fix2 = TrackedLocationFix(13.7566, 100.5021, 2001L, 2001L, 15f)
+
+        val result1 = transport.update(handle, fix1)
+        assertTrue(result1 is TelegramCallResult.Success)
+        assertEquals(1, requests.size)
+
+        // Immediate second call within MIN_UPDATE_INTERVAL_MS should return Success without emitting HTTP request
+        val result2 = transport.update(handle, fix2)
+        assertTrue(result2 is TelegramCallResult.Success)
+        assertEquals("Second update within rate limit window must not make network call", 1, requests.size)
+    }
 }

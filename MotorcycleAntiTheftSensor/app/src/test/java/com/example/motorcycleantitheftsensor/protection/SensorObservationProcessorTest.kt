@@ -65,6 +65,35 @@ class SensorObservationProcessorTest {
     }
 
     @Test
+    fun calibratedSourceDoesNotUseAnotherSourceAsItsVibrationBaselineAfterArming() {
+        processor.accept(
+            observation(
+                source = SensorSource.ACCELEROMETER,
+                normalizedValue = 9.8,
+                baselineDelta = 0.01,
+            ),
+            nowElapsedMs = 1_000L,
+            arming = true,
+        )
+
+        repeat(3) { index ->
+            assertEquals(
+                ObservationDecision.Debounced,
+                processor.accept(
+                    observation(
+                        source = SensorSource.GYROSCOPE,
+                        normalizedValue = 0.02,
+                        baselineDelta = 0.01,
+                        eventElapsedMs = 1_100L + index,
+                    ),
+                    nowElapsedMs = 1_100L + index,
+                    arming = false,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun belowThresholdSampleResetsConsecutiveDebounce() {
         processor.seedBaseline(SensorKind.VIBRATION, SensorBaseline(9.8, 3))
         processor.accept(observation(normalizedValue = 12.0), 1_000L, false)
@@ -132,20 +161,56 @@ class SensorObservationProcessorTest {
             ) is ObservationDecision.Accepted,
         )
     }
+
+    @Test
+    fun typedAudioThreatBypassesLegacyBaselineAndIsAcceptedDirectly() {
+        val audioThreat = AudioThreatMetadata(
+            category = AudioThreatCategory.IMPACT,
+            confidence = 0.85,
+            loudnessDeltaDb = 12.0,
+            firstDetectedElapsedMs = 1000L,
+            lastDetectedElapsedMs = 1000L,
+            occurrenceCount = 1,
+            onsetElapsedMs = 1000L,
+        )
+        val typedObservation = observation(
+            kind = SensorKind.MICROPHONE,
+            eventElapsedMs = 1000L,
+            normalizedValue = 0.85,
+        ).copy(audioThreat = audioThreat)
+
+        val decision = processor.accept(typedObservation, nowElapsedMs = 1000L, arming = false)
+        assertTrue(decision is ObservationDecision.Accepted)
+        assertEquals(audioThreat, (decision as ObservationDecision.Accepted).observation.audioThreat)
+    }
+
+    @Test
+    fun untypedMicrophoneObservationIsRejected() {
+        val untypedObservation = observation(
+            kind = SensorKind.MICROPHONE,
+            eventElapsedMs = 1000L,
+            normalizedValue = 0.85,
+        )
+        val decision = processor.accept(untypedObservation, nowElapsedMs = 1000L, arming = false)
+        assertTrue(decision is ObservationDecision.Rejected)
+    }
 }
 
 private fun observation(
     kind: SensorKind = SensorKind.VIBRATION,
+    source: SensorSource? = null,
     eventElapsedMs: Long = 1_000L,
     normalizedValue: Double = 9.8,
+    baselineDelta: Double = 0.0,
     valid: Boolean = true,
     diagnostic: String? = "test sample",
 ): SensorObservation = SensorObservation(
     kind = kind,
+    source = source,
     eventElapsedMs = eventElapsedMs,
     wallClockMs = 1_700_000_000_000L,
     normalizedValue = normalizedValue,
-    baselineDelta = 0.0,
+    baselineDelta = baselineDelta,
     valid = valid,
     diagnostic = diagnostic,
 )

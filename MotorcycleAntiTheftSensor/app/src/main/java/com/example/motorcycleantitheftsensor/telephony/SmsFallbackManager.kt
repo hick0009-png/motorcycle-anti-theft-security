@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 
 fun interface SmsDispatcher {
@@ -31,7 +32,11 @@ class SmsFallbackManager internal constructor(
     private val dispatcher: SmsDispatcher,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val sendTimeoutMs: Long = DEFAULT_SEND_TIMEOUT_MS,
+    private val minIntervalMs: Long = DEFAULT_MIN_INTERVAL_MS,
 ) {
+    private val lastSmsSentMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val sendMutex = kotlinx.coroutines.sync.Mutex()
+
     constructor(
         context: Context,
         prefsManager: EncryptedPrefsManager,
@@ -43,14 +48,19 @@ class SmsFallbackManager internal constructor(
     suspend fun sendEncryptedSmsAlert(
         destinationNumber: String,
         alertType: String,
-        gpsLocation: String,
-    ): Boolean {
-        val secretPass = smsKeyProvider() ?: return false
-        if (destinationNumber.isBlank()) return false
-        val payload = "ALERT:$alertType|LOC:$gpsLocation|TIME:${nowMs()}"
+        gpsLocation: String? = null,
+    ): Boolean = sendMutex.withLock {
+        val secretPass = smsKeyProvider() ?: return@withLock false
+        if (destinationNumber.isBlank()) return@withLock false
+        val now = nowMs()
+        val last = lastSmsSentMs.get()
+        if (last > 0L && now - last in 0 until minIntervalMs) {
+            return@withLock false
+        }
+        val payload = "ALERT:$alertType|TIME:$now"
         val encryptedBody = EncryptedSmsCodec.encryptSmsPayload(payload, secretPass)
         return try {
-            withTimeoutOrNull(sendTimeoutMs) {
+            val result = withTimeoutOrNull(sendTimeoutMs) {
                 suspendCancellableCoroutine { continuation ->
                     val cancel = dispatcher.sendMultipart(destinationNumber, encryptedBody) { sent ->
                         if (continuation.isActive) continuation.resume(sent)
@@ -58,6 +68,10 @@ class SmsFallbackManager internal constructor(
                     continuation.invokeOnCancellation { cancel() }
                 }
             } ?: false
+            if (result) {
+                lastSmsSentMs.set(nowMs())
+            }
+            result
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             false
@@ -66,6 +80,7 @@ class SmsFallbackManager internal constructor(
 
     private companion object {
         const val DEFAULT_SEND_TIMEOUT_MS = 30_000L
+        const val DEFAULT_MIN_INTERVAL_MS = 60_000L
     }
 }
 
@@ -77,7 +92,27 @@ private class AndroidSmsDispatcher(
         message: String,
         onSent: (Boolean) -> Unit,
     ): () -> Unit {
-        val parts = SmsManager.getDefault().divideMessage(message)
+        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            SmsManager.getDefault()
+        }
+        if (smsManager == null) {
+            onSent(false)
+            return {}
+        }
+
+        val parts = try {
+            smsManager.divideMessage(message)
+        } catch (_: Exception) {
+            onSent(false)
+            return {}
+        }
+        if (parts.isNullOrEmpty()) {
+            onSent(false)
+            return {}
+        }
         val action = "${context.packageName}.SMS_SENT.${UUID.randomUUID()}"
         val completed = AtomicBoolean(false)
         val remaining = AtomicInteger(parts.size)
@@ -114,7 +149,7 @@ private class AndroidSmsDispatcher(
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
             }
-            SmsManager.getDefault().sendMultipartTextMessage(
+            smsManager.sendMultipartTextMessage(
                 destinationNumber,
                 null,
                 ArrayList(parts),

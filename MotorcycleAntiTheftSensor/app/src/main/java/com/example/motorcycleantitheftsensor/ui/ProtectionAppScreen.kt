@@ -55,6 +55,9 @@ data class ProtectionAppActions(
     val retrySettings: () -> Unit,
     val resetPairing: () -> Unit,
     val consumeMessage: (Long) -> Unit,
+    val updateSensorConfiguration: (com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration) -> Unit = {},
+    val applySensorPreset: (com.example.motorcycleantitheftsensor.protection.SensorPreset) -> Unit = {},
+    val onSecureFlagChange: (Boolean) -> Unit = {},
 )
 
 @Composable

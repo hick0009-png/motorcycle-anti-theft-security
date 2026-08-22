@@ -10,11 +10,30 @@ enum class IncidentType {
 
 data class IncidentEvidence(
     val kind: SensorKind,
+    val source: SensorSource? = null,
+    val capability: SensorCapability? = null,
+    val role: SensorRole? = null,
+    val unit: SensorUnit? = null,
     val eventElapsedMs: Long,
     val wallClockMs: Long,
     val normalizedValue: Double,
     val baselineDelta: Double,
     val diagnostic: String?,
+    val audioThreat: AudioThreatMetadata? = null,
+)
+
+fun SensorObservation.toEvidence(): IncidentEvidence = IncidentEvidence(
+    kind = kind,
+    source = source,
+    capability = capability,
+    role = role,
+    unit = unit,
+    eventElapsedMs = eventElapsedMs,
+    wallClockMs = wallClockMs,
+    normalizedValue = normalizedValue,
+    baselineDelta = baselineDelta,
+    diagnostic = diagnostic,
+    audioThreat = audioThreat,
 )
 
 data class IncidentLocation(

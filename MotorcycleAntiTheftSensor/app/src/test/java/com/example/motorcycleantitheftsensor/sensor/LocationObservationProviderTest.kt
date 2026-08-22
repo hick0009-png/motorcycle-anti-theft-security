@@ -279,6 +279,22 @@ class LocationObservationProviderTest {
         assertFalse(diag.contains("100.5018"))
     }
 
+    @Test
+    fun currentObservationUsesFixTimestampsWhenFixExists() {
+        // When no fix exists, observation uses current clock values
+        val noFixObs = provider.currentObservation()
+        assertEquals(simulatedElapsedMs, noFixObs.eventElapsedMs)
+        assertEquals(500_000L, noFixObs.wallClockMs)
+
+        // When fix exists, observation uses fix elapsed and wallClock timestamps
+        provider.startArmedTracking {}
+        fakeClient.emit(TrackedLocationFix(13.7563, 100.5018, 88_000L, 222_000L, 5f))
+        val fixObs = provider.currentObservation()
+        assertEquals(88_000L, fixObs.eventElapsedMs)
+        assertEquals(222_000L, fixObs.wallClockMs)
+        assertTrue(fixObs.valid)
+    }
+
     private fun fix(lat: Double, lon: Double, elapsed: Long, accuracy: Float) =
         TrackedLocationFix(lat, lon, elapsed, 123456L, accuracy)
 }

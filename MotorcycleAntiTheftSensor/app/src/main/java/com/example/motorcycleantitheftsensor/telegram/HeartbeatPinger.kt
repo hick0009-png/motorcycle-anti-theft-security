@@ -2,6 +2,10 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import android.content.Context
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -19,31 +23,47 @@ class HeartbeatPinger(
 
     private var executor: ScheduledExecutorService? = null
 
+    @Synchronized
     fun startHeartbeat() {
         if (executor != null && !executor!!.isShutdown) return
 
         executor = Executors.newSingleThreadScheduledExecutor()
         executor?.scheduleAtFixedRate({
-            sendHeartbeatPing()
+            try {
+                sendHeartbeatPing()
+            } catch (ignored: Exception) {}
         }, 0, 15, TimeUnit.MINUTES)
     }
 
+    @Synchronized
     fun stopHeartbeat() {
         executor?.shutdownNow()
         executor = null
     }
 
     private fun sendHeartbeatPing() {
-        if (!prefsManager.isSystemArmed()) return
-
         val allowedChatIds = prefsManager.getAllowedChatIds()
-        val armedState = if (prefsManager.isSystemArmed()) "Armed 🟢" else "Disarmed 🔴"
-        val timestamp = System.currentTimeMillis() / 1000L
+        if (allowedChatIds.isEmpty()) return
+
+        val protectionStatus = if (prefsManager.isSystemArmed()) {
+            "เปิดใช้งาน | Protection: Armed"
+        } else {
+            "ปิดใช้งาน | Protection: Disarmed"
+        }
+        val timestamp = SimpleDateFormat(
+            "d MMM yyyy HH:mm 'ICT'",
+            Locale.forLanguageTag("th-TH"),
+        ).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Bangkok")
+        }.format(Date())
 
         for (chatId in allowedChatIds) {
             telegramBotClient.sendTelegramMessage(
                 chatId,
-                "💓 *Heartbeat Ping* — Vehicle Security Online\nState: $armedState\nTimestamp: $timestamp"
+                "รายงานสถานะระบบ / System Status\n" +
+                    "บริการ: ออนไลน์ | Service: Online\n" +
+                    "การป้องกัน: $protectionStatus\n" +
+                    "รายงานเมื่อ: $timestamp",
             )
         }
     }

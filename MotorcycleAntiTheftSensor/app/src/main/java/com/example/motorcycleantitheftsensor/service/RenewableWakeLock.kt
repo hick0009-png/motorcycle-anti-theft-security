@@ -29,14 +29,15 @@ class RenewableWakeLock(
             !handle.held ||
             nowElapsedMs >= expiresAt - renewBeforeExpiryMs
         if (!renewalDue) return
-        if (handle.held) handle.release()
         handle.acquire(leaseDurationMs)
         expiresAtElapsedMs = nowElapsedMs + leaseDurationMs
     }
 
     @Synchronized
     fun release() {
-        if (handle.held) handle.release()
+        try {
+            if (handle.held) handle.release()
+        } catch (_: Exception) {}
         expiresAtElapsedMs = null
     }
 }

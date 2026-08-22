@@ -69,6 +69,20 @@ Never code without knowing what "Done" means.
 
 ---
 
+# Automatic Subagent Delegation
+
+For every non-trivial task, evaluate whether the work contains independent subtasks.
+
+When two or more independent subtasks can be performed concurrently:
+- Automatically delegate them to subagents without waiting for the user to request delegation.
+- Prefer parallel execution when the subtasks do not modify the same files or depend on each other's intermediate results.
+- Continue useful work in the parent agent while subagents are running.
+- Collect and verify all subagent results before completing the task.
+- Keep final integration, testing, and verification under the parent agent.
+- Do not create subagents for trivial or strictly sequential work.
+
+---
+
 # Debugging
 
 When debugging:

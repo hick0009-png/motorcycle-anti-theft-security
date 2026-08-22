@@ -24,8 +24,9 @@ class PairingCodePolicy(
         nowMs >= stored.expiresAtMs
 
     fun validate(submitted: String, stored: PairingCode?, nowMs: Long): PairingResult = when {
-        stored == null || submitted != stored.value -> PairingResult.Rejected
+        stored == null -> PairingResult.Rejected
         isExpired(stored, nowMs) -> PairingResult.Expired
+        submitted.trim() != stored.value -> PairingResult.Rejected
         else -> PairingResult.Accepted
     }
 

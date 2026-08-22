@@ -1,5 +1,9 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
 data class ReadinessReport(
     val blockers: Set<String>,
     val degradations: Set<String>,
@@ -40,13 +44,38 @@ fun interface ProtectionClock {
 }
 
 interface ProtectionRuntime {
+    val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
+    val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> get() = MutableStateFlow(emptyMap())
+
     fun readiness(): ReadinessReport
 
     fun startDetectors(): DetectorStartResult
+
+    fun startDetectors(armedSessionId: String): DetectorStartResult = startDetectors()
 
     fun stopDetectors()
 
     fun applySensitivity(level: Int)
 
+    fun applySensorConfiguration(config: SensorFusionConfiguration): SensorConfigurationApplyResult =
+        SensorConfigurationApplyResult(
+            status = SensorConfigurationApplyResult.Status.APPLIED,
+            affectedCapabilities = emptySet()
+        )
+
+    fun effectiveSensorConfiguration(): SensorFusionConfiguration =
+        SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED)
+
+    fun currentGenerationId(): Long = 0L
+
     fun currentSensorHealth(): Map<SensorKind, SensorHealth>
+
+    fun sourceHealth(source: SensorSource): SensorHealthState {
+        val kind = when (source.capability) {
+            SensorCapability.LIGHT -> SensorKind.LIGHT
+            SensorCapability.PROXIMITY -> SensorKind.LIGHT
+            else -> SensorKind.VIBRATION
+        }
+        return currentSensorHealth()[kind]?.state ?: SensorHealthState.UNAVAILABLE
+    }
 }

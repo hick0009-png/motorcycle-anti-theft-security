@@ -5,6 +5,7 @@ import com.example.motorcycleantitheftsensor.security.PairingResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,11 +15,14 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.runBlocking
 import org.mockito.Mockito.mock
 import org.mockito.kotlin.any
 import org.mockito.kotlin.whenever
@@ -129,6 +133,141 @@ class TelegramBotClientAuthorizationTest {
         )
 
         assertTrue(executor.received.isEmpty())
+    }
+
+    @Test
+    fun updateIdCommittedPostExecution() {
+        whenever(mockPrefsManager.getAllowedChatIds()).thenReturn(setOf("111"))
+        whenever(mockPrefsManager.isChatIdAllowed("111")).thenReturn(true)
+        val executor = RecordingCommandExecutor()
+
+        runPollingWithUpdates(
+            updates = listOf(updateJson(100, "111", "/disarm")),
+            commandExecutor = executor,
+        )
+
+        org.mockito.kotlin.verify(mockPrefsManager).commitLastTelegramUpdateId(100L)
+    }
+
+    @Test
+    fun pendingStatusUpdateIsNotExecutedTwiceWhenTelegramReturnsItAgain() {
+        whenever(mockPrefsManager.getAllowedChatIds()).thenReturn(setOf("111"))
+        whenever(mockPrefsManager.isChatIdAllowed("111")).thenReturn(true)
+
+        val firstExecutionStarted = CountDownLatch(1)
+        val secondExecutionStarted = CountDownLatch(1)
+        val releaseFirstExecution = CountDownLatch(1)
+        val replyDelivered = CountDownLatch(1)
+        val executionCount = AtomicInteger(0)
+        val pollCount = AtomicInteger(0)
+        val sentMessages = java.util.Collections.synchronizedList(mutableListOf<SentMsg>())
+        val executor = object : TelegramCommandExecutor {
+            override suspend fun handle(
+                commandId: String,
+                command: RemoteCommand,
+                reply: suspend (String) -> Unit,
+            ) {
+                when (executionCount.incrementAndGet()) {
+                    1 -> {
+                        firstExecutionStarted.countDown()
+                        releaseFirstExecution.await(2, TimeUnit.SECONDS)
+                        reply("status reply")
+                    }
+                    else -> {
+                        secondExecutionStarted.countDown()
+                        reply("status reply")
+                    }
+                }
+            }
+        }
+        val client = TelegramBotClient(
+            prefsManager = mockPrefsManager,
+            commandHandler = executor,
+            httpClient = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                when {
+                    request.url.toString().contains("getUpdates") -> {
+                        when (pollCount.incrementAndGet()) {
+                            1 -> buildResponse(request, """{"ok":true,"result":[${updateJson(200, "111", "/status")}] }""")
+                            2 -> {
+                                firstExecutionStarted.await(2, TimeUnit.SECONDS)
+                                buildResponse(request, """{"ok":true,"result":[${updateJson(200, "111", "/status")}] }""")
+                            }
+                            else -> buildResponse(request, """{"ok":true,"result":[]}""")
+                        }
+                    }
+                    request.url.toString().contains("sendMessage") -> {
+                        val buffer = Buffer()
+                        request.body?.writeTo(buffer)
+                        val payload = org.json.JSONObject(buffer.readUtf8())
+                        sentMessages.add(SentMsg(payload.getString("chat_id"), payload.getString("text")))
+                        replyDelivered.countDown()
+                        buildResponse(request, """{"ok":true}""")
+                    }
+                    else -> buildResponse(request, "{}")
+                }
+            }.build(),
+        )
+
+        try {
+            assertTrue(client.startPolling())
+            assertTrue("First /status execution did not start", firstExecutionStarted.await(2, TimeUnit.SECONDS))
+            assertFalse(
+                "The same pending Telegram update must not execute concurrently",
+                secondExecutionStarted.await(500, TimeUnit.MILLISECONDS),
+            )
+            releaseFirstExecution.countDown()
+            assertTrue("The first /status reply was not delivered", replyDelivered.await(2, TimeUnit.SECONDS))
+            assertEquals(1, executionCount.get())
+            assertEquals(1, sentMessages.size)
+        } finally {
+            releaseFirstExecution.countDown()
+            runBlocking { client.stopPollingAndAwait() }
+        }
+    }
+
+    @Test
+    fun sendTelegramAlertReturnsFalseWhenNoOwners() = runTest {
+        whenever(mockPrefsManager.getAllowedChatIds()).thenReturn(emptySet())
+        val client = TelegramBotClient(
+            prefsManager = mockPrefsManager,
+            httpClient = OkHttpClient(),
+        )
+        assertFalse(client.sendTelegramAlert("Test Alert"))
+    }
+
+    @Test
+    fun sendTelegramAlertSucceedsWhenOwnersConfigured() = runTest {
+        whenever(mockPrefsManager.getAllowedChatIds()).thenReturn(setOf("111", "222"))
+        val sentChatIds = mutableListOf<String>()
+        val fakeInterceptor = Interceptor { chain ->
+            val request = chain.request()
+            val buffer = Buffer()
+            request.body?.writeTo(buffer)
+            val jsonBody = org.json.JSONObject(buffer.readUtf8())
+            sentChatIds.add(jsonBody.getString("chat_id"))
+            buildResponse(request, """{"ok":true}""")
+        }
+        val client = TelegramBotClient(
+            prefsManager = mockPrefsManager,
+            httpClient = OkHttpClient.Builder().addInterceptor(fakeInterceptor).build(),
+        )
+        val result = client.sendTelegramAlert("Test Alert")
+        assertTrue(result)
+        assertEquals(listOf("111", "222"), sentChatIds)
+    }
+
+    @Test
+    fun stopPollingShutsDownAndRestartPollingRecreatesExecutor() {
+        val client = TelegramBotClient(
+            prefsManager = mockPrefsManager,
+            httpClient = OkHttpClient(),
+        )
+        assertTrue(client.startPolling())
+        client.stopPolling()
+        // verify restart succeeds after shutdown
+        assertTrue(client.startPolling())
+        client.stopPolling()
     }
 
     private class RecordingCommandExecutor : TelegramCommandExecutor {

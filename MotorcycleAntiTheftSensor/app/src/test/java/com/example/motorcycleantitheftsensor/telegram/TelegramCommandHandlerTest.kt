@@ -27,19 +27,22 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class TelegramCommandHandlerTest {
     @Test
-    fun armRepliesReceivedBeforeFinalAppliedResult() = runTest {
+    fun armRepliesOnlyAfterArmCompletes() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val replies = Channel<String>(Channel.UNLIMITED)
+        val replies = mutableListOf<String>()
         val handler = handler(armingDelay = ArmingDelay { gate.await() })
 
-        val job = launch { handler.handle("tg-1", RemoteCommand.Arm) { replies.send(it) } }
+        val job = launch { handler.handle("tg-1", RemoteCommand.Arm) { replies += it } }
         runCurrent()
+        assertTrue(replies.isEmpty())
         gate.complete(Unit)
         job.join()
+        assertEquals(1, replies.size)
+        assertEquals("ℹ️ สถานะรถ: การป้องกันทำงานปกติ", replies.single())
     }
 
     @Test
-    fun commandTimeoutSaysOutcomeUnknownInsteadOfSuccess() = runTest {
+    fun commandTimeoutReportsArmRejected() = runTest {
         val replies = mutableListOf<String>()
         val handler = handler(
             armingDelay = ArmingDelay { awaitCancellation() },
@@ -48,19 +51,25 @@ class TelegramCommandHandlerTest {
 
         handler.handle("tg-2", RemoteCommand.Arm) { replies += it }
 
+        assertEquals(1, replies.size)
+        assertEquals("⚠️ เปิดการป้องกันไม่ได้: Arming calibration timed out", replies.single())
+
         handler.handle("tg-status", RemoteCommand.Status) { replies += it }
+        assertEquals(2, replies.size)
     }
 
     @Test
     fun cancellingAnIncompleteArmCleansUpToDisarmed() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val replies = Channel<String>(Channel.UNLIMITED)
+        val replies = mutableListOf<String>()
         val handler = handler(ArmingDelay { gate.await() })
-        val arm = launch { handler.handle("tg-cancel", RemoteCommand.Arm) { replies.send(it) } }
+        val arm = launch { handler.handle("tg-cancel", RemoteCommand.Arm) { replies += it } }
         runCurrent()
+        assertTrue(replies.isEmpty())
 
         arm.cancelAndJoin()
-        handler.handle("tg-status-after-cancel", RemoteCommand.Status) { replies.send(it) }
+        handler.handle("tg-status-after-cancel", RemoteCommand.Status) { replies += it }
+        assertEquals(1, replies.size)
     }
 
     @Test
@@ -99,6 +108,33 @@ class TelegramCommandHandlerTest {
 
         val reply = replies.single()
         assertEquals("ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้", reply)
+    }
+
+    @Test
+    fun sensitivityCommandRepliesWithCorrectLevel() = runTest {
+        val replies = mutableListOf<String>()
+        val handler = handler(armingDelay = ArmingDelay { })
+
+        handler.handle("tg-sens-5", RemoteCommand.Sensitivity(5)) { replies += it }
+        assertEquals(1, replies.size)
+        assertEquals("✅ ปรับความไวเป็นระดับ 5 แล้ว", replies.single())
+
+        handler.handle("tg-sens-invalid", RemoteCommand.Sensitivity(null)) { replies += it }
+        assertEquals(2, replies.size)
+        assertEquals("⚠️ ระดับความไวต้องอยู่ระหว่าง 1 ถึง 10", replies.last())
+    }
+
+    @Test
+    fun testMicIsNotARemoteCommand() {
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/testmic"))
+    }
+
+    @Test
+    fun existingCommandParsingIsUnchanged() {
+        assertEquals(RemoteCommand.Arm, RemoteCommand.parse("/arm"))
+        assertEquals(RemoteCommand.Disarm, RemoteCommand.parse("/disarm"))
+        assertEquals(RemoteCommand.Status, RemoteCommand.parse("/status"))
+        assertEquals(RemoteCommand.Sensitivity(3), RemoteCommand.parse("/sensitivity 3"))
     }
 }
 
