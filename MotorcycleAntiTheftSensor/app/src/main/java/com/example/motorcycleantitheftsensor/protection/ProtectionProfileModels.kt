@@ -6,6 +6,25 @@ enum class ProtectionProfile {
     POWER,
 }
 
+/**
+ * Durable phases of a confirmed profile change while armed. They always advance in
+ * declaration order and every persisted phase converges to disarmed/selected-target
+ * after a crash or reboot; the old profile is never rearmed.
+ */
+enum class ProfileSwitchPhase {
+    STOP_REQUESTED,
+    OLD_RUNTIME_QUIESCED,
+    SNAPSHOT_CLEARED,
+    NEW_PROFILE_SELECTED,
+}
+
+data class ProfileSwitchTransaction(
+    val transactionId: String,
+    val oldArmedSessionId: String?,
+    val targetProfile: ProtectionProfile,
+    val phase: ProfileSwitchPhase,
+)
+
 enum class ProfileSetupState {
     READY,
     SETUP_REQUIRED,
@@ -121,4 +140,5 @@ data class ProtectionProfileStoreState(
     val selectedProfile: ProtectionProfile?,
     val profiles: Map<ProtectionProfile, StoredProfileConfiguration>,
     val legacyConfiguration: SensorFusionConfiguration?,
+    val switchTransaction: ProfileSwitchTransaction? = null,
 )

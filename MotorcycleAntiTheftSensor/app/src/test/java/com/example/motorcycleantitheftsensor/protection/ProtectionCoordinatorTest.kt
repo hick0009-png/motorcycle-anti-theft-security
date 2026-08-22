@@ -1246,25 +1246,147 @@ class ProtectionCoordinatorTest {
         assertEquals(CommandOutcome.APPLIED, result.outcome)
         assertNull(coordinator.snapshot.value.armedProfileSnapshot)
     }
+
+    @Test
+    fun armedSwitchPersistsStopIntentBeforeRuntimeEffects() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val eventLog = mutableListOf<String>()
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState, eventLog)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            eventLog = eventLog,
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+        coordinator.arm("arm-before-switch", CommandOrigin.LOCAL)
+        eventLog.clear()
+
+        val result = coordinator.changeProfile("switch-1", ProtectionProfile.ENTRY, confirmed = true)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertTrue(
+            "STOP_REQUESTED must be persisted before stopping detectors",
+            eventLog.indexOf("save:STOP_REQUESTED") in 0 until eventLog.indexOf("stop"),
+        )
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+        assertEquals(ProtectionProfile.ENTRY, profileRepository.load().selectedProfile)
+        assertNull(profileRepository.load().switchTransaction)
+    }
+
+    @Test
+    fun switchNeverAutoArmsTargetProfile() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+
+        val result = coordinator.changeProfile("switch-power", ProtectionProfile.POWER, confirmed = true)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertEquals(0, runtime.startCalls)
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+    }
+
+    @Test
+    fun unconfirmedSwitchChangesNothing() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+
+        val result = coordinator.changeProfile("switch-no-confirm", ProtectionProfile.ENTRY, confirmed = false)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionProfile.VEHICLE, profileRepository.load().selectedProfile)
+        assertNull(profileRepository.load().switchTransaction)
+    }
+
+    @Test
+    fun resumeProfileSwitchIfNeededConvergesInterruptedSwitch() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val interrupted = selectedState.copy(
+            switchTransaction = ProfileSwitchTransaction(
+                transactionId = "txn-crash",
+                oldArmedSessionId = null,
+                targetProfile = ProtectionProfile.ENTRY,
+                phase = ProfileSwitchPhase.SNAPSHOT_CLEARED,
+            ),
+        )
+        val profileRepository = InMemoryProtectionProfileRepository(interrupted)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+
+        val resumed = coordinator.resumeProfileSwitchIfNeeded()
+
+        assertTrue(resumed)
+        assertEquals(ProtectionProfile.ENTRY, profileRepository.load().selectedProfile)
+        assertNull(profileRepository.load().switchTransaction)
+        assertEquals(ProtectionState.DISARMED_ONLINE, coordinator.snapshot.value.state)
+        assertFalse(runtime.detectorsRunning)
+
+        // Nothing left to resume.
+        assertFalse(coordinator.resumeProfileSwitchIfNeeded())
+    }
 }
 
 private class InMemoryProtectionProfileRepository(
     initialState: ProtectionProfileStoreState,
+    private val eventLog: MutableList<String>? = null,
 ) : ProtectionProfileRepository {
     private var state: ProtectionProfileStoreState = initialState
+    val savedStates = mutableListOf<ProtectionProfileStoreState>()
 
     override fun load(): ProtectionProfileStoreState = state
 
     override fun save(state: ProtectionProfileStoreState): Result<Unit> {
         this.state = state
+        savedStates += state
+        state.switchTransaction?.let { transaction ->
+            eventLog?.add("save:${transaction.phase.name}")
+        }
         return Result.success(Unit)
     }
 
     override fun update(
         transform: (ProtectionProfileStoreState) -> ProtectionProfileStoreState,
     ): Result<ProtectionProfileStoreState> {
-        this.state = transform(this.state)
-        return Result.success(this.state)
+        // Mirrors the real repository: update() persists through save().
+        val result = save(transform(this.state))
+        return result.map { this.state }
     }
 }
 
@@ -1308,6 +1430,7 @@ private class FakeRuntime(
     private val startResult: DetectorStartResult = DetectorStartResult(started = true),
     private val sourceHealthMap: Map<SensorSource, SensorHealthState> = emptyMap(),
     private val effectiveConfiguration: SensorFusionConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED),
+    private val eventLog: MutableList<String>? = null,
 ) : ProtectionRuntime {
     var started = false
         private set
@@ -1357,6 +1480,7 @@ private class FakeRuntime(
     override fun stopDetectors() {
         stopCalls += 1
         detectorsRunning = false
+        eventLog?.add("stop")
     }
 
     override fun applySensitivity(level: Int) {

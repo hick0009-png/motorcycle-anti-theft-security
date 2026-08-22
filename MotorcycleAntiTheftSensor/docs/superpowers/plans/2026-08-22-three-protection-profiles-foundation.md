@@ -468,7 +468,7 @@ git commit -m "feat: freeze selected profile when arming"
 - Consumes: atomic Task 2 repository and Task 4 coordinator freeze boundary.
 - Produces: `ProfileSwitchTransaction`, `ProfileSwitchPhase`, `ProtectionCoordinator.changeProfile(...)`, and `resumeProfileSwitchIfNeeded()`.
 
-- [ ] **Step 1: Write failing state-machine tests**
+- [x] **Step 1: Write failing state-machine tests**
 
 ```kotlin
 @Test fun armedSwitchPersistsStopIntentBeforeRuntimeEffects() = runTest {
@@ -493,7 +493,7 @@ git commit -m "feat: freeze selected profile when arming"
 }
 ```
 
-- [ ] **Step 2: Run focused switching tests and confirm RED**
+- [x] **Step 2: Run focused switching tests and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProfileSwitchPolicyTest' --tests '*ProtectionCoordinatorTest'
@@ -501,7 +501,7 @@ git commit -m "feat: freeze selected profile when arming"
 
 Expected: compilation fails because switch transaction APIs do not exist.
 
-- [ ] **Step 3: Implement the durable phase machine**
+- [x] **Step 3: Implement the durable phase machine**
 
 ```kotlin
 enum class ProfileSwitchPhase {
@@ -521,7 +521,7 @@ data class ProfileSwitchTransaction(
 
 Implement phases in this exact order, committing the aggregate after each transition. `STOP_REQUESTED` is persisted before invalidating recovery or stopping detectors. `OLD_RUNTIME_QUIESCED` fences the sensor/incident generation and finishes the existing best-effort Vehicle Live Map stop. `SNAPSHOT_CLEARED` clears the armed snapshot and records owner-stopped incident history without automatic-resolution copy. `NEW_PROFILE_SELECTED` selects the target, leaves it disarmed, then clears the transaction. A repeated transaction ID is idempotent. Cancellation before confirmation changes nothing; failure after `STOP_REQUESTED` resumes toward disarmed/selected-target, never toward rearming the old profile.
 
-- [ ] **Step 4: Run focused switching/recovery tests and confirm GREEN**
+- [x] **Step 4: Run focused switching/recovery tests and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProfileSwitchPolicyTest' --tests '*ProtectionCoordinatorTest' --tests '*ProtectionRecoveryPolicyTest'
@@ -529,7 +529,7 @@ Implement phases in this exact order, committing the aggregate after each transi
 
 Expected: all phases converge, old callbacks are rejected, target never auto-arms, and owner Stop/Disarm still wins recovery races.
 
-- [ ] **Step 5: Commit profile switching**
+- [x] **Step 5: Commit profile switching**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionProfileModels.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProfileSwitchPolicy.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinator.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionRuntimeGraph.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProfileSwitchPolicyTest.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinatorTest.kt

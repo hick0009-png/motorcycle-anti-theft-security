@@ -502,6 +502,150 @@ class ProtectionCoordinator(
         }
     }
 
+    /**
+     * Confirmed profile change. While armed, STOP_REQUESTED is persisted before any
+     * runtime effect; every later phase converges to disarmed/selected-target even after
+     * a crash, and the target profile is never auto-armed.
+     */
+    suspend fun changeProfile(
+        commandId: String,
+        targetProfile: ProtectionProfile,
+        confirmed: Boolean,
+    ): ProtectionCommandResult = commandMutex.withLock {
+        val repository = profileRepository
+            ?: return@withLock result(commandId, CommandOutcome.REJECTED, "Profiles are not available")
+        if (!confirmed) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Profile change requires explicit confirmation",
+            )
+        }
+        val currentState = repository.load()
+        if (currentState.selectedProfile == targetProfile && currentState.switchTransaction == null) {
+            return@withLock result(commandId, CommandOutcome.APPLIED, "Profile already selected: $targetProfile")
+        }
+
+        val transaction = ProfileSwitchTransaction(
+            transactionId = UUID.randomUUID().toString(),
+            oldArmedSessionId = currentArmedSessionId.get(),
+            targetProfile = targetProfile,
+            phase = ProfileSwitchPhase.STOP_REQUESTED,
+        )
+        // Phase 1: durable owner stop intent BEFORE invalidating recovery or stopping detectors.
+        val stopPersisted = repository.update { it.copy(switchTransaction = transaction) }
+        if (stopPersisted.isFailure) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Failed to persist profile switch intent",
+            )
+        }
+
+        // Runtime effects only after the durable stop intent exists. Owner Stop always wins.
+        invalidateRecovery()
+        disarmPending.set(true)
+        try {
+            armingEpoch.incrementAndGet()
+            incidentEpoch.incrementAndGet()
+            currentArmedSessionId.set(null)
+            runtime.stopDetectors()
+            val incidentHistoryPersisted = incidentCloser("owner changed protection profile")
+            if (!incidentHistoryPersisted) {
+                recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
+            }
+            stateBeforeAlert = null
+            stateBeforeOffline = null
+            transition(
+                state = ProtectionState.DISARMED_ONLINE,
+                blockers = emptySet(),
+                degradations = persistenceDegradations(),
+                baseDegradations = emptySet(),
+            )
+            updateSnapshot { current -> current.copy(armedProfileSnapshot = null) }
+            try {
+                durableSnapshotWriter(snapshot.value)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+            }
+        } finally {
+            disarmPending.set(false)
+        }
+
+        // Phase 2: old runtime quiesced (generation fenced by the epoch bumps above).
+        repository.update {
+            it.copy(switchTransaction = transaction.copy(phase = ProfileSwitchPhase.OLD_RUNTIME_QUIESCED))
+        }
+
+        // Phase 3: armed snapshot cleared durably.
+        repository.update {
+            it.copy(switchTransaction = transaction.copy(phase = ProfileSwitchPhase.SNAPSHOT_CLEARED))
+        }
+
+        // Phase 4: select the target, leave it disarmed, clear the transaction.
+        val selected = repository.update { state ->
+            profilePolicy.updateProfile(state, state.profiles.getValue(targetProfile))
+                .copy(selectedProfile = targetProfile, switchTransaction = null)
+        }
+        if (selected.isFailure) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.UNKNOWN,
+                "Profile switch interrupted; recovery will converge to disarmed with the target selected",
+            )
+        }
+        val resolved = profilePolicy.resolve(selected.getOrThrow(), targetProfile)
+        runtime.applySensorConfiguration(resolved.sensorConfiguration)
+        updateSnapshot { current ->
+            current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
+        }
+        result(commandId, CommandOutcome.APPLIED, "Profile switched to $targetProfile; arm to activate")
+    }
+
+    /**
+     * Converges an interrupted switch transaction toward disarmed/selected-target.
+     * Returns true when a transaction was found and resolved.
+     */
+    suspend fun resumeProfileSwitchIfNeeded(): Boolean = commandMutex.withLock {
+        val repository = profileRepository ?: return@withLock false
+        val state = repository.load()
+        val transaction = state.switchTransaction ?: return@withLock false
+
+        val recovery = ProfileSwitchPolicy().resume(transaction)
+        invalidateRecovery()
+        currentArmedSessionId.set(null)
+        runtime.stopDetectors()
+        val selected = repository.update { current ->
+            profilePolicy.updateProfile(current, current.profiles.getValue(recovery.selectedProfile))
+                .copy(selectedProfile = recovery.selectedProfile, switchTransaction = null)
+        }
+        if (selected.isFailure) {
+            // Keep the transaction; a later resume retries the same convergence.
+            return@withLock true
+        }
+        val resolved = profilePolicy.resolve(selected.getOrThrow(), recovery.selectedProfile)
+        runtime.applySensorConfiguration(resolved.sensorConfiguration)
+        transition(
+            state = recovery.protectionState,
+            blockers = emptySet(),
+            degradations = persistenceDegradations(),
+            baseDegradations = emptySet(),
+        )
+        updateSnapshot { current ->
+            current.copy(
+                armedProfileSnapshot = null,
+                sensorFusionConfiguration = resolved.sensorConfiguration,
+            )
+        }
+        try {
+            durableSnapshotWriter(snapshot.value)
+        } catch (_: Exception) {
+            recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+        }
+        true
+    }
+
     private fun isArmedOrArming(): Boolean = snapshot.value.state in setOf(
         ProtectionState.ARMING,
         ProtectionState.ARMED_HEALTHY,

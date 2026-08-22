@@ -45,6 +45,22 @@ class ProtectionProfileCodec(
         } else {
             root.put("legacyConfiguration", JSONObject.NULL)
         }
+
+        val transaction = state.switchTransaction
+        if (transaction != null) {
+            val txnObj = JSONObject()
+            txnObj.put("transactionId", transaction.transactionId)
+            if (transaction.oldArmedSessionId != null) {
+                txnObj.put("oldArmedSessionId", transaction.oldArmedSessionId)
+            } else {
+                txnObj.put("oldArmedSessionId", JSONObject.NULL)
+            }
+            txnObj.put("targetProfile", transaction.targetProfile.name)
+            txnObj.put("phase", transaction.phase.name)
+            root.put("switchTransaction", txnObj)
+        } else {
+            root.put("switchTransaction", JSONObject.NULL)
+        }
         return root.toString()
     }
 
@@ -87,11 +103,27 @@ class ProtectionProfileCodec(
                 sensorCodec.decode(root.getJSONObject("legacyConfiguration").toString())
             }
 
+            val switchTransaction = if (root.isNull("switchTransaction")) {
+                null
+            } else {
+                val txnObj = root.getJSONObject("switchTransaction")
+                val transactionId = txnObj.getString("transactionId")
+                require(transactionId.isNotBlank()) { "Switch transaction id must not be blank" }
+                ProfileSwitchTransaction(
+                    transactionId = transactionId,
+                    oldArmedSessionId =
+                        if (txnObj.isNull("oldArmedSessionId")) null else txnObj.getString("oldArmedSessionId"),
+                    targetProfile = decodeEnum<ProtectionProfile>(txnObj, "targetProfile"),
+                    phase = decodeEnum<ProfileSwitchPhase>(txnObj, "phase"),
+                )
+            }
+
             return ProtectionProfileStoreState(
                 schemaVersion = SCHEMA_VERSION,
                 selectedProfile = selectedProfile,
                 profiles = profiles,
                 legacyConfiguration = legacyConfiguration,
+                switchTransaction = switchTransaction,
             )
         } catch (e: IllegalArgumentException) {
             throw e
