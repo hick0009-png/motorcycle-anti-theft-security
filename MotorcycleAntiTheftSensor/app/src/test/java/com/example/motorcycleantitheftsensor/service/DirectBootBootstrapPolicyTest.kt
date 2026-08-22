@@ -1,6 +1,8 @@
 package com.example.motorcycleantitheftsensor.service
 
 import com.example.motorcycleantitheftsensor.protection.DirectBootProtectionMarker
+import com.example.motorcycleantitheftsensor.protection.DirectBootProtectionStore
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,5 +58,13 @@ class DirectBootBootstrapPolicyTest {
     fun handoffWaitsUntilCredentialStorageIsUnlocked() {
         assertFalse(DirectBootBootstrapPolicy.shouldHandoffToFullRecovery(isUserUnlocked = false))
         assertTrue(DirectBootBootstrapPolicy.shouldHandoffToFullRecovery(isUserUnlocked = true))
+    }
+
+    @Test
+    fun directBootMarkerContainsNoProfileOrSecretFields() {
+        assertEquals(
+            setOf("armed", "auto_recovery_after_boot"),
+            DirectBootProtectionStore.persistedKeysForTest(),
+        )
     }
 }

@@ -36,6 +36,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.RecoveryGenerationToken
+import com.example.motorcycleantitheftsensor.protection.RecoveryPlan
 import com.example.motorcycleantitheftsensor.protection.RecoveryTrigger
 import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
@@ -211,13 +212,31 @@ class SensorService : Service(), ServiceEnvironment {
         recoveryToken: RecoveryGenerationToken,
         trigger: RecoveryTrigger,
     ) {
+        // An interrupted profile switch converges to disarmed/selected-target BEFORE
+        // any armed-recovery decision; its durable rewrite supersedes the captured
+        // pre-switch intent, so the old profile is never rearmed.
+        val switchResumed = try {
+            graph.coordinator.resumeProfileSwitchIfNeeded()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e(TAG, "Unable to resume pending profile switch", error)
+            false
+        }
         val recoveryState = recoveryGate.capturedState
-        val plan = ProtectionRecoveryPolicy.plan(
-            persistedState = recoveryState.hints.persistedState,
-            intent = recoveryState.continuityIntent,
-            trigger = trigger,
-            continuityValid = recoveryState.continuityValid,
-        )
+        val plan = if (switchResumed) {
+            RecoveryPlan(
+                initialState = ProtectionState.DISARMED_ONLINE,
+                restartDetectors = false,
+            )
+        } else {
+            ProtectionRecoveryPolicy.plan(
+                persistedState = recoveryState.hints.persistedState,
+                intent = recoveryState.continuityIntent,
+                trigger = trigger,
+                continuityValid = recoveryState.continuityValid,
+            )
+        }
         if (plan.previousIncidentLifecycle == IncidentLifecycle.INTERRUPTED) {
             val interrupted = try {
                 withContext(Dispatchers.IO) {

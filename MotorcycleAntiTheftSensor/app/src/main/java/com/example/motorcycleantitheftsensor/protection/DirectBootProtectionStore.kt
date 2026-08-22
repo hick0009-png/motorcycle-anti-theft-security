@@ -25,9 +25,17 @@ class DirectBootProtectionStore(context: Context) {
         autoRecoveryAfterBoot = preferences.getBoolean(KEY_AUTO_RECOVERY_AFTER_BOOT, false),
     )
 
-    private companion object {
-        const val PREFERENCES_NAME = "direct_boot_protection_marker"
-        const val KEY_ARMED = "armed"
-        const val KEY_AUTO_RECOVERY_AFTER_BOOT = "auto_recovery_after_boot"
+    internal companion object {
+        private const val PREFERENCES_NAME = "direct_boot_protection_marker"
+        private const val KEY_ARMED = "armed"
+        private const val KEY_AUTO_RECOVERY_AFTER_BOOT = "auto_recovery_after_boot"
+
+        /**
+         * Test seam proving the pre-unlock marker stays exactly two non-secret
+         * booleans. Any future key here must fail this guard and be reviewed
+         * against the Direct Boot boundary before shipping.
+         */
+        fun persistedKeysForTest(): Set<String> =
+            setOf(KEY_ARMED, KEY_AUTO_RECOVERY_AFTER_BOOT)
     }
 }

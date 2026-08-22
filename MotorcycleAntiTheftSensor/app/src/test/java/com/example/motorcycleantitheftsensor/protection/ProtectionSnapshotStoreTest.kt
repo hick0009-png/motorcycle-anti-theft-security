@@ -225,6 +225,44 @@ class ProtectionSnapshotStoreTest {
 
         assertEquals(null, recovery.liveSnapshot.armedProfileSnapshot)
     }
+
+    @Test
+    fun recoveryUsesPersistedArmedProfileNotEditableSelectedProfile() {
+        val preferences = InMemoryProtectionSnapshotPreferences()
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+        val vehicleConfig =
+            SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED, nowMs = 1_000L)
+        val armed = ArmedProfileSnapshot(
+            armedSessionId = "session-1",
+            profile = ProtectionProfile.VEHICLE,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, VehicleProfileSettings),
+            commissionedModelFingerprint = null,
+            armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 7L),
+        )
+        store.save(
+            snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+                state = ProtectionState.ARMED_HEALTHY,
+                armedProfileSnapshot = armed,
+            ),
+            lastServiceHeartbeatAtMs = 2_000L,
+        )
+        // The editable profile selection changed after arming; it is never proof
+        // of the running policy — recovery must read the frozen armed snapshot.
+        val profileRepository = SnapshotStoreProfileRepositoryFake.withSelectedProfile(
+            ProtectionProfile.ENTRY,
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertEquals(ProtectionProfile.VEHICLE, recovery.liveSnapshot.armedProfileSnapshot?.profile)
+        assertEquals(ProtectionProfile.ENTRY, profileRepository.load().selectedProfile)
+    }
 }
 
 private class InMemoryProtectionSnapshotPreferences : ProtectionSnapshotPreferences {
@@ -247,4 +285,31 @@ private class InMemoryProtectionSnapshotPreferences : ProtectionSnapshotPreferen
     override fun getBoolean(key: String): Boolean? = values[key] as? Boolean
 
     fun contains(key: String): Boolean = values.containsKey(key)
+}
+
+private class SnapshotStoreProfileRepositoryFake(
+    private var state: ProtectionProfileStoreState,
+) : ProtectionProfileRepository {
+    override fun load(): ProtectionProfileStoreState = state
+
+    override fun save(state: ProtectionProfileStoreState): Result<Unit> {
+        this.state = state
+        return Result.success(Unit)
+    }
+
+    override fun update(
+        transform: (ProtectionProfileStoreState) -> ProtectionProfileStoreState,
+    ): Result<ProtectionProfileStoreState> {
+        this.state = transform(this.state)
+        return Result.success(this.state)
+    }
+
+    companion object {
+        fun withSelectedProfile(selectedProfile: ProtectionProfile?): SnapshotStoreProfileRepositoryFake =
+            SnapshotStoreProfileRepositoryFake(
+                ProtectionProfilePolicy(nowMs = { 1_000L })
+                    .newStoreState()
+                    .copy(selectedProfile = selectedProfile),
+            )
+    }
 }

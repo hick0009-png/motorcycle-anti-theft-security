@@ -42,6 +42,7 @@ object ProtectionRuntimeGraph {
         val scope: CoroutineScope,
         val livePursuitCoordinator: LivePursuitCoordinator,
         val sensorRepository: SensorConfigurationRepository? = null,
+        val profileRepository: ProtectionProfileRepository? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -412,6 +413,13 @@ object ProtectionRuntimeGraph {
         }
         val sensorRepository = EncryptedPrefsSensorConfigurationRepository(sharedPrefs)
 
+        // One process-shared profile aggregate writer used by both the UI layer and
+        // SensorService recovery; credential-protected storage only.
+        val profileRepository = SharedPreferencesProtectionProfileRepository(
+            preferences = sharedPrefs,
+            legacyRepository = sensorRepository,
+        )
+
         val runtime = AndroidProtectionRuntime(
             readinessProvider = AndroidRuntimeReadiness(context) {
                 RemoteControlReadiness(
@@ -475,6 +483,7 @@ object ProtectionRuntimeGraph {
                 )
             },
             sensorRepository = sensorRepository,
+            profileRepository = profileRepository,
         )
         runtime.applySensitivity(configuredSensitivity)
         coordinator.recordSensorHealthSnapshot(runtime.currentSensorHealth())
@@ -522,6 +531,7 @@ object ProtectionRuntimeGraph {
             scope = scope,
             livePursuitCoordinator = livePursuitCoordinator,
             sensorRepository = sensorRepository,
+            profileRepository = profileRepository,
         )
     }
 
