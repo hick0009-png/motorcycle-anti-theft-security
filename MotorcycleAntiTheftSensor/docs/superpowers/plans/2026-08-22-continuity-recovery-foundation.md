@@ -192,6 +192,20 @@ fun malformedContinuityEnumIsInvalidInsteadOfArmed() {
     assertFalse(recovery.continuityValid)
     assertEquals(DesiredProtection.DISARMED, recovery.continuityIntent.desiredProtection)
 }
+
+@Test
+fun armedContinuityWithoutSessionIdIsInvalidInsteadOfArmed() {
+    preferences.put(mapOf(
+        "continuity_desired_service" to "RUNNING",
+        "continuity_desired_protection" to "ARMED",
+        "continuity_auto_recovery_after_boot" to true,
+    ))
+
+    val recovery = store.loadForRecovery()
+
+    assertFalse(recovery.continuityValid)
+    assertEquals(DesiredProtection.DISARMED, recovery.continuityIntent.desiredProtection)
+}
 ```
 
 - [ ] **Step 2: Run RED tests**
@@ -202,7 +216,7 @@ Expected: compilation failure because continuity fields and the three-argument `
 
 - [ ] **Step 3: Implement one atomic preference write**
 
-Add keys for desired service, desired protection, boot switch, and armed session ID to the same `preferences.put(...)` call that persists the snapshot. Parse enum values with `runCatching`; malformed/missing new values load as `RUNNING + DISARMED`, `continuityValid=false`, and must never infer an armed session. Keep the existing two-argument `save` only as a compatibility wrapper that writes `RUNNING + DISARMED + autoRecoveryAfterBoot=false`.
+Add keys for desired service, desired protection, boot switch, and armed session ID to the same `preferences.put(...)` call that persists the snapshot. Parse enum values with `runCatching`; malformed/missing new values, or an armed intent without a nonblank session ID, load as `RUNNING + DISARMED`, `continuityValid=false`, and must never infer an armed session. Keep the existing two-argument `save` only as a compatibility wrapper that writes `RUNNING + DISARMED + autoRecoveryAfterBoot=false`.
 
 - [ ] **Step 4: Run GREEN tests**
 

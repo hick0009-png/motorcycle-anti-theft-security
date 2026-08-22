@@ -25,6 +25,12 @@ data class ProtectionRecoveryHints(
 data class ProtectionRecoveryState(
     val liveSnapshot: ProtectionSnapshot,
     val hints: ProtectionRecoveryHints,
+    val continuityIntent: ProtectionContinuityIntent = ProtectionContinuityIntent(
+        desiredService = DesiredService.RUNNING,
+        desiredProtection = DesiredProtection.DISARMED,
+        autoRecoveryAfterBoot = false,
+    ),
+    val continuityValid: Boolean = false,
 )
 
 class ProtectionRecoveryGate(
@@ -69,6 +75,20 @@ class ProtectionSnapshotStore(
     fun save(
         snapshot: ProtectionSnapshot,
         lastServiceHeartbeatAtMs: Long?,
+    ) = save(
+        snapshot = snapshot,
+        lastServiceHeartbeatAtMs = lastServiceHeartbeatAtMs,
+        continuityIntent = ProtectionContinuityIntent(
+            desiredService = DesiredService.RUNNING,
+            desiredProtection = DesiredProtection.DISARMED,
+            autoRecoveryAfterBoot = false,
+        ),
+    )
+
+    fun save(
+        snapshot: ProtectionSnapshot,
+        lastServiceHeartbeatAtMs: Long?,
+        continuityIntent: ProtectionContinuityIntent,
     ) {
         preferences.put(
             mapOf(
@@ -79,6 +99,10 @@ class ProtectionSnapshotStore(
                 LEGACY_REMOVED_FLAG_KEY to null,
                 KEY_LAST_INCIDENT_ID to snapshot.lastIncident?.id,
                 KEY_REVISION to snapshot.revision,
+                KEY_CONTINUITY_DESIRED_SERVICE to continuityIntent.desiredService.name,
+                KEY_CONTINUITY_DESIRED_PROTECTION to continuityIntent.desiredProtection.name,
+                KEY_CONTINUITY_AUTO_RECOVERY_AFTER_BOOT to continuityIntent.autoRecoveryAfterBoot,
+                KEY_CONTINUITY_ARMED_SESSION_ID to continuityIntent.armedSessionId,
             ),
         )
     }
@@ -87,6 +111,31 @@ class ProtectionSnapshotStore(
         val persistedState = preferences.getString(KEY_STATE)
             ?.let { name -> runCatching { ProtectionState.valueOf(name) }.getOrNull() }
             ?: ProtectionState.DISARMED_ONLINE
+        val desiredService = preferences.getString(KEY_CONTINUITY_DESIRED_SERVICE)
+            ?.let { name -> runCatching { DesiredService.valueOf(name) }.getOrNull() }
+        val desiredProtection = preferences.getString(KEY_CONTINUITY_DESIRED_PROTECTION)
+            ?.let { name -> runCatching { DesiredProtection.valueOf(name) }.getOrNull() }
+        val autoRecoveryAfterBoot = preferences.getBoolean(KEY_CONTINUITY_AUTO_RECOVERY_AFTER_BOOT)
+        val armedSessionId = preferences.getString(KEY_CONTINUITY_ARMED_SESSION_ID)
+        val continuityValid = desiredService != null &&
+            desiredProtection != null &&
+            autoRecoveryAfterBoot != null &&
+            !(desiredProtection == DesiredProtection.ARMED && armedSessionId.isNullOrBlank()) &&
+            !(desiredService == DesiredService.STOPPED_BY_OWNER && desiredProtection != DesiredProtection.DISARMED)
+        val continuityIntent = if (continuityValid) {
+            ProtectionContinuityIntent(
+                desiredService = checkNotNull(desiredService),
+                desiredProtection = checkNotNull(desiredProtection),
+                autoRecoveryAfterBoot = checkNotNull(autoRecoveryAfterBoot),
+                armedSessionId = armedSessionId,
+            )
+        } else {
+            ProtectionContinuityIntent(
+                desiredService = DesiredService.RUNNING,
+                desiredProtection = DesiredProtection.DISARMED,
+                autoRecoveryAfterBoot = false,
+            )
+        }
         return ProtectionRecoveryState(
             liveSnapshot = ProtectionSnapshot.offline(clock.nowMs()),
             hints = ProtectionRecoveryHints(
@@ -97,6 +146,8 @@ class ProtectionSnapshotStore(
                 lastIncidentId = preferences.getString(KEY_LAST_INCIDENT_ID),
                 revision = preferences.getLong(KEY_REVISION) ?: 0L,
             ),
+            continuityIntent = continuityIntent,
+            continuityValid = continuityValid,
         )
     }
 
@@ -109,6 +160,10 @@ class ProtectionSnapshotStore(
         const val LEGACY_REMOVED_FLAG_KEY = "demo_enabled"
         const val KEY_LAST_INCIDENT_ID = "last_incident_id"
         const val KEY_REVISION = "revision"
+        const val KEY_CONTINUITY_DESIRED_SERVICE = "continuity_desired_service"
+        const val KEY_CONTINUITY_DESIRED_PROTECTION = "continuity_desired_protection"
+        const val KEY_CONTINUITY_AUTO_RECOVERY_AFTER_BOOT = "continuity_auto_recovery_after_boot"
+        const val KEY_CONTINUITY_ARMED_SESSION_ID = "continuity_armed_session_id"
     }
 }
 

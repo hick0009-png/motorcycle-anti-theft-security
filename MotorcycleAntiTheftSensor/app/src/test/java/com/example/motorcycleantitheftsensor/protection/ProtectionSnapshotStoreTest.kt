@@ -25,6 +25,69 @@ class ProtectionSnapshotStoreTest {
     }
 
     @Test
+    fun recoveryLoadKeepsOwnerStoppedIntentAcrossProcessDeath() {
+        val preferences = InMemoryProtectionSnapshotPreferences()
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+
+        store.save(
+            snapshot = ProtectionSnapshot.offline(nowMs = 1_000L),
+            lastServiceHeartbeatAtMs = null,
+            continuityIntent = ProtectionContinuityIntent(
+                desiredService = DesiredService.STOPPED_BY_OWNER,
+                desiredProtection = DesiredProtection.DISARMED,
+                autoRecoveryAfterBoot = true,
+            ),
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertTrue(recovery.continuityValid)
+        assertEquals(DesiredService.STOPPED_BY_OWNER, recovery.continuityIntent.desiredService)
+        assertEquals(DesiredProtection.DISARMED, recovery.continuityIntent.desiredProtection)
+    }
+
+    @Test
+    fun malformedContinuityEnumIsInvalidInsteadOfArmed() {
+        val preferences = InMemoryProtectionSnapshotPreferences().apply {
+            put(mapOf("continuity_desired_service" to "NOT_A_STATE"))
+        }
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertFalse(recovery.continuityValid)
+        assertEquals(DesiredProtection.DISARMED, recovery.continuityIntent.desiredProtection)
+    }
+
+    @Test
+    fun armedContinuityWithoutSessionIdIsInvalidInsteadOfArmed() {
+        val preferences = InMemoryProtectionSnapshotPreferences().apply {
+            put(
+                mapOf(
+                    "continuity_desired_service" to DesiredService.RUNNING.name,
+                    "continuity_desired_protection" to DesiredProtection.ARMED.name,
+                    "continuity_auto_recovery_after_boot" to true,
+                ),
+            )
+        }
+        val store = ProtectionSnapshotStore(
+            preferences = preferences,
+            clock = ProtectionClock { 1_000L },
+        )
+
+        val recovery = store.loadForRecovery()
+
+        assertFalse(recovery.continuityValid)
+        assertEquals(DesiredProtection.DISARMED, recovery.continuityIntent.desiredProtection)
+    }
+
+    @Test
     fun recoveryGateKeepsCapturedStateAndBlocksPersistenceUntilRecoveryCompletes() {
         val captured = ProtectionRecoveryState(
             liveSnapshot = ProtectionSnapshot.offline(nowMs = 9_000L),
