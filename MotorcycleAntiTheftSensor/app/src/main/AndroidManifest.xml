@@ -72,6 +72,17 @@
                 android:value="Motorcycle anti-theft sensor monitoring" />
         </service>
 
+        <service
+            android:name=".service.DirectBootBootstrapService"
+            android:enabled="true"
+            android:exported="false"
+            android:directBootAware="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Locked-boot local protection bridge" />
+        </service>
+
         <!-- AlarmManager Watchdog Receiver -->
         <receiver
             android:name=".service.AlarmWatchdogReceiver"
@@ -82,8 +93,10 @@
         <receiver
             android:name=".service.BootCompletedReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.USER_UNLOCKED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

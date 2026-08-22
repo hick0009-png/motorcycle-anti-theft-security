@@ -49,6 +49,7 @@ object ProtectionRuntimeGraph {
         val wallClock = ProtectionClock(System::currentTimeMillis)
         val elapsedClock = ProtectionClock(SystemClock::elapsedRealtime)
         val snapshotStore = ProtectionSnapshotStore(context, wallClock)
+        val directBootStore = DirectBootProtectionStore(context)
         val secureKeyManager = com.example.motorcycleantitheftsensor.security.SecureKeyManager(context)
         val repository = FileIncidentRepository(
             file = File(context.filesDir, "protection_incidents.bin"),
@@ -86,6 +87,15 @@ object ProtectionRuntimeGraph {
                             armedSessionId = if (armed) coordinator.currentArmedSessionId() else null,
                         ),
                     )
+                    val markerSaved = directBootStore.save(
+                        DirectBootProtectionMarker(
+                            armed = armed,
+                            autoRecoveryAfterBoot = preferences.isAutoRecoveryAfterBootEnabled(),
+                        ),
+                    )
+                    if (!markerSaved) {
+                        Log.w(TAG, "Unable to persist direct-boot recovery marker")
+                    }
                 }
             },
         )
