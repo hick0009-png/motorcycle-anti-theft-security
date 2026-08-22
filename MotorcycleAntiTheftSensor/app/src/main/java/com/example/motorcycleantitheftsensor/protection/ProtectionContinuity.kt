@@ -13,6 +13,7 @@ enum class DesiredProtection {
 enum class RecoveryTrigger {
     PROCESS_RECREATION,
     ANDROID_BOOT,
+    ANDROID_USER_UNLOCKED,
     PACKAGE_REPLACED,
     WATCHDOG,
     MANUAL_REOPEN,
@@ -51,7 +52,7 @@ object ProtectionContinuityPolicy {
         if (!continuityValid || intent.desiredService == DesiredService.STOPPED_BY_OWNER) {
             return false
         }
-        return trigger != RecoveryTrigger.ANDROID_BOOT || intent.autoRecoveryAfterBoot
+        return trigger !in BOOT_RECOVERY_TRIGGERS || intent.autoRecoveryAfterBoot
     }
 
     fun eligibility(
@@ -70,7 +71,7 @@ object ProtectionContinuityPolicy {
             resultingDesiredProtection = DesiredProtection.DISARMED,
         )
 
-        trigger == RecoveryTrigger.ANDROID_BOOT && !intent.autoRecoveryAfterBoot -> RecoveryEligibility(
+        trigger in BOOT_RECOVERY_TRIGGERS && !intent.autoRecoveryAfterBoot -> RecoveryEligibility(
             phase = RecoveryPhase.NOT_RECOVERED_BOOT_DISABLED,
             restartDetectors = false,
             resultingDesiredProtection = DesiredProtection.DISARMED,
@@ -82,4 +83,9 @@ object ProtectionContinuityPolicy {
             resultingDesiredProtection = DesiredProtection.ARMED,
         )
     }
+
+    private val BOOT_RECOVERY_TRIGGERS = setOf(
+        RecoveryTrigger.ANDROID_BOOT,
+        RecoveryTrigger.ANDROID_USER_UNLOCKED,
+    )
 }

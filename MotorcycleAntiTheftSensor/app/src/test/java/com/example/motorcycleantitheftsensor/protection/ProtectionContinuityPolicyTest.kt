@@ -38,6 +38,22 @@ class ProtectionContinuityPolicyTest {
     }
 
     @Test
+    fun disabledBootRecoveryDoesNotAllowServiceStartAfterFirstUserUnlock() {
+        val allowed = ProtectionContinuityPolicy.allowsServiceStart(
+            intent = ProtectionContinuityIntent(
+                desiredService = DesiredService.RUNNING,
+                desiredProtection = DesiredProtection.ARMED,
+                autoRecoveryAfterBoot = false,
+                armedSessionId = "session-1",
+            ),
+            trigger = RecoveryTrigger.ANDROID_USER_UNLOCKED,
+            continuityValid = true,
+        )
+
+        assertFalse(allowed)
+    }
+
+    @Test
     fun validRunningIntentAllowsWatchdogServiceStart() {
         val allowed = ProtectionContinuityPolicy.allowsServiceStart(
             intent = ProtectionContinuityIntent(

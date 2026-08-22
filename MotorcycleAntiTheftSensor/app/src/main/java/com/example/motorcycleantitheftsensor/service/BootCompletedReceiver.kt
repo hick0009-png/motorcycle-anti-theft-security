@@ -20,6 +20,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
         val trigger = when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED -> RecoveryTrigger.ANDROID_BOOT
+            Intent.ACTION_USER_UNLOCKED -> RecoveryTrigger.ANDROID_USER_UNLOCKED
             Intent.ACTION_MY_PACKAGE_REPLACED -> RecoveryTrigger.PACKAGE_REPLACED
             else -> return
         }
