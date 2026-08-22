@@ -53,6 +53,15 @@ interface ProtectionRuntime {
 
     fun startDetectors(armedSessionId: String): DetectorStartResult = startDetectors()
 
+    /**
+     * Frozen-configuration entry point: the coordinator passes the immutable armed
+     * snapshot configuration so late Settings edits cannot change running detectors.
+     */
+    fun startDetectors(
+        armedSessionId: String,
+        configuration: SensorFusionConfiguration,
+    ): DetectorStartResult = startDetectors(armedSessionId)
+
     fun stopDetectors()
 
     fun applySensitivity(level: Int)

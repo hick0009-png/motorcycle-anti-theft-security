@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -1111,6 +1112,160 @@ class ProtectionCoordinatorTest {
         assertEquals(ProtectionState.DISARMED_ONLINE, result.resultingState)
         assertTrue(result.reason.contains("primary sensors not available or calibrated"))
     }
+
+    @Test
+    fun armFreezesSelectedProfileConfigurationBeforeDetectorStart() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+
+        val result = coordinator.arm("arm-1", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        val armed = coordinator.snapshot.value.armedProfileSnapshot
+        assertNotNull(armed)
+        assertEquals(ProtectionProfile.VEHICLE, armed!!.profile)
+        val expectedConfig =
+            profilePolicy.resolve(selectedState, ProtectionProfile.VEHICLE).sensorConfiguration
+        assertEquals(expectedConfig, armed.effectiveConfiguration)
+        assertEquals(expectedConfig, runtime.startedConfiguration)
+        assertEquals(armed.armedSessionId, runtime.startedSessionId)
+
+        // Editing the stored profile after Arm must not change the frozen snapshot.
+        profileRepository.save(
+            profilePolicy.updateProfile(
+                profileRepository.load(),
+                profileRepository.load().profiles.getValue(ProtectionProfile.VEHICLE).copy(
+                    sensorOverrides = SensorFusionProfileOverrides(
+                        capabilities = mapOf(
+                            SensorCapability.MOVEMENT to SensorCapabilityProfileOverrides(sensitivity = 9),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            expectedConfig,
+            coordinator.snapshot.value.armedProfileSnapshot!!.effectiveConfiguration,
+        )
+    }
+
+    @Test
+    fun settingsEditWhileArmedDoesNotReconfigureRunningDetectors() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { }, profileRepository = profileRepository)
+        coordinator.arm("arm-1", CommandOrigin.LOCAL)
+        val originalArmedConfig =
+            coordinator.snapshot.value.armedProfileSnapshot!!.effectiveConfiguration
+
+        val result = coordinator.updateSelectedProfile("settings-1") { state ->
+            state.profiles.getValue(ProtectionProfile.VEHICLE).copy(
+                sensorOverrides = SensorFusionProfileOverrides(
+                    capabilities = mapOf(
+                        SensorCapability.MOVEMENT to SensorCapabilityProfileOverrides(sensitivity = 9),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertTrue(result.reason.contains("next Arm"))
+        assertTrue(runtime.appliedConfigurations.isEmpty())
+        assertEquals(
+            originalArmedConfig,
+            coordinator.snapshot.value.armedProfileSnapshot!!.effectiveConfiguration,
+        )
+    }
+
+    @Test
+    fun settingsEditWhileDisarmedAppliesToEditableRuntime() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(
+            runtime,
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+        )
+
+        val result = coordinator.updateSelectedProfile("settings-disarmed") { state ->
+            state.profiles.getValue(ProtectionProfile.VEHICLE).copy(
+                sensorOverrides = SensorFusionProfileOverrides(
+                    capabilities = mapOf(
+                        SensorCapability.MOVEMENT to SensorCapabilityProfileOverrides(sensitivity = 8),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertEquals(1, runtime.appliedConfigurations.size)
+        assertEquals(
+            profilePolicy.resolve(profileRepository.load(), ProtectionProfile.VEHICLE).sensorConfiguration,
+            runtime.appliedConfigurations.single(),
+        )
+    }
+
+    @Test
+    fun legacyUnselectedCustomerKeepsExistingArmBehavior() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val legacyState = profilePolicy.newStoreState(
+            SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED, 1_000L),
+        )
+        val profileRepository = InMemoryProtectionProfileRepository(legacyState)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = coordinator(runtime, ArmingDelay { }, profileRepository = profileRepository)
+
+        val result = coordinator.arm("arm-legacy", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+}
+
+private class InMemoryProtectionProfileRepository(
+    initialState: ProtectionProfileStoreState,
+) : ProtectionProfileRepository {
+    private var state: ProtectionProfileStoreState = initialState
+
+    override fun load(): ProtectionProfileStoreState = state
+
+    override fun save(state: ProtectionProfileStoreState): Result<Unit> {
+        this.state = state
+        return Result.success(Unit)
+    }
+
+    override fun update(
+        transform: (ProtectionProfileStoreState) -> ProtectionProfileStoreState,
+    ): Result<ProtectionProfileStoreState> {
+        this.state = transform(this.state)
+        return Result.success(this.state)
+    }
 }
 
 private fun coordinator(
@@ -1120,6 +1275,8 @@ private fun coordinator(
     healthPolicy: ProtectionHealthPolicy = ProtectionHealthPolicy(),
     incidentCloser: suspend (String) -> Boolean = { true },
     durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
+    profileRepository: ProtectionProfileRepository? = null,
+    profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1134,6 +1291,8 @@ private fun coordinator(
     healthPolicy = healthPolicy,
     incidentCloser = incidentCloser,
     durableSnapshotWriter = durableSnapshotWriter,
+    profileRepository = profileRepository,
+    profilePolicy = profilePolicy,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(
@@ -1163,11 +1322,36 @@ private class FakeRuntime(
 
     override fun readiness(): ReadinessReport = readiness
 
+    var startedSessionId: String? = null
+        private set
+    var startedConfiguration: SensorFusionConfiguration? = null
+        private set
+    val appliedConfigurations = mutableListOf<SensorFusionConfiguration>()
+
     override fun startDetectors(): DetectorStartResult {
         startCalls += 1
         started = true
         detectorsRunning = startResult.started
         return startResult
+    }
+
+    override fun startDetectors(
+        armedSessionId: String,
+        configuration: SensorFusionConfiguration,
+    ): DetectorStartResult {
+        startedSessionId = armedSessionId
+        startedConfiguration = configuration
+        return startDetectors(armedSessionId)
+    }
+
+    override fun applySensorConfiguration(
+        config: SensorFusionConfiguration,
+    ): SensorConfigurationApplyResult {
+        appliedConfigurations += config
+        return SensorConfigurationApplyResult(
+            status = SensorConfigurationApplyResult.Status.APPLIED,
+            affectedCapabilities = emptySet(),
+        )
     }
 
     override fun stopDetectors() {

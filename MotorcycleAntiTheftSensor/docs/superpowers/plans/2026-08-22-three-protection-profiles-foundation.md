@@ -387,7 +387,7 @@ git commit -m "feat: persist immutable armed profile snapshots"
 - Consumes: `ProtectionProfileRepository`, `ProtectionProfilePolicy.resolve(...)`, and Task 3 snapshots.
 - Produces: `ProtectionCoordinator.selectProfile`, `updateSelectedProfile`, and an Arm path that calls `runtime.startDetectors(sessionId, frozenConfiguration)`.
 
-- [ ] **Step 1: Add failing coordinator tests**
+- [x] **Step 1: Add failing coordinator tests**
 
 ```kotlin
 @Test fun armFreezesSelectedProfileConfigurationBeforeDetectorStart() = runTest {
@@ -414,7 +414,7 @@ git commit -m "feat: persist immutable armed profile snapshots"
 }
 ```
 
-- [ ] **Step 2: Run the coordinator test and confirm RED**
+- [x] **Step 2: Run the coordinator test and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionCoordinatorTest'
@@ -422,7 +422,7 @@ git commit -m "feat: persist immutable armed profile snapshots"
 
 Expected: new tests fail because Arm reads mutable runtime configuration and `startDetectors` has no frozen-config parameter.
 
-- [ ] **Step 3: Implement the coordinator-owned freeze boundary**
+- [x] **Step 3: Implement the coordinator-owned freeze boundary**
 
 Change the runtime contract to:
 
@@ -437,7 +437,7 @@ Inside `arm`, under `commandMutex`, load selected profile state once, validate p
 
 `updateSelectedProfile` persists only the selected profile. While disarmed, apply its sensor configuration to the editable runtime. While armed, do not call `runtime.applySensorConfiguration`; return applied text meaning “saved for next Arm.” Preserve the old mutable behavior only while `selectedProfile == null` so an existing customer is not silently migrated.
 
-- [ ] **Step 4: Run focused coordinator/runtime tests and confirm GREEN**
+- [x] **Step 4: Run focused coordinator/runtime tests and confirm GREEN**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionCoordinatorTest' --tests '*SensorCapabilityControllerTest'
@@ -445,7 +445,7 @@ Inside `arm`, under `commandMutex`, load selected profile state once, validate p
 
 Expected: immutable configuration, persistence-failure rollback, startup-failure rollback, and legacy compatibility tests pass.
 
-- [ ] **Step 5: Commit the Arm freeze boundary**
+- [x] **Step 5: Commit the Arm freeze boundary**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinator.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/ProtectionRuntime.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/protection/AndroidProtectionRuntime.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/protection/ProtectionCoordinatorTest.kt

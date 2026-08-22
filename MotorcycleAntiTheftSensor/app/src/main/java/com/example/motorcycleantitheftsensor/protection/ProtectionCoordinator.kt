@@ -27,6 +27,8 @@ class ProtectionCoordinator(
     private val incidentCloser: suspend (String) -> Boolean = { true },
     private val durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
     private val sensorRepository: SensorConfigurationRepository? = null,
+    private val profileRepository: ProtectionProfileRepository? = null,
+    private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -57,6 +59,7 @@ class ProtectionCoordinator(
         if (disarmPending.get()) return result(commandId, CommandOutcome.REJECTED, "Disarm in progress")
         var epoch = -1L
         var armingDegradations = emptySet<String>()
+        val frozenSnapshotRef = AtomicReference<ArmedProfileSnapshot?>(null)
         val immediateResult = commandMutex.withLock {
             if (!recoveryIsCurrent(origin, recoveryToken)) {
                 return@withLock result(
@@ -115,20 +118,103 @@ class ProtectionCoordinator(
                 degradations = readiness.degradations,
             )
 
-            val sessionId = UUID.randomUUID().toString()
-            currentArmedSessionId.set(sessionId)
-            val startResult = runtime.startDetectors(sessionId)
-            if (!startResult.started) {
-                currentArmedSessionId.set(null)
-                armingEpoch.incrementAndGet()
-                runtime.stopDetectors()
-                val reason = startResult.failureReason ?: "Detector startup failed"
-                transition(
-                    state = ProtectionState.DISARMED_ONLINE,
-                    blockers = emptySet(),
-                    degradations = setOf(reason),
+            // Freeze the selected profile once, under the command mutex, before any
+            // detector starts. A legacy customer with no selected profile keeps the
+            // previous mutable behavior and arms without an armed-profile snapshot.
+            val profileState = profileRepository?.load()
+            val selectedProfile = profileState?.selectedProfile
+            var frozenConfiguration: SensorFusionConfiguration? = null
+            if (profileState != null && selectedProfile != null) {
+                val resolved = profilePolicy.resolve(profileState, selectedProfile)
+                if (resolved.setupState != ProfileSetupState.READY) {
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    runtime.stopDetectors()
+                    transition(
+                        state = ProtectionState.SETUP_REQUIRED,
+                        blockers = setOf("Selected profile setup required"),
+                        degradations = readiness.degradations,
+                    )
+                    return@withLock result(
+                        commandId,
+                        CommandOutcome.REJECTED,
+                        "Selected profile is not ready: setup required",
+                    )
+                }
+                val sessionId = UUID.randomUUID().toString()
+                val armedSnapshot = ArmedProfileSnapshot(
+                    armedSessionId = sessionId,
+                    profile = selectedProfile,
+                    resolvedPresetVersion = resolved.presetVersion,
+                    effectiveConfiguration = resolved.sensorConfiguration,
+                    configurationFingerprint = ConfigurationFingerprint.sha256(
+                        resolved.sensorConfiguration,
+                        resolved.specificSettings,
+                    ),
+                    commissionedModelFingerprint = null,
+                    armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(
+                        generation = runtime.currentGenerationId(),
+                    ),
                 )
-                return@withLock result(commandId, CommandOutcome.REJECTED, reason)
+                // Persist the frozen snapshot with owner intent BEFORE detector start.
+                try {
+                    durableSnapshotWriter(snapshot.value.copy(armedProfileSnapshot = armedSnapshot))
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+                    transition(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        blockers = emptySet(),
+                        degradations = persistenceDegradations(),
+                        baseDegradations = emptySet(),
+                    )
+                    return@withLock result(
+                        commandId,
+                        CommandOutcome.REJECTED,
+                        "Failed to persist armed profile; protection remains disarmed",
+                    )
+                }
+                frozenSnapshotRef.set(armedSnapshot)
+                currentArmedSessionId.set(sessionId)
+                frozenConfiguration = armedSnapshot.effectiveConfiguration
+                val startResult = runtime.startDetectors(sessionId, armedSnapshot.effectiveConfiguration)
+                if (!startResult.started) {
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    runtime.stopDetectors()
+                    // Startup failed after the durable freeze: clear it durably so no
+                    // orphaned armed snapshot survives.
+                    try {
+                        durableSnapshotWriter(snapshot.value.copy(armedProfileSnapshot = null))
+                    } catch (_: Exception) {
+                        recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+                    }
+                    val reason = startResult.failureReason ?: "Detector startup failed"
+                    transition(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        blockers = emptySet(),
+                        degradations = setOf(reason),
+                    )
+                    return@withLock result(commandId, CommandOutcome.REJECTED, reason)
+                }
+            } else {
+                val sessionId = UUID.randomUUID().toString()
+                currentArmedSessionId.set(sessionId)
+                val startResult = runtime.startDetectors(sessionId)
+                if (!startResult.started) {
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    runtime.stopDetectors()
+                    val reason = startResult.failureReason ?: "Detector startup failed"
+                    transition(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        blockers = emptySet(),
+                        degradations = setOf(reason),
+                    )
+                    return@withLock result(commandId, CommandOutcome.REJECTED, reason)
+                }
             }
             null
         }
@@ -156,6 +242,7 @@ class ProtectionCoordinator(
                 if (snapshot.value.state == ProtectionState.ARMING && epoch == armingEpoch.get()) {
                     currentArmedSessionId.set(null)
                     runtime.stopDetectors()
+                    clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                     transition(
                         state = ProtectionState.DISARMED_ONLINE,
                         blockers = emptySet(),
@@ -170,6 +257,7 @@ class ProtectionCoordinator(
             if (!recoveryIsCurrent(origin, recoveryToken)) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 if (snapshot.value.state == ProtectionState.ARMING) {
                     transition(
                         state = ProtectionState.DISARMED_ONLINE,
@@ -183,6 +271,7 @@ class ProtectionCoordinator(
             if (epoch != armingEpoch.get() || snapshot.value.state != ProtectionState.ARMING) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
 
@@ -193,6 +282,7 @@ class ProtectionCoordinator(
             if (!hasReadyPrimary) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 transition(
                     state = ProtectionState.DISARMED_ONLINE,
                     blockers = emptySet(),
@@ -218,6 +308,11 @@ class ProtectionCoordinator(
                 sensorHealth = health,
                 baseDegradations = armingDegradations,
             )
+            // Publish the frozen armed snapshot with the final armed state so the
+            // durable write below carries the authoritative frozen policy.
+            frozenSnapshotRef.get()?.let { frozen ->
+                updateSnapshot { current -> current.copy(armedProfileSnapshot = frozen) }
+            }
             try {
                 durableSnapshotWriter(snapshot.value)
                 result(commandId, CommandOutcome.APPLIED, "Protection active")
@@ -269,6 +364,7 @@ class ProtectionCoordinator(
                     degradations = persistenceDegradations(),
                     baseDegradations = emptySet(),
                 )
+                updateSnapshot { current -> current.copy(armedProfileSnapshot = null) }
                 try {
                     durableSnapshotWriter(snapshot.value)
                     if (incidentHistoryPersisted) {
@@ -328,6 +424,104 @@ class ProtectionCoordinator(
             )
         }
         result(commandId, CommandOutcome.APPLIED, "Sensitivity applied: $level")
+    }
+
+    /**
+     * Selects the profile the owner is preparing. While disarmed the resolved sensor
+     * configuration is applied to the editable runtime; while armed nothing running is
+     * touched and the selection takes effect at the next Arm.
+     */
+    suspend fun selectProfile(
+        commandId: String,
+        profile: ProtectionProfile,
+    ): ProtectionCommandResult = commandMutex.withLock {
+        val repository = profileRepository
+            ?: return@withLock result(commandId, CommandOutcome.REJECTED, "Profiles are not available")
+        val updateResult = repository.update { state ->
+            profilePolicy.updateProfile(state, state.profiles.getValue(profile))
+                .copy(selectedProfile = profile)
+        }
+        if (updateResult.isFailure) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Failed to persist profile selection",
+            )
+        }
+        val resolved = profilePolicy.resolve(updateResult.getOrThrow(), profile)
+        if (!isArmedOrArming()) {
+            runtime.applySensorConfiguration(resolved.sensorConfiguration)
+            updateSnapshot { current ->
+                current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
+            }
+            result(commandId, CommandOutcome.APPLIED, "Profile selected: $profile")
+        } else {
+            result(commandId, CommandOutcome.APPLIED, "Profile saved for next Arm")
+        }
+    }
+
+    /**
+     * Persists an edit to the currently selected profile only. While armed this never
+     * calls [ProtectionRuntime.applySensorConfiguration]; the frozen armed snapshot and
+     * the running detectors stay untouched until the next controlled Arm.
+     */
+    suspend fun updateSelectedProfile(
+        commandId: String,
+        transform: (ProtectionProfileStoreState) -> StoredProfileConfiguration,
+    ): ProtectionCommandResult = commandMutex.withLock {
+        val repository = profileRepository
+            ?: return@withLock result(commandId, CommandOutcome.REJECTED, "Profiles are not available")
+        val currentState = repository.load()
+        val selected = currentState.selectedProfile
+            ?: return@withLock result(commandId, CommandOutcome.REJECTED, "No profile is selected")
+        val updated = transform(currentState)
+        if (updated.profile != selected) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Edited profile does not match the selected profile",
+            )
+        }
+        val updateResult = repository.update { state -> profilePolicy.updateProfile(state, updated) }
+        if (updateResult.isFailure) {
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Failed to persist profile settings",
+            )
+        }
+        val resolved = profilePolicy.resolve(updateResult.getOrThrow(), selected)
+        if (!isArmedOrArming()) {
+            runtime.applySensorConfiguration(resolved.sensorConfiguration)
+            updateSnapshot { current ->
+                current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
+            }
+            result(commandId, CommandOutcome.APPLIED, "Profile settings applied")
+        } else {
+            result(commandId, CommandOutcome.APPLIED, "Profile settings saved for next Arm")
+        }
+    }
+
+    private fun isArmedOrArming(): Boolean = snapshot.value.state in setOf(
+        ProtectionState.ARMING,
+        ProtectionState.ARMED_HEALTHY,
+        ProtectionState.ARMED_DEGRADED,
+        ProtectionState.ALERT_ACTIVE,
+    )
+
+    /**
+     * Best-effort durable clear of a frozen armed snapshot after a failed or cancelled
+     * arming attempt so no orphaned armed snapshot survives without a running runtime.
+     */
+    private suspend fun clearFrozenArmedSnapshotDurably(frozen: ArmedProfileSnapshot?) {
+        if (frozen == null) return
+        try {
+            durableSnapshotWriter(snapshot.value.copy(armedProfileSnapshot = null))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            recordPersistenceFailure(PersistenceSource.SNAPSHOT)
+        }
     }
 
     suspend fun updateSensorConfiguration(
