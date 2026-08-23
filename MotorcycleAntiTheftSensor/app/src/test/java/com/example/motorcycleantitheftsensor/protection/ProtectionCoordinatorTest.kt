@@ -1361,6 +1361,219 @@ class ProtectionCoordinatorTest {
         // Nothing left to resume.
         assertFalse(coordinator.resumeProfileSwitchIfNeeded())
     }
+
+    // -------------------------------------------------------------------------
+    // Entry Guard wiring (spec sections 5-6): commissioned-model gate, frozen
+    // armed snapshot, baseline lifecycle, generation-scoped debounce windows.
+    // -------------------------------------------------------------------------
+
+    private fun entryHingeModel(
+        sensorIdentity: String = "game-rotation-vector/test",
+    ): EntryHingeModel = EntryHingeModel(
+        axisX = 0.0,
+        axisY = 0.0,
+        axisZ = 1.0,
+        allowedDirection = 1,
+        residualToleranceDeg = 8.0,
+        algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
+        sensorIdentity = sensorIdentity,
+        mountSignature = "test-mount",
+        orientationSourcePolicy = "test-source-policy",
+    )
+
+    private fun entryCoordinator(
+        runtime: FakeRuntime,
+        profileRepository: InMemoryProtectionProfileRepository,
+        profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L }),
+        commissioningContext: (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
+    ): ProtectionCoordinator = coordinator(
+        runtime,
+        ArmingDelay { },
+        profileRepository = profileRepository,
+        profilePolicy = profilePolicy,
+        entryCommissioningContextProvider = commissioningContext,
+    )
+
+    private fun commissionedEntryRepository(
+        profilePolicy: ProtectionProfilePolicy,
+        model: EntryHingeModel,
+    ): InMemoryProtectionProfileRepository {
+        val state = profilePolicy.commissionEntry(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+            model,
+        )
+        return InMemoryProtectionProfileRepository(state)
+    }
+
+    @Test
+    fun entryArmBlockedIntoSetupRequiredWithoutCommissioning() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+
+        val result = coordinator.arm("entry-uncommissioned", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
+        assertFalse(runtime.started)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
+    fun entryArmFreezesCommissionedModelIntoArmedSnapshot() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val model = entryHingeModel()
+        val profileRepository = commissionedEntryRepository(profilePolicy, model)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            generationId = 7L,
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+
+        val result = coordinator.arm("entry-arm", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        val frozen = coordinator.snapshot.value.armedProfileSnapshot
+        assertNotNull(frozen)
+        assertEquals(ProtectionProfile.ENTRY, frozen!!.profile)
+        val fingerprint = EntryCommissioningPolicy.fingerprint(model)
+        assertEquals(fingerprint, frozen.commissionedModelFingerprint)
+        val calibration = frozen.armedCalibrationSnapshot
+        assertTrue(calibration is EntryArmedCalibrationSnapshot)
+        calibration as EntryArmedCalibrationSnapshot
+        assertEquals(fingerprint, calibration.modelFingerprint)
+        assertEquals(7L, calibration.generation)
+        assertEquals(1, runtime.entryBeginCalls)
+        assertEquals(frozen.armedSessionId, runtime.lastBeganSessionId)
+        assertEquals(model, runtime.lastBeganModel)
+    }
+
+    @Test
+    fun lateEntrySettingsEditCannotMutateFrozenArmedSnapshot() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedEntryRepository(profilePolicy, entryHingeModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("entry-arm", CommandOrigin.LOCAL).outcome)
+        val before = coordinator.snapshot.value.armedProfileSnapshot
+
+        val edit = coordinator.updateSelectedProfile("angle-edit") { state ->
+            val entry = state.profiles.getValue(ProtectionProfile.ENTRY)
+            entry.copy(specificOverrides = EntryProfileOverrides(angleThresholdDegrees = 45))
+        }
+
+        assertEquals(CommandOutcome.APPLIED, edit.outcome)
+        assertEquals(before, coordinator.snapshot.value.armedProfileSnapshot)
+        val resolved = profilePolicy.resolve(profileRepository.load(), ProtectionProfile.ENTRY)
+        assertEquals(45, (resolved.specificSettings as EntryProfileSettings).angleThresholdDegrees)
+    }
+
+    @Test
+    fun staleEntryCommissioningContextDecommissionsAndBlocksArm() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedEntryRepository(
+            profilePolicy,
+            entryHingeModel(sensorIdentity = "sensor-A"),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            commissioningContext = {
+                EntryCommissioningPolicy.CommissioningContext(
+                    sensorIdentity = "sensor-B",
+                    mountSignature = "test-mount",
+                    orientationSourcePolicy = "test-source-policy",
+                    algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
+                    entryUseContinuous = true,
+                    alertAngleDeg = 15,
+                    openConfirmationMs = 750L,
+                )
+            },
+        )
+
+        val result = coordinator.arm("entry-stale", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
+        assertFalse(runtime.started)
+        val stored = profileRepository.load().profiles.getValue(ProtectionProfile.ENTRY)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, stored.setupState)
+        assertNull(stored.entryHingeModel)
+    }
+
+    @Test
+    fun disarmClearsRuntimeEntryBaselineAndRearmBeginsFreshSession() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedEntryRepository(profilePolicy, entryHingeModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("arm-1", CommandOrigin.LOCAL).outcome)
+        assertEquals(1, runtime.entryBeginCalls)
+        assertEquals(0, runtime.entryClearCalls)
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.disarm("disarm-1", CommandOrigin.LOCAL).outcome)
+        assertEquals(1, runtime.entryClearCalls)
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("arm-2", CommandOrigin.LOCAL).outcome)
+        assertEquals(2, runtime.entryBeginCalls)
+    }
+
+    @Test
+    fun entryGenerationChangeResetsDebounceWindowsWithoutRebaselining() {
+        val controller = EntryArmedSessionController()
+        val settings = EntryProfileSettings(angleThresholdDegrees = 15, openConfirmationMs = 100L)
+        controller.begin(generation = 1L, model = entryHingeModel(), settings = settings)
+
+        fun twist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+            timestampMs = timestampMs,
+            quaternion = EntryQuaternion(
+                w = Math.cos(Math.toRadians(degrees / 2)),
+                x = 0.0,
+                y = 0.0,
+                z = Math.sin(Math.toRadians(degrees / 2)),
+            ),
+            fresh = true,
+        )
+
+        // Baseline capture from the first fresh sample of the armed session.
+        assertTrue(controller.onSample(twist(0.0, 0L), currentGeneration = 1L).isEmpty())
+
+        // Open streak starts under generation 1; confirmation window not yet satisfied.
+        assertTrue(controller.onSample(twist(20.0, 10L), currentGeneration = 1L).isEmpty())
+
+        // Generation change resets the debounce window: the pending streak is discarded
+        // even though this sample would otherwise complete the confirmation window.
+        assertTrue(controller.onSample(twist(20.0, 120L), currentGeneration = 2L).isEmpty())
+
+        // The restarted streak is still young.
+        assertTrue(controller.onSample(twist(20.0, 130L), currentGeneration = 2L).isEmpty())
+
+        // Full window under the new generation confirms the opening; the angle is still
+        // measured from the original baseline (no auto-rebaseline while armed).
+        val verdicts = controller.onSample(twist(20.0, 240L), currentGeneration = 2L)
+        assertEquals(1, verdicts.size)
+        val opened = verdicts.single() as EntryDetectionVerdict.DoorOpened
+        assertEquals(20.0, opened.angleDeg, 0.5)
+    }
 }
 
 private class InMemoryProtectionProfileRepository(
@@ -1399,6 +1612,7 @@ private fun coordinator(
     durableSnapshotWriter: suspend (ProtectionSnapshot) -> Unit = { },
     profileRepository: ProtectionProfileRepository? = null,
     profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
+    entryCommissioningContextProvider: (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1415,6 +1629,7 @@ private fun coordinator(
     durableSnapshotWriter = durableSnapshotWriter,
     profileRepository = profileRepository,
     profilePolicy = profilePolicy,
+    entryCommissioningContextProvider = entryCommissioningContextProvider,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(
@@ -1431,7 +1646,16 @@ private class FakeRuntime(
     private val sourceHealthMap: Map<SensorSource, SensorHealthState> = emptyMap(),
     private val effectiveConfiguration: SensorFusionConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED),
     private val eventLog: MutableList<String>? = null,
+    private val generationId: Long = 0L,
 ) : ProtectionRuntime {
+    var entryBeginCalls = 0
+        private set
+    var entryClearCalls = 0
+        private set
+    var lastBeganSessionId: String? = null
+        private set
+    var lastBeganModel: EntryHingeModel? = null
+        private set
     var started = false
         private set
     var startCalls = 0
@@ -1494,4 +1718,15 @@ private class FakeRuntime(
     override fun sourceHealth(source: SensorSource): SensorHealthState =
         sourceHealthMap[source] ?: super.sourceHealth(source)
 
+    override fun currentGenerationId(): Long = generationId
+
+    override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
+        entryBeginCalls += 1
+        lastBeganSessionId = sessionId
+        lastBeganModel = model
+    }
+
+    override fun clearEntryBaseline() {
+        entryClearCalls += 1
+    }
 }

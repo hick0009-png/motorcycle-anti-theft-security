@@ -6,6 +6,7 @@ enum class IncidentType {
     POWER,
     THERMAL,
     AUDIO,
+    ENTRY_DOOR,
 }
 
 data class IncidentEvidence(

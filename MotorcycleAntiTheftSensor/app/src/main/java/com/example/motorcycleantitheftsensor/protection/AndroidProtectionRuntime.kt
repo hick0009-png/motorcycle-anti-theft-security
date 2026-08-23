@@ -23,6 +23,9 @@ import com.example.motorcycleantitheftsensor.sensor.SensorCapabilityController
 import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
 import com.example.motorcycleantitheftsensor.sensor.SensorHandlerOwner
 
+/** Diagnostics prefix marking observations synthesized from Entry Guard verdicts. */
+private const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
+
 interface AndroidDetectorSet {
     val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
     val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> get() = MutableStateFlow(emptyMap())
@@ -57,6 +60,14 @@ interface AndroidDetectorSet {
     fun sourceHealth(source: SensorSource): SensorHealthState =
         currentSensorHealth()[if (source.capability == SensorCapability.LIGHT) SensorKind.LIGHT else SensorKind.VIBRATION]?.state
             ?: SensorHealthState.UNAVAILABLE
+
+    /** Entry Guard armed-session hook; default no-op for non-Entry detector sets. */
+    fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
+    }
+
+    /** Clears the armed-session Entry baseline and stops its orientation listener. */
+    fun clearEntryBaseline() {
+    }
 }
 
 data class IncidentObservationBatch(
@@ -118,9 +129,24 @@ class AndroidProtectionRuntime(
 
     override fun sourceHealth(source: SensorSource): SensorHealthState = detectors.sourceHealth(source)
 
+    override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
+        detectors.beginEntrySession(sessionId, model, settings)
+    }
+
+    override fun clearEntryBaseline() {
+        detectors.clearEntryBaseline()
+    }
+
 
     private fun handleObservation(observation: SensorObservation) {
         val nowElapsedMs = elapsedClock.nowMs()
+        if (observation.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true) {
+            // Entry verdicts are fully evaluated by the armed-session policy upstream;
+            // deliver them straight through the existing incident pipeline without
+            // vibration debouncing. No second delivery owner is introduced.
+            incidentConsumer(IncidentObservationBatch(primary = observation))
+            return
+        }
         if (!observationProcessor.isUsable(observation, nowElapsedMs)) return
         sensorSampleRecorder(
             observation.kind,
@@ -342,6 +368,10 @@ class PlatformAndroidDetectorSet(
     )
     @Volatile
     private var running = false
+
+    /** Armed-session Entry Guard state; inactive unless an Entry session begins. */
+    private val entrySession = EntryArmedSessionController()
+    private var entryOrientationListener: android.hardware.SensorEventListener? = null
 
     init {
         val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -594,6 +624,91 @@ class PlatformAndroidDetectorSet(
 
     override fun freezeAudioAdaptation(nowElapsedMs: Long) {
         audio.freezeAdaptation(nowElapsedMs)
+    }
+
+    override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
+        entrySession.begin(controller.currentGenerationId(), model, settings)
+        registerEntryOrientationSource()
+    }
+
+    override fun clearEntryBaseline() {
+        entrySession.end()
+        unregisterEntryOrientationSource()
+    }
+
+    /**
+     * Dedicated game/rotation-vector listener feeding the armed-session Entry policy.
+     * Registered only while an Entry session is active; samples are evaluated by
+     * [EntryArmedSessionController] and emitted as typed diagnostic observations.
+     */
+    private fun registerEntryOrientationSource() {
+        val manager = sensorManager ?: return
+        if (entryOrientationListener != null) return
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+            ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: return
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent) {
+                if (event.values.size < 4) return
+                val sample = EntryOrientationSample(
+                    timestampMs = SystemClock.elapsedRealtime(),
+                    quaternion = EntryQuaternion(
+                        w = event.values[3].toDouble(),
+                        x = event.values[0].toDouble(),
+                        y = event.values[1].toDouble(),
+                        z = event.values[2].toDouble(),
+                    ),
+                    fresh = true,
+                )
+                val verdicts = entrySession.onSample(sample, controller.currentGenerationId())
+                verdicts.forEach { verdict -> record(entryVerdictObservation(verdict, sample)) }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        entryOrientationListener = listener
+        try {
+            manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME, handlerOwner.handler)
+        } catch (_: RuntimeException) {
+            entryOrientationListener = null
+        }
+    }
+
+    private fun unregisterEntryOrientationSource() {
+        val listener = entryOrientationListener ?: return
+        try {
+            sensorManager?.unregisterListener(listener)
+        } catch (_: RuntimeException) {
+            // Listener already detached; nothing to recover.
+        }
+        entryOrientationListener = null
+    }
+
+    private fun entryVerdictObservation(
+        verdict: EntryDetectionVerdict,
+        sample: EntryOrientationSample,
+    ): SensorObservation {
+        val (diagnostic, value) = when (verdict) {
+            is EntryDetectionVerdict.DoorOpened -> "entry_door_open" to verdict.angleDeg
+            is EntryDetectionVerdict.DoorStillOpen -> "entry_door_still_open" to verdict.angleDeg
+            is EntryDetectionVerdict.DoorClosedConfirmed -> "entry_door_closed" to 0.0
+            EntryDetectionVerdict.SourceUnavailable -> "entry_source_unavailable" to 0.0
+            EntryDetectionVerdict.SourceRecovered -> "entry_source_recovered" to 0.0
+            EntryDetectionVerdict.MountMoved -> "entry_mount_moved" to 0.0
+        }
+        return SensorObservation(
+            kind = SensorKind.VIBRATION,
+            source = SensorSource.GAME_ROTATION_VECTOR,
+            capability = SensorCapability.MOVEMENT,
+            role = SensorRole.PRIMARY,
+            unit = SensorUnit.DEGREES,
+            eventElapsedMs = sample.timestampMs,
+            wallClockMs = System.currentTimeMillis(),
+            normalizedValue = value,
+            baselineDelta = value,
+            valid = true,
+            diagnostic = diagnostic,
+        )
     }
 
     override fun currentSensorHealth(): Map<SensorKind, SensorHealth> {

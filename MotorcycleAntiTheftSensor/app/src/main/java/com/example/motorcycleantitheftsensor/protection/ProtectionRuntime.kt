@@ -87,4 +87,16 @@ interface ProtectionRuntime {
         }
         return currentSensorHealth()[kind]?.state ?: SensorHealthState.UNAVAILABLE
     }
+
+    /**
+     * Entry Guard armed-session hook: freezes the commissioned hinge model and starts
+     * the relative-orientation baseline capture. Default no-op keeps non-Entry runtimes
+     * and host fakes unaffected.
+     */
+    fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
+    }
+
+    /** Clears the armed-session Entry baseline (owner disarm or controlled profile change). */
+    fun clearEntryBaseline() {
+    }
 }

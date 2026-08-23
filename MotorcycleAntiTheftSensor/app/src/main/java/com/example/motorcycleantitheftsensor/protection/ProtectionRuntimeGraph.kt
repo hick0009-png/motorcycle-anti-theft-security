@@ -484,6 +484,9 @@ object ProtectionRuntimeGraph {
             },
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
+            entryCommissioningContextProvider = {
+                EntryCommissioningEnvironment.currentContext(entryUseContinuous = true)
+            },
         )
         runtime.applySensitivity(configuredSensitivity)
         coordinator.recordSensorHealthSnapshot(runtime.currentSensorHealth())

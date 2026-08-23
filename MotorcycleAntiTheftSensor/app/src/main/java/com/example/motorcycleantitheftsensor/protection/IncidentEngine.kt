@@ -31,6 +31,12 @@ class IncidentEngine(
             return IncidentUpdate.Ignored
         }
 
+        // Entry Guard verdicts arrive fully evaluated with typed diagnostics; they own
+        // their episode lifecycle and never participate in precursor correlation.
+        if (observation.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true) {
+            return acceptEntry(observation, protectionState, location)
+        }
+
         purgePrecursors(observation.eventElapsedMs)
         val evidence = observation.toEvidence()
         val active = activeIncident
@@ -465,7 +471,109 @@ class IncidentEngine(
 
 
 
+    /**
+     * Typed Entry Guard handling (spec sections 7-8): one door episode per physical
+     * opening, mount-moved outranks door events, health episodes deduplicate, and a
+     * confirmed close/recovery resolves only an ENTRY_DOOR incident — never another type.
+     */
+    private fun acceptEntry(
+        observation: SensorObservation,
+        protectionState: ProtectionState,
+        location: IncidentLocation?,
+    ): IncidentUpdate {
+        val evidence = observation.toEvidence()
+        val active = activeIncident
+        val isEntryIncident = active?.incident?.type == IncidentType.ENTRY_DOOR
+        return when (observation.diagnostic) {
+            ENTRY_DOOR_OPEN, ENTRY_DOOR_STILL_OPEN -> {
+                if (active == null || !isEntryIncident) {
+                    openIncident(
+                        Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.WARNING),
+                        listOf(evidence),
+                        observation,
+                        protectionState,
+                        location,
+                    )
+                } else {
+                    val updated = active.incident.copy(
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+                    IncidentUpdate.Updated(updated)
+                }
+            }
+            ENTRY_MOUNT_MOVED -> {
+                // Mount movement outranks any door event and escalates to critical.
+                if (active == null || !isEntryIncident) {
+                    openIncident(
+                        Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.CRITICAL),
+                        listOf(evidence),
+                        observation,
+                        protectionState,
+                        location,
+                    )
+                } else {
+                    val updated = active.incident.copy(
+                        severity = IncidentSeverity.CRITICAL,
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+                    IncidentUpdate.Escalated(updated)
+                }
+            }
+            ENTRY_SOURCE_UNAVAILABLE -> {
+                if (active == null || !isEntryIncident) {
+                    openIncident(
+                        Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.WARNING),
+                        listOf(evidence),
+                        observation,
+                        protectionState,
+                        location,
+                    )
+                } else {
+                    val updated = active.incident.copy(
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+                    IncidentUpdate.Updated(updated)
+                }
+            }
+            ENTRY_DOOR_CLOSED, ENTRY_SOURCE_RECOVERED -> {
+                if (isEntryIncident) {
+                    close(
+                        nowMs = observation.wallClockMs,
+                        reason = if (observation.diagnostic == ENTRY_DOOR_CLOSED) {
+                            "entry door closed confirmed"
+                        } else {
+                            "entry source recovered"
+                        },
+                    ) ?: IncidentUpdate.Ignored
+                } else {
+                    IncidentUpdate.Ignored
+                }
+            }
+            else -> IncidentUpdate.Ignored
+        }
+    }
+
     private companion object {
+        const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
+        const val ENTRY_DOOR_OPEN = "entry_door_open"
+        const val ENTRY_DOOR_STILL_OPEN = "entry_door_still_open"
+        const val ENTRY_DOOR_CLOSED = "entry_door_closed"
+        const val ENTRY_SOURCE_UNAVAILABLE = "entry_source_unavailable"
+        const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
+        const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
+
         val ACTIVE_PROTECTION_STATES = setOf(
             ProtectionState.ARMED_HEALTHY,
             ProtectionState.ARMED_DEGRADED,

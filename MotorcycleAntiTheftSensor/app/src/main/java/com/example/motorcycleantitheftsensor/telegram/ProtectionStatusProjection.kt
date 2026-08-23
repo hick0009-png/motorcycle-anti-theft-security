@@ -1109,6 +1109,7 @@ data class ProtectionStatusProjection(
                 IncidentType.AUDIO -> "ตรวจพบเสียงผิดปกติ"
                 IncidentType.POWER -> "ตรวจพบการตัดสายไฟหรือถอดสายชาร์จ"
                 IncidentType.THERMAL -> "ตรวจพบความร้อนสูงผิดปกติ"
+                IncidentType.ENTRY_DOOR -> "ตรวจพบประตูเปิด"
                 null -> when (incident.severity) {
                     IncidentSeverity.CRITICAL -> "ตรวจพบความผิดปกติระดับวิกฤต"
                     else -> "ตรวจพบความผิดปกติ"

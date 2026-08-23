@@ -29,6 +29,8 @@ class ProtectionCoordinator(
     private val sensorRepository: SensorConfigurationRepository? = null,
     private val profileRepository: ProtectionProfileRepository? = null,
     private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
+    private val entryCommissioningContextProvider:
+        (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -141,7 +143,63 @@ class ProtectionCoordinator(
                         "Selected profile is not ready: setup required",
                     )
                 }
+
+                // Entry Guard: Arm requires a commissioned hinge model whose fingerprint
+                // still matches the current commissioning context (spec sections 5-6).
+                var entryHingeModel: EntryHingeModel? = null
+                if (selectedProfile == ProtectionProfile.ENTRY) {
+                    val storedModel = profileState.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel
+                    if (storedModel == null) {
+                        currentArmedSessionId.set(null)
+                        armingEpoch.incrementAndGet()
+                        runtime.stopDetectors()
+                        transition(
+                            state = ProtectionState.SETUP_REQUIRED,
+                            blockers = setOf("Selected profile setup required"),
+                            degradations = readiness.degradations,
+                        )
+                        return@withLock result(
+                            commandId,
+                            CommandOutcome.REJECTED,
+                            "Selected profile is not ready: setup required",
+                        )
+                    }
+                    val currentContext = entryCommissioningContextProvider?.invoke()
+                    if (currentContext != null &&
+                        EntryCommissioningPolicy.requiresRecommission(
+                            storedModel.toCommissioningContext(resolved.specificSettings),
+                            currentContext,
+                        )
+                    ) {
+                        // Fingerprint invalidated: decommission durably and refuse to arm.
+                        profileRepository.update { profilePolicy.decommissionEntry(it) }
+                        currentArmedSessionId.set(null)
+                        armingEpoch.incrementAndGet()
+                        runtime.stopDetectors()
+                        transition(
+                            state = ProtectionState.SETUP_REQUIRED,
+                            blockers = setOf("Entry commissioning invalidated"),
+                            degradations = readiness.degradations,
+                        )
+                        return@withLock result(
+                            commandId,
+                            CommandOutcome.REJECTED,
+                            "Entry commissioning invalidated; recommission required",
+                        )
+                    }
+                    entryHingeModel = storedModel
+                }
+
                 val sessionId = UUID.randomUUID().toString()
+                val modelFingerprint = entryHingeModel?.let(EntryCommissioningPolicy::fingerprint)
+                val calibrationSnapshot: ArmedCalibrationSnapshot = if (entryHingeModel != null) {
+                    EntryArmedCalibrationSnapshot(
+                        generation = runtime.currentGenerationId(),
+                        modelFingerprint = modelFingerprint!!,
+                    )
+                } else {
+                    VehicleArmedCalibrationSnapshot(generation = runtime.currentGenerationId())
+                }
                 val armedSnapshot = ArmedProfileSnapshot(
                     armedSessionId = sessionId,
                     profile = selectedProfile,
@@ -151,10 +209,8 @@ class ProtectionCoordinator(
                         resolved.sensorConfiguration,
                         resolved.specificSettings,
                     ),
-                    commissionedModelFingerprint = null,
-                    armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(
-                        generation = runtime.currentGenerationId(),
-                    ),
+                    commissionedModelFingerprint = modelFingerprint,
+                    armedCalibrationSnapshot = calibrationSnapshot,
                 )
                 // Persist the frozen snapshot with owner intent BEFORE detector start.
                 try {
@@ -199,6 +255,14 @@ class ProtectionCoordinator(
                     )
                     return@withLock result(commandId, CommandOutcome.REJECTED, reason)
                 }
+                // Entry Guard: freeze the armed-session baseline for the commissioned model.
+                entryHingeModel?.let { model ->
+                    runtime.beginEntrySession(
+                        sessionId,
+                        model,
+                        resolved.specificSettings as EntryProfileSettings,
+                    )
+                }
             } else {
                 val sessionId = UUID.randomUUID().toString()
                 currentArmedSessionId.set(sessionId)
@@ -242,6 +306,7 @@ class ProtectionCoordinator(
                 if (snapshot.value.state == ProtectionState.ARMING && epoch == armingEpoch.get()) {
                     currentArmedSessionId.set(null)
                     runtime.stopDetectors()
+                    runtime.clearEntryBaseline()
                     clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                     transition(
                         state = ProtectionState.DISARMED_ONLINE,
@@ -257,6 +322,7 @@ class ProtectionCoordinator(
             if (!recoveryIsCurrent(origin, recoveryToken)) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                runtime.clearEntryBaseline()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 if (snapshot.value.state == ProtectionState.ARMING) {
                     transition(
@@ -271,6 +337,7 @@ class ProtectionCoordinator(
             if (epoch != armingEpoch.get() || snapshot.value.state != ProtectionState.ARMING) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                runtime.clearEntryBaseline()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
@@ -282,6 +349,7 @@ class ProtectionCoordinator(
             if (!hasReadyPrimary) {
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                runtime.clearEntryBaseline()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 transition(
                     state = ProtectionState.DISARMED_ONLINE,
@@ -352,6 +420,7 @@ class ProtectionCoordinator(
                 incidentEpoch.incrementAndGet()
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
+                runtime.clearEntryBaseline()
                 val incidentHistoryPersisted = incidentCloser("owner disarmed")
                 if (!incidentHistoryPersisted) {
                     recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
@@ -550,6 +619,7 @@ class ProtectionCoordinator(
             incidentEpoch.incrementAndGet()
             currentArmedSessionId.set(null)
             runtime.stopDetectors()
+            runtime.clearEntryBaseline()
             val incidentHistoryPersisted = incidentCloser("owner changed protection profile")
             if (!incidentHistoryPersisted) {
                 recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
@@ -616,6 +686,7 @@ class ProtectionCoordinator(
         invalidateRecovery()
         currentArmedSessionId.set(null)
         runtime.stopDetectors()
+        runtime.clearEntryBaseline()
         val selected = repository.update { current ->
             profilePolicy.updateProfile(current, current.profiles.getValue(recovery.selectedProfile))
                 .copy(selectedProfile = recovery.selectedProfile, switchTransaction = null)
@@ -652,6 +723,22 @@ class ProtectionCoordinator(
         ProtectionState.ARMED_DEGRADED,
         ProtectionState.ALERT_ACTIVE,
     )
+
+    /** Rebuilds the commissioning context recorded inside a stored hinge model. */
+    private fun EntryHingeModel.toCommissioningContext(
+        settings: ProfileSpecificSettings,
+    ): EntryCommissioningPolicy.CommissioningContext {
+        val entrySettings = settings as? EntryProfileSettings
+        return EntryCommissioningPolicy.CommissioningContext(
+            sensorIdentity = sensorIdentity,
+            mountSignature = mountSignature,
+            orientationSourcePolicy = orientationSourcePolicy,
+            algorithmVersion = algorithmVersion,
+            entryUseContinuous = true,
+            alertAngleDeg = entrySettings?.angleThresholdDegrees ?: 15,
+            openConfirmationMs = entrySettings?.openConfirmationMs ?: 750L,
+        )
+    }
 
     /**
      * Best-effort durable clear of a frozen armed snapshot after a failed or cancelled

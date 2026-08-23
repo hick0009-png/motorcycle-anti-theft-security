@@ -48,6 +48,7 @@ object PresentationTextCatalog {
         IncidentType.POWER -> "🔌 แหล่งจ่ายไฟถูกตัด"
         IncidentType.THERMAL -> "🌡️ อุณหภูมิผิดปกติ"
         IncidentType.AUDIO -> "🔊 เสียงผิดปกติรอบตัวรถ"
+        IncidentType.ENTRY_DOOR -> "🚪 ตรวจพบประตูเปิด"
     }
 
     fun severityLabel(severity: IncidentSeverity): String = when (severity) {
