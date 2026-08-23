@@ -1,13 +1,17 @@
-# Power Guard Checkpoint — 2026-08-23 (updated: end of session 3)
+# Power Guard Checkpoint — 2026-08-23 (updated: end of session 4)
 
 ## Resume point
 
 - Worktree: `D:\security\.worktrees\continuity-recovery-tdd`
 - Branch: `codex/continuity-recovery-tdd`
-- Head: `6c068d7` (feat: add power guard commissioning ui and summary rows (Task 6))
-- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–6 complete and committed.
-  Task 7 (full gate + device acceptance + final checkpoint) NOT started.
-  Entry Guard manual device acceptance still pending with owner.**
+- Head: `bc9113b` (docs: checkpoint power guard task 6 complete)
+- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–6 complete; Task 7 steps 1–2
+  done this session (full host gate GREEN 806 tests; assembleDebug built, SHA-256
+  recorded, APK installed `-r` on device `JUCDU18811013149`). Task 7 step 3 (device
+  acceptance) BLOCKED on: (a) ambient-light → `PowerWitnessSample` emission wiring in
+  `PlatformAndroidDetectorSet` plus charging observation into the arbiter pipeline,
+  and (b) owner-assisted lamp off/on session. Entry Guard manual device acceptance
+  still pending with owner.**
 
 ## Plan document
 
@@ -136,7 +140,19 @@ All runs: one Gradle invocation at a time, `--no-daemon --max-workers=1`,
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionCoordinatorTest*"  # GREEN: 71 tests, 0 failures (session 2, Task 5)
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionViewModelTest"     # GREEN incl. 4 new POWER tests (session 3)
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionViewModelTest" compileDebugAndroidTestKotlin  # BUILD SUCCESSFUL in 1m 8s (session 3, pre-commit)
+.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndroidTestKotlin  # BUILD SUCCESSFUL in 36s (session 4, Task 7 step 1)
+# Test-result audit: files=108 tests=806 failures=0 errors=0 skipped=0 (>=750 gate met)
+.\gradlew.bat --no-daemon --max-workers=1 assembleDebug  # BUILD SUCCESSFUL in 38s (session 4, Task 7 step 2)
 ```
+
+### Task 7 step 2 artifacts (session 4)
+
+- APK: `MotorcycleAntiTheftSensor\app\build\outputs\apk\debug\app-debug.apk`
+- Size: `68,703,242` bytes
+- SHA-256: `0B9E7FE06CC7B9D63CC883ECC670033F56BB5DDFDE600F4C2935B925D55BA836`
+- Installed `-r` on device `JUCDU18811013149`; verified via
+  `dumpsys package com.example.motorcycleantitheftsensor`
+  (`lastUpdateTime=2026-08-23 18:33:45`, versionCode=1).
 
 ## Decisions
 
@@ -190,9 +206,8 @@ $env:ANDROID_HOME='C:\Users\ASUS\AppData\Local\Android\Sdk'
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionCoordinatorTest*"
 ```
 
-Then start Task 7 step 1 (full host gate) per the plan document:
-`.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest` (expect ≥750 tests,
-zero failures) plus `compileDebugAndroidTestKotlin`, then assembleDebug + device
-acceptance on Huawei INE-LX2. Device work still required: wire ambient-light →
-`PowerWitnessSample` emission and charging observation into the arbiter pipeline in
-`PlatformAndroidDetectorSet` before acceptance.
+Then continue Task 7 step 3: first wire ambient-light → `PowerWitnessSample` emission
+and charging observation into the arbiter pipeline inside `PlatformAndroidDetectorSet`
+(AndroidProtectionRuntime.kt), rerun the focused POWER tests, rebuild, reinstall `-r`,
+then run the owner-assisted acceptance script per spec section 8 Power bullet with
+screenshots under `plans/powertask*-*.png` (untracked).
