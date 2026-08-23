@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -70,6 +71,18 @@ object EntryOrientationMath {
      */
     fun relativeRotation(baseline: EntryQuaternion, current: EntryQuaternion): EntryQuaternion =
         canonicalizeSign(multiply(conjugate(normalize(baseline)), normalize(current)))
+
+    /**
+     * Total geodesic rotation angle of [q] in degrees, always within [0, 180].
+     * Used for still-check movement detection and commissioning peak tracking where
+     * no hinge axis is known yet.
+     */
+    fun totalRotationDeg(q: EntryQuaternion): Double {
+        val n = normalize(q)
+        val vecLength = sqrt(n.x * n.x + n.y * n.y + n.z * n.z)
+        val angleDeg = Math.toDegrees(2.0 * atan2(vecLength, n.w))
+        return abs(angleDeg).coerceAtMost(180.0)
+    }
 
     /**
      * Signed hinge-axis twist of [qRel] around unit [axis] in degrees, in (-180, 180].
