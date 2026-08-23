@@ -83,22 +83,18 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Paper-light palette mirroring [com.example.motorcycleantitheftsensor.theme.ThemeKt]
- * semantics (onSurface / onSurfaceVariant / outline / surface). These file-private
- * values intentionally keep the legacy token names to minimize diff scope; every pair
- * meets WCAG AA (≥4.5:1) on white. The legacy OLED dark-slate imports were removed.
+ * Light-safe accent tokens for this screen. Neutral text/surface colors come from
+ * [MaterialTheme.colorScheme] (onSurface / onSurfaceVariant / outline / surface);
+ * only accents without a scheme equivalent are defined here. Every pairing meets
+ * WCAG AA (≥4.5:1) on white.
  */
-private val TextHighEmphasis = Color(0xFF171717)   // onSurface — headings/body
-private val TextMediumEmphasis = Color(0xFF4B4B4B) // onSurfaceVariant — secondary text
-private val TextMuted = Color(0xFF767676)          // outline — captions only
-private val DarkSurface = Color(0xFFFFFFFF)        // card surface
-private val DarkSurfaceVariant = Color(0xFFF2F2F0) // inner rows / chips
-private val DarkBorder = Color(0xFFC9C9C6)         // borders / inactive tracks
-private val TrustBlue = Color(0xFF1D4ED8)          // actions/links on white (6.3:1)
-private val ArmedGreen = Color(0xFF047857)         // armed/healthy text (5.2:1)
-private val WarningAmber = Color(0xFFB45309)       // warning text (4.7:1)
-private val AlertRed = Color(0xFFB91C1C)           // error text / destructive fill
-private val CyanAccent = Color(0xFF0891B2)         // decorative progress only
+private val RowSurface = Color(0xFFF2F2F0)   // inner rows / chips
+private val BorderNeutral = Color(0xFFC9C9C6) // borders / inactive tracks
+private val ActionBlue = Color(0xFF1D4ED8)    // actions/links on white (6.3:1)
+private val StatusGreen = Color(0xFF047857)   // armed/healthy text (5.2:1)
+private val StatusAmber = Color(0xFFB45309)   // warning text (4.7:1)
+private val StatusRed = Color(0xFFB91C1C)     // error text / destructive fill
+private val ProgressCyan = Color(0xFF0891B2)  // decorative progress only
 
 @Composable
 fun SettingsScreen(
@@ -160,7 +156,7 @@ fun SettingsScreen(
                     Text(
                         text = guidance.bodyTh,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = WarningAmber,
+                        color = StatusAmber,
                     )
                 }
             }
@@ -172,27 +168,27 @@ fun SettingsScreen(
                     text = "⚙️ การตั้งค่าระบบความปลอดภัย",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
-                        color = TextHighEmphasis,
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
                     modifier = Modifier.semantics { heading() },
                 )
                 Text(
                     text = "ปรับแต่งการตรวจจับ การแจ้งเตือน และการปกป้องอุปกรณ์",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextMediumEmphasis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (state.settingsLoading) {
                     Text(
                         "กำลังรีเฟรชการตั้งค่า...",
                         style = MaterialTheme.typography.bodySmall,
-                        color = CyanAccent,
+                        color = ProgressCyan,
                     )
                 }
                 state.settingsError?.let { error ->
                     Text(
                         text = error,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = AlertRed,
+                        color = StatusRed,
                     )
                     Button(
                         onClick = actions.retrySettings,
@@ -200,7 +196,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                     ) {
                         Text("ลองใหม่อีกครั้ง")
                     }
@@ -220,7 +216,7 @@ fun SettingsScreen(
                 Text(
                     text = "ระบบตรวจจับการโจรกรรมหลายมิติแบบปรับแต่งได้",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextMediumEmphasis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -230,7 +226,7 @@ fun SettingsScreen(
                     text = "รูปแบบการทำงาน (Preset):",
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.SemiBold,
-                        color = TextHighEmphasis,
+                        color = MaterialTheme.colorScheme.onSurface,
                     ),
                 )
                 Row(
@@ -255,7 +251,7 @@ fun SettingsScreen(
                                     .weight(1f)
                                     .heightIn(min = 48.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = TrustBlue,
+                                    containerColor = ActionBlue,
                                     contentColor = Color.White,
                                 ),
                                 shape = RoundedCornerShape(12.dp),
@@ -275,9 +271,9 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 48.dp),
-                                border = BorderStroke(1.dp, DarkBorder),
+                                border = BorderStroke(1.dp, BorderNeutral),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = TextMediumEmphasis,
+                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                             ) {
@@ -296,7 +292,7 @@ fun SettingsScreen(
                         text = "⚙️ รูปแบบ: กำหนดเอง (Custom)",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = CyanAccent,
+                            color = ProgressCyan,
                         ),
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -322,9 +318,9 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = DarkSurfaceVariant.copy(alpha = 0.5f),
+                            containerColor = RowSurface.copy(alpha = 0.5f),
                         ),
-                        border = BorderStroke(1.dp, DarkBorder.copy(alpha = 0.6f)),
+                        border = BorderStroke(1.dp, BorderNeutral.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Column(
@@ -335,7 +331,7 @@ fun SettingsScreen(
                                 text = "[ $capIcon $capName ]",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = TextHighEmphasis,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                 ),
                             )
                             Row(
@@ -346,18 +342,18 @@ fun SettingsScreen(
                                 Text(
                                     text = "ความไวการตรวจจับ",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextMediumEmphasis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Surface(
-                                    color = TrustBlue.copy(alpha = 0.15f),
+                                    color = ActionBlue.copy(alpha = 0.15f),
                                     shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, TrustBlue.copy(alpha = 0.3f)),
+                                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
                                 ) {
                                     Text(
                                         text = "ระดับความไว $sliderValue/10",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = CyanAccent,
+                                            color = ProgressCyan,
                                         ),
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     )
@@ -387,8 +383,8 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    border = BorderStroke(1.dp, TrustBlue.copy(alpha = 0.8f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TrustBlue),
+                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("⚙️ ตั้งค่าเซ็นเซอร์ขั้นสูง (Advanced Role Mapping)", fontWeight = FontWeight.SemiBold)
@@ -398,13 +394,13 @@ fun SettingsScreen(
             if (showAdvancedDialog) {
                 AlertDialog(
                     onDismissRequest = { showAdvancedDialog = false },
-                    containerColor = DarkSurface,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     title = {
                         Text(
                             text = "⚙️ กำหนดบทบาทเซ็นเซอร์ฮาร์ดแวร์",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = TextHighEmphasis,
+                                color = MaterialTheme.colorScheme.onSurface,
                             ),
                         )
                     },
@@ -424,9 +420,9 @@ fun SettingsScreen(
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = DarkSurfaceVariant.copy(alpha = 0.7f),
+                                        containerColor = RowSurface.copy(alpha = 0.7f),
                                     ),
-                                    border = BorderStroke(1.dp, DarkBorder),
+                                    border = BorderStroke(1.dp, BorderNeutral),
                                     shape = RoundedCornerShape(10.dp),
                                 ) {
                                     Column(
@@ -437,13 +433,13 @@ fun SettingsScreen(
                                             text = srcName,
                                             style = MaterialTheme.typography.titleSmall.copy(
                                                 fontWeight = FontWeight.Bold,
-                                                color = TextHighEmphasis,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                             ),
                                         )
                                         Text(
                                             text = "กลุ่ม: $capName",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = TextMuted,
+                                            color = MaterialTheme.colorScheme.outline,
                                         )
 
                                         Spacer(modifier = Modifier.height(4.dp))
@@ -470,9 +466,9 @@ fun SettingsScreen(
                                                             .heightIn(min = 40.dp),
                                                         colors = ButtonDefaults.buttonColors(
                                                             containerColor = when (role) {
-                                                                SensorRole.PRIMARY -> ArmedGreen
-                                                                SensorRole.SUPPORTING -> TrustBlue
-                                                                SensorRole.OFF -> AlertRed
+                                                                SensorRole.PRIMARY -> StatusGreen
+                                                                SensorRole.SUPPORTING -> ActionBlue
+                                                                SensorRole.OFF -> StatusRed
                                                             },
                                                             contentColor = Color.White,
                                                         ),
@@ -501,9 +497,9 @@ fun SettingsScreen(
                                                         modifier = Modifier
                                                             .weight(1f)
                                                             .heightIn(min = 40.dp),
-                                                        border = BorderStroke(1.dp, DarkBorder),
+                                                        border = BorderStroke(1.dp, BorderNeutral),
                                                         colors = ButtonDefaults.outlinedButtonColors(
-                                                            contentColor = TextMediumEmphasis,
+                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         ),
                                                         shape = RoundedCornerShape(8.dp),
                                                     ) {
@@ -524,7 +520,7 @@ fun SettingsScreen(
                     confirmButton = {
                         Button(
                             onClick = { showAdvancedDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text("เสร็จสิ้น", fontWeight = FontWeight.Bold)
@@ -536,24 +532,24 @@ fun SettingsScreen(
             if (showNoPrimaryWarningDialog) {
                 AlertDialog(
                     onDismissRequest = { showNoPrimaryWarningDialog = false },
-                    containerColor = DarkSurface,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     title = {
                         Text(
                             text = "⚠️ คำเตือน: ไม่มีเซ็นเซอร์หลัก",
-                            color = AlertRed,
+                            color = StatusRed,
                             fontWeight = FontWeight.Bold,
                         )
                     },
                     text = {
                         Text(
                             text = "หากปิดเซ็นเซอร์หลักตัวสุดท้าย ระบบจะไม่สามารถตรวจจับการโจรกรรมเพื่อเริ่มส่งแจ้งเตือนได้ และจะไม่สามารถเปิดระบบป้องกัน (Arm) ได้",
-                            color = TextHighEmphasis,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     },
                     confirmButton = {
                         Button(
                             onClick = { showNoPrimaryWarningDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = AlertRed),
+                            colors = ButtonDefaults.buttonColors(containerColor = StatusRed),
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text("เข้าใจแล้ว", fontWeight = FontWeight.Bold)
@@ -613,10 +609,10 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TrustBlue,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedLabelColor = TrustBlue,
-                        unfocusedLabelColor = TextMuted,
+                        focusedBorderColor = ActionBlue,
+                        unfocusedBorderColor = BorderNeutral,
+                        focusedLabelColor = ActionBlue,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
                 Button(
@@ -630,7 +626,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingBotToken) {
@@ -655,8 +651,8 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    border = BorderStroke(1.dp, AlertRed.copy(alpha = 0.8f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AlertRed),
+                    border = BorderStroke(1.dp, StatusRed.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("รีเซ็ตการจับคู่เจ้าของ (Reset Pairing)", fontWeight = FontWeight.SemiBold)
@@ -673,7 +669,7 @@ fun SettingsScreen(
                 Text(
                     text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
+                    color = MaterialTheme.colorScheme.outline,
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -686,10 +682,10 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TrustBlue,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedLabelColor = TrustBlue,
-                        unfocusedLabelColor = TextMuted,
+                        focusedBorderColor = ActionBlue,
+                        unfocusedBorderColor = BorderNeutral,
+                        focusedLabelColor = ActionBlue,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
                 OutlinedTextField(
@@ -701,10 +697,10 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TrustBlue,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedLabelColor = TrustBlue,
-                        unfocusedLabelColor = TextMuted,
+                        focusedBorderColor = ActionBlue,
+                        unfocusedBorderColor = BorderNeutral,
+                        focusedLabelColor = ActionBlue,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
                 Button(
@@ -720,7 +716,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingSmsFallback) {
@@ -750,7 +746,7 @@ fun SettingsScreen(
                     Text(
                         "ฟีเจอร์บางส่วนต้องการสิทธิการเข้าถึงเพิ่มเติมเพื่อให้ครอบคลุมการทำงาน:",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = WarningAmber,
+                        color = StatusAmber,
                     )
                     state.settings.missingPermissions.sorted().forEach { permission ->
                         val shortName = permission.substringAfterLast('.')
@@ -770,7 +766,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("ขอสิทธิการเข้าถึงที่ขาด", fontWeight = FontWeight.Bold)
@@ -802,7 +798,7 @@ fun SettingsScreen(
                 Text(
                     text = "ป้องกันไม่ให้ระบบ Android หรือตัวประหยัดพลังงาน (Huawei PowerGenie, Xiaomi ฯลฯ) ปิดแอปเมื่อจอดับ",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextMediumEmphasis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 DiagnosticRow(
                     "โหมดประหยัดแบตเตอรี่",
@@ -818,7 +814,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) ArmedGreen else TrustBlue,
+                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) StatusGreen else ActionBlue,
                     ),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -839,8 +835,8 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        border = BorderStroke(1.dp, TrustBlue),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TrustBlue),
+                        border = BorderStroke(1.dp, ActionBlue),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("เปิดการตั้งค่า Auto-Start (${keepAliveStatus.manufacturer})", fontWeight = FontWeight.SemiBold)
@@ -933,20 +929,20 @@ fun SettingsScreen(
     if (confirmResetPairing) {
         AlertDialog(
             onDismissRequest = { confirmResetPairing = false },
-            containerColor = DarkSurface,
+            containerColor = MaterialTheme.colorScheme.surface,
             title = {
                 Text(
                     text = "รีเซ็ตการจับคู่เจ้าของ?",
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        color = AlertRed,
+                        color = StatusRed,
                     ),
                 )
             },
             text = {
                 Text(
                     text = "เครื่องเจ้าของเดิมทั้งหมดใน Telegram จะต้องใช้รหัส Pairing Code ใหม่ในการจับคู่เข้าระบบอีกครั้ง",
-                    color = TextHighEmphasis,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             },
             confirmButton = {
@@ -957,7 +953,7 @@ fun SettingsScreen(
                     },
                     enabled = !state.settingsOperationInFlight,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AlertRed),
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusRed),
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     Text("ยืนยันรีเซ็ต", fontWeight = FontWeight.Bold)
@@ -968,7 +964,7 @@ fun SettingsScreen(
                     onClick = { confirmResetPairing = false },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("ยกเลิก", color = TextMediumEmphasis)
+                    Text("ยกเลิก", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
         )
@@ -994,21 +990,21 @@ private fun SettingsLoadState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (loading) CircularProgressIndicator(color = TrustBlue)
+            if (loading) CircularProgressIndicator(color = ActionBlue)
             Text(
                 text = if (loading) "กำลังโหลดการตั้งค่า..." else "ไม่สามารถโหลดการตั้งค่าได้",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    color = TextHighEmphasis,
+                    color = MaterialTheme.colorScheme.onSurface,
                 ),
                 modifier = Modifier.semantics { heading() },
             )
-            error?.let { Text(it, color = AlertRed) }
+            error?.let { Text(it, color = StatusRed) }
             if (!loading) {
                 Button(
                     onClick = retry,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TrustBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("ลองใหม่อีกครั้ง")
@@ -1049,9 +1045,9 @@ private fun AccessibleSensitivitySlider(
             steps = 8,
             enabled = enabled,
             colors = SliderDefaults.colors(
-                thumbColor = TrustBlue,
-                activeTrackColor = TrustBlue,
-                inactiveTrackColor = DarkBorder,
+                thumbColor = ActionBlue,
+                activeTrackColor = ActionBlue,
+                inactiveTrackColor = BorderNeutral,
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -1106,8 +1102,8 @@ private fun SettingsCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        border = BorderStroke(1.dp, DarkBorder),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, BorderNeutral),
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(
@@ -1118,7 +1114,7 @@ private fun SettingsCard(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = TextHighEmphasis,
+                    color = MaterialTheme.colorScheme.onSurface,
                 ),
                 modifier = Modifier.semantics { heading() },
             )
@@ -1137,14 +1133,14 @@ private fun DiagnosticRow(label: String, value: String) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            color = TextMediumEmphasis,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = FontWeight.SemiBold,
-                color = TextHighEmphasis,
+                color = MaterialTheme.colorScheme.onSurface,
             ),
         )
     }

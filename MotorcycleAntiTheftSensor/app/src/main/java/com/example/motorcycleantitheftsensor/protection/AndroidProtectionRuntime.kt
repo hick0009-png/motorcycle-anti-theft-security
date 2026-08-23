@@ -937,12 +937,12 @@ class PlatformAndroidDetectorSet(
         sample: EntryOrientationSample,
     ): SensorObservation {
         val (diagnostic, value) = when (verdict) {
-            is EntryDetectionVerdict.DoorOpened -> "entry_door_open" to verdict.angleDeg
-            is EntryDetectionVerdict.DoorStillOpen -> "entry_door_still_open" to verdict.angleDeg
-            is EntryDetectionVerdict.DoorClosedConfirmed -> "entry_door_closed" to 0.0
-            EntryDetectionVerdict.SourceUnavailable -> "entry_source_unavailable" to 0.0
-            EntryDetectionVerdict.SourceRecovered -> "entry_source_recovered" to 0.0
-            EntryDetectionVerdict.MountMoved -> "entry_mount_moved" to 0.0
+            is EntryDetectionVerdict.DoorOpened -> ProtectionDiagnostics.ENTRY_DOOR_OPEN to verdict.angleDeg
+            is EntryDetectionVerdict.DoorStillOpen -> ProtectionDiagnostics.ENTRY_DOOR_STILL_OPEN to verdict.angleDeg
+            is EntryDetectionVerdict.DoorClosedConfirmed -> ProtectionDiagnostics.ENTRY_DOOR_CLOSED to 0.0
+            EntryDetectionVerdict.SourceUnavailable -> ProtectionDiagnostics.ENTRY_SOURCE_UNAVAILABLE to 0.0
+            EntryDetectionVerdict.SourceRecovered -> ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED to 0.0
+            EntryDetectionVerdict.MountMoved -> ProtectionDiagnostics.ENTRY_MOUNT_MOVED to 0.0
         }
         return SensorObservation(
             kind = SensorKind.VIBRATION,
