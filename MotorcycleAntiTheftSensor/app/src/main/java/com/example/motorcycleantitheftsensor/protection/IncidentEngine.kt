@@ -37,6 +37,13 @@ class IncidentEngine(
             return acceptEntry(observation, protectionState, location)
         }
 
+        // Power Guard verdicts arrive fully evaluated by the armed-session arbiter with
+        // typed diagnostics; they own their episode lifecycle and never participate in
+        // precursor correlation either.
+        if (observation.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true) {
+            return acceptPower(observation, protectionState, location)
+        }
+
         purgePrecursors(observation.eventElapsedMs)
         val evidence = observation.toEvidence()
         val active = activeIncident
@@ -565,6 +572,81 @@ class IncidentEngine(
         }
     }
 
+    /**
+     * Typed Power Guard handling (parent spec sections 4.3/5): verdicts arrive fully
+     * evaluated with typed diagnostics. One-signal conditions open WARNING health
+     * incidents that are never called a power outage; confirmed dual loss opens or
+     * escalates a CRITICAL POWER incident; recovery closes only a POWER incident —
+     * never another type.
+     */
+    private fun acceptPower(
+        observation: SensorObservation,
+        protectionState: ProtectionState,
+        location: IncidentLocation?,
+    ): IncidentUpdate {
+        val evidence = observation.toEvidence()
+        val active = activeIncident
+        val isPowerIncident = active?.incident?.type == IncidentType.POWER
+        return when (observation.diagnostic) {
+            POWER_CHARGING_HEALTH, POWER_WITNESS_DARK -> {
+                if (active == null || !isPowerIncident) {
+                    openIncident(
+                        Classification(IncidentType.POWER, IncidentSeverity.WARNING),
+                        listOf(evidence),
+                        observation,
+                        protectionState,
+                        location,
+                    )
+                } else {
+                    val updated = active.incident.copy(
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+                    IncidentUpdate.Updated(updated)
+                }
+            }
+            POWER_CONFIRMED_LOSS -> {
+                if (active == null || !isPowerIncident) {
+                    openIncident(
+                        Classification(IncidentType.POWER, IncidentSeverity.CRITICAL),
+                        listOf(evidence),
+                        observation,
+                        protectionState,
+                        location,
+                    )
+                } else {
+                    val updated = active.incident.copy(
+                        severity = IncidentSeverity.CRITICAL,
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+                    if (updated.severity.ordinal > active.incident.severity.ordinal) {
+                        IncidentUpdate.Escalated(updated)
+                    } else {
+                        IncidentUpdate.Updated(updated)
+                    }
+                }
+            }
+            POWER_RECOVERED -> {
+                if (isPowerIncident) {
+                    close(
+                        nowMs = observation.wallClockMs,
+                        reason = "power supply stable again",
+                    ) ?: IncidentUpdate.Ignored
+                } else {
+                    IncidentUpdate.Ignored
+                }
+            }
+            else -> IncidentUpdate.Ignored
+        }
+    }
+
     private companion object {
         const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
         const val ENTRY_DOOR_OPEN = "entry_door_open"
@@ -573,6 +655,12 @@ class IncidentEngine(
         const val ENTRY_SOURCE_UNAVAILABLE = "entry_source_unavailable"
         const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
         const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
+
+        const val POWER_DIAGNOSTIC_PREFIX = "power_"
+        const val POWER_CHARGING_HEALTH = "power_charging_health"
+        const val POWER_WITNESS_DARK = "power_witness_dark"
+        const val POWER_CONFIRMED_LOSS = "power_confirmed_loss"
+        const val POWER_RECOVERED = "power_recovered"
 
         val ACTIVE_PROTECTION_STATES = setOf(
             ProtectionState.ARMED_HEALTHY,

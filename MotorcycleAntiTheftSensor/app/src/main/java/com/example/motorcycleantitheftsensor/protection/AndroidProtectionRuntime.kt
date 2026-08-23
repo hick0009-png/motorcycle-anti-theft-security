@@ -29,6 +29,21 @@ import com.example.motorcycleantitheftsensor.sensor.SensorHandlerOwner
 /** Diagnostics prefix marking observations synthesized from Entry Guard verdicts. */
 private const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
 
+/** Diagnostics prefix marking observations synthesized from Power Guard arbiter verdicts. */
+private const val POWER_DIAGNOSTIC_PREFIX = "power_"
+
+private const val POWER_CHARGING_HEALTH_DIAGNOSTIC = "power_charging_health"
+private const val POWER_WITNESS_DARK_DIAGNOSTIC = "power_witness_dark"
+private const val POWER_CONFIRMED_LOSS_DIAGNOSTIC = "power_confirmed_loss"
+private const val POWER_RECOVERED_DIAGNOSTIC = "power_recovered"
+
+/** Typed charging connectivity for the armed-session Power arbiter; null = unknown. */
+private fun ChargingState.chargingConnected(): Boolean? = when (this) {
+    ChargingState.CHARGING, ChargingState.FULL -> true
+    ChargingState.DISCHARGING, ChargingState.NOT_CHARGING -> false
+    ChargingState.UNKNOWN -> null
+}
+
 interface AndroidDetectorSet {
     val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
     val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> get() = MutableStateFlow(emptyMap())
@@ -210,6 +225,13 @@ class AndroidProtectionRuntime(
             incidentConsumer(IncidentObservationBatch(primary = observation))
             return
         }
+        if (observation.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true) {
+            // Power verdicts are fully evaluated by the armed-session arbiter upstream;
+            // deliver them straight through the existing incident pipeline without
+            // vibration debouncing. No second delivery owner is introduced.
+            incidentConsumer(IncidentObservationBatch(primary = observation))
+            return
+        }
         if (!observationProcessor.isUsable(observation, nowElapsedMs)) return
         sensorSampleRecorder(
             observation.kind,
@@ -355,6 +377,12 @@ class PlatformAndroidDetectorSet(
         context = applicationContext,
         onObservation = ::record,
         onStatusChanged = { status ->
+            val connected = status.chargingState.chargingConnected()
+            val previous = lastChargingConnected
+            lastChargingConnected = connected
+            if (connected != previous && powerSession.isActive) {
+                evaluatePowerArbiter(lastWitnessLux, SystemClock.elapsedRealtime())
+            }
             publishHealth(
                 SensorKind.POWER_THERMAL,
                 SensorHealth(
@@ -440,6 +468,16 @@ class PlatformAndroidDetectorSet(
     /** Armed-session Power Guard state; inactive unless a Power session begins. */
     private val powerSession = PowerArmedSessionController()
     private val powerSampleFlow = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
+    private var powerCommissioningStreamActive = false
+    private var powerLightListener: android.hardware.SensorEventListener? = null
+
+    /** Latest typed charging observation feeding the armed-session arbiter. */
+    @Volatile
+    private var lastChargingConnected: Boolean? = null
+
+    /** Latest witness lux delivered by the dedicated ambient-light listener. */
+    @Volatile
+    private var lastWitnessLux: Double? = null
 
     init {
         val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -461,6 +499,7 @@ class PlatformAndroidDetectorSet(
             ),
         )
         val initialPower = PowerThermalMonitor.queryInitialStatus(applicationContext)
+        lastChargingConnected = initialPower.chargingState.chargingConnected()
         health[SensorKind.POWER_THERMAL] = SensorHealth(
             state = if (initialPower.sourceAvailable) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
             powerThermalDetail = PowerThermalHealthDetail(
@@ -644,6 +683,14 @@ class PlatformAndroidDetectorSet(
             )
             powerThermal.stopMonitoring()
             audio.stopListening()
+            powerLightListener?.let { listener ->
+                try {
+                    sensorManager?.unregisterListener(listener)
+                } catch (_: RuntimeException) {
+                    // Listener already detached; nothing to recover.
+                }
+            }
+            powerLightListener = null
         }
     }
 
@@ -718,24 +765,130 @@ class PlatformAndroidDetectorSet(
 
     override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
         powerSession.begin(controller.currentGenerationId(), model, settings)
+        registerPowerLightSource()
     }
 
     override fun clearPowerSession() {
         powerSession.end()
+        unregisterPowerLightSource()
     }
 
     /**
-     * Commissioning witness stream: the POWER profile keeps AMBIENT_LIGHT registered as
-     * its primary source through the normal configuration path, so no dedicated listener
-     * is required here; the guided flow observes live lux via [powerWitnessSamples].
+     * Commissioning witness stream: registers a dedicated ambient-light listener so the
+     * guided lamp off/on flow receives live lux via [powerWitnessSamples] even while the
+     * detector set is not yet started for an armed session.
      */
     override fun startPowerCommissioningStream() {
+        powerCommissioningStreamActive = true
+        registerPowerLightSource()
     }
 
     override fun stopPowerCommissioningStream() {
+        powerCommissioningStreamActive = false
+        unregisterPowerLightSource()
     }
 
     override fun powerWitnessSamples(): Flow<PowerWitnessSample> = powerSampleFlow
+
+    /**
+     * Dedicated ambient-light listener feeding the commissioning flow and the armed-session
+     * Power arbiter. Registered while a Power commissioning stream or an armed Power session
+     * is active; every reading is emitted as a [PowerWitnessSample] and evaluated by
+     * [PowerArmedSessionController], whose verdicts publish through the normal incident
+     * pipeline as typed `power_*` diagnostics.
+     */
+    private fun registerPowerLightSource() {
+        val manager = sensorManager ?: return
+        if (powerLightListener != null) return
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_LIGHT) ?: return
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent) {
+                if (event.values.isEmpty()) return
+                val lux = event.values[0].toDouble()
+                if (!lux.isFinite()) return
+                val nowElapsedMs = SystemClock.elapsedRealtime()
+                lastWitnessLux = lux
+                powerSampleFlow.tryEmit(
+                    PowerWitnessSample(lux = lux, timestampMs = nowElapsedMs, fresh = true),
+                )
+                evaluatePowerArbiter(lux, nowElapsedMs)
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        powerLightListener = listener
+        try {
+            manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI, handlerOwner.handler)
+        } catch (_: RuntimeException) {
+            powerLightListener = null
+        }
+    }
+
+    private fun unregisterPowerLightSource() {
+        if (powerCommissioningStreamActive || powerSession.isActive) return
+        val listener = powerLightListener ?: return
+        try {
+            sensorManager?.unregisterListener(listener)
+        } catch (_: RuntimeException) {
+            // Listener already detached; nothing to recover.
+        }
+        powerLightListener = null
+    }
+
+    /**
+     * Feeds one composite charging/witness sample into the armed-session arbiter and
+     * records every produced verdict as a typed `power_*` observation so the existing
+     * incident pipeline owns delivery.
+     */
+    private fun evaluatePowerArbiter(witnessLux: Double?, timestampMs: Long) {
+        if (!powerSession.isActive) return
+        val sample = PowerSignalSample(
+            chargingConnected = lastChargingConnected,
+            witnessLux = witnessLux,
+            fresh = witnessLux != null,
+            timestampMs = timestampMs,
+        )
+        val verdicts = powerSession.onSample(sample, controller.currentGenerationId())
+        verdicts.forEach { verdict ->
+            powerVerdictObservation(verdict, sample)?.let(::record)
+        }
+    }
+
+    private fun powerVerdictObservation(
+        verdict: PowerArbiterVerdict,
+        sample: PowerSignalSample,
+    ): SensorObservation? {
+        val diagnostic = when (verdict) {
+            is PowerArbiterVerdict.ChargingHealthAlert -> POWER_CHARGING_HEALTH_DIAGNOSTIC
+            is PowerArbiterVerdict.WitnessHealthAlert -> POWER_WITNESS_DARK_DIAGNOSTIC
+            is PowerArbiterVerdict.ConfirmedLossOpened,
+            is PowerArbiterVerdict.LossStillConfirmed,
+            -> POWER_CONFIRMED_LOSS_DIAGNOSTIC
+            is PowerArbiterVerdict.RecoveredClosed -> POWER_RECOVERED_DIAGNOSTIC
+            is PowerArbiterVerdict.ConditionChanged -> when (verdict.to) {
+                PowerCompositeArbiter.SemanticState.CHARGING_LOST -> POWER_CHARGING_HEALTH_DIAGNOSTIC
+                PowerCompositeArbiter.SemanticState.WITNESS_LOST -> POWER_WITNESS_DARK_DIAGNOSTIC
+                PowerCompositeArbiter.SemanticState.DUAL_LOST -> POWER_CONFIRMED_LOSS_DIAGNOSTIC
+                PowerCompositeArbiter.SemanticState.HEALTHY_DUAL -> POWER_RECOVERED_DIAGNOSTIC
+            }
+            // Partial recovery updates the dashboard without owner-visible copy; the
+            // episode stays open and the next stable-state verdict carries the message.
+            is PowerArbiterVerdict.PartialRecovery -> return null
+        }
+        return SensorObservation(
+            kind = SensorKind.LIGHT,
+            source = SensorSource.AMBIENT_LIGHT,
+            capability = SensorCapability.LIGHT,
+            role = SensorRole.PRIMARY,
+            unit = SensorUnit.LUX_RATIO,
+            eventElapsedMs = sample.timestampMs,
+            wallClockMs = System.currentTimeMillis(),
+            normalizedValue = sample.witnessLux ?: 0.0,
+            baselineDelta = 0.0,
+            valid = true,
+            diagnostic = diagnostic,
+        )
+    }
 
     /**
      * Dedicated game/rotation-vector listener feeding the armed-session Entry policy.
