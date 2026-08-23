@@ -5,13 +5,12 @@
 - Worktree: `D:\security\.worktrees\continuity-recovery-tdd`
 - Branch: `codex/continuity-recovery-tdd`
 - Head: `bc9113b` (docs: checkpoint power guard task 6 complete)
-- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–6 complete; Task 7 steps 1–2
-  done this session (full host gate GREEN 806 tests; assembleDebug built, SHA-256
-  recorded, APK installed `-r` on device `JUCDU18811013149`). Task 7 step 3 (device
-  acceptance) BLOCKED on: (a) ambient-light → `PowerWitnessSample` emission wiring in
-  `PlatformAndroidDetectorSet` plus charging observation into the arbiter pipeline,
-  and (b) owner-assisted lamp off/on session. Entry Guard manual device acceptance
-  still pending with owner.**
+- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–6 complete; Task 7 steps 1–2 done;
+  step-3 blocker (a) RESOLVED this session: ambient-light → `PowerWitnessSample`
+  emission + charging observation wired into the arbiter pipeline (`86752d2`; full host
+  gate GREEN 813 tests; APK rebuilt, installed `-r` on device `JUCDU18811013149`).
+  Task 7 step 3 (device acceptance) now blocked ONLY on the owner-assisted lamp off/on
+  session. Entry Guard manual device acceptance also still pending with owner.**
 
 ## Plan document
 
@@ -32,6 +31,7 @@
 | `c9eb27f` | feat: stage power guard ui models for commissioning flow (task 6 wip) |
 | `48c987c` | docs: checkpoint power guard task 5 complete |
 | `6c068d7` | feat: add power guard commissioning ui and summary rows (Task 6) |
+| `86752d2` | feat: wire power guard witness stream and arbiter into device pipeline |
 
 ## Completed this session (Task 5 — commit `c7cf72f`, 7 files, +579)
 
@@ -143,7 +143,15 @@ All runs: one Gradle invocation at a time, `--no-daemon --max-workers=1`,
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndroidTestKotlin  # BUILD SUCCESSFUL in 36s (session 4, Task 7 step 1)
 # Test-result audit: files=108 tests=806 failures=0 errors=0 skipped=0 (>=750 gate met)
 .\gradlew.bat --no-daemon --max-workers=1 assembleDebug  # BUILD SUCCESSFUL in 38s (session 4, Task 7 step 2)
+.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*IncidentEnginePowerTest" --tests "*IncidentEngineTest" --tests "*ProtectionCoordinatorTest*" --tests "*PowerWitnessCommissioningPolicyTest" --tests "*PowerCompositeArbiterTest"  # BUILD SUCCESSFUL in 45s (wiring session)
+.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug  # BUILD SUCCESSFUL in 56s (wiring session)
+# Test-result audit after wiring: files=109 tests=813 failures=0 errors=0 skipped=0 (>=750 gate met)
 ```
+
+### Wiring-session artifacts (`86752d2`)
+
+- APK rebuilt: `68,705,375` bytes, `2026-08-23 19:01` local.
+- Installed `-r` on device `JUCDU18811013149` → "Success".
 
 ### Task 7 step 2 artifacts (session 4)
 
@@ -189,9 +197,14 @@ All runs: one Gradle invocation at a time, `--no-daemon --max-workers=1`,
 - Kotlin incremental compile produced one stale-ABI-looking failure that vanished on
   rerun after the AndroidDetectorSet fix; if a build fails with errors that contradict
   `findstr` output, rerun once before deeper debugging.
-- `powerWitnessSamples()` currently has no emitter in PlatformAndroidDetectorSet —
-  Task 7 device work must wire ambient-light → PowerWitnessSample emission (and
-  charging observation into the arbiter pipeline) before device acceptance.
+- RESOLVED (`86752d2`): `powerWitnessSamples()` now has a real emitter — a dedicated
+  TYPE_LIGHT listener in `PlatformAndroidDetectorSet`, registered while a commissioning
+  stream or an armed POWER session is active; readings emit `PowerWitnessSample` and feed
+  `PowerSignalSample(charging, lux)` into `PowerArmedSessionController`; verdicts publish
+  as typed `power_*` diagnostics through `IncidentEngine.acceptPower`. Acceptance-session
+  caveat: if the device light sensor turns out to be change-only (no periodic stream),
+  debounce windows may not advance in steady states — if observed on device, add a
+  periodic re-evaluation tick as follow-up.
 
 ## Exact resume commands
 
@@ -206,8 +219,7 @@ $env:ANDROID_HOME='C:\Users\ASUS\AppData\Local\Android\Sdk'
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionCoordinatorTest*"
 ```
 
-Then continue Task 7 step 3: first wire ambient-light → `PowerWitnessSample` emission
-and charging observation into the arbiter pipeline inside `PlatformAndroidDetectorSet`
-(AndroidProtectionRuntime.kt), rerun the focused POWER tests, rebuild, reinstall `-r`,
-then run the owner-assisted acceptance script per spec section 8 Power bullet with
-screenshots under `plans/powertask*-*.png` (untracked).
+Wiring is DONE (`86752d2`). Continue Task 7 step 3 directly: run the owner-assisted
+acceptance script per spec section 8 Power bullet with screenshots under
+`plans/powertask*-*.png` (untracked). If anything needs a code fix mid-session, rerun
+the focused POWER tests, rebuild, reinstall `-r`, then resume the script.
