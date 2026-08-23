@@ -1,6 +1,6 @@
 # Profile-aware Thai UX and terminology design
 
-**Status:** Draft for owner review
+**Status:** Approved by owner on 2026-08-23
 **Date:** 2026-08-23
 **Scope:** User-facing language, information hierarchy, units, accessibility text, and adaptive presentation across the production Android app
 **Parent specifications:**
