@@ -27,22 +27,15 @@ import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResu
 import com.example.motorcycleantitheftsensor.sensor.SensorHandlerOwner
 
 /** Diagnostics prefix marking observations synthesized from Entry Guard verdicts. */
-private const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
+private val ENTRY_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.ENTRY_PREFIX
 
 /** Diagnostics prefix marking observations synthesized from Power Guard arbiter verdicts. */
-private const val POWER_DIAGNOSTIC_PREFIX = "power_"
+private val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
 
-private const val POWER_CHARGING_HEALTH_DIAGNOSTIC = "power_charging_health"
-private const val POWER_WITNESS_DARK_DIAGNOSTIC = "power_witness_dark"
-private const val POWER_CONFIRMED_LOSS_DIAGNOSTIC = "power_confirmed_loss"
-private const val POWER_RECOVERED_DIAGNOSTIC = "power_recovered"
-
-/** Typed charging connectivity for the armed-session Power arbiter; null = unknown. */
-private fun ChargingState.chargingConnected(): Boolean? = when (this) {
-    ChargingState.CHARGING, ChargingState.FULL -> true
-    ChargingState.DISCHARGING, ChargingState.NOT_CHARGING -> false
-    ChargingState.UNKNOWN -> null
-}
+private val POWER_CHARGING_HEALTH_DIAGNOSTIC = ProtectionDiagnostics.POWER_CHARGING_HEALTH
+private val POWER_WITNESS_DARK_DIAGNOSTIC = ProtectionDiagnostics.POWER_WITNESS_DARK
+private val POWER_CONFIRMED_LOSS_DIAGNOSTIC = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+private val POWER_RECOVERED_DIAGNOSTIC = ProtectionDiagnostics.POWER_RECOVERED
 
 interface AndroidDetectorSet {
     val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
@@ -377,7 +370,7 @@ class PlatformAndroidDetectorSet(
         context = applicationContext,
         onObservation = ::record,
         onStatusChanged = { status ->
-            val connected = status.chargingState.chargingConnected()
+            val connected = status.chargingState.chargingConnected
             val previous = lastChargingConnected
             lastChargingConnected = connected
             if (connected != previous && powerSession.isActive) {
@@ -499,7 +492,7 @@ class PlatformAndroidDetectorSet(
             ),
         )
         val initialPower = PowerThermalMonitor.queryInitialStatus(applicationContext)
-        lastChargingConnected = initialPower.chargingState.chargingConnected()
+        lastChargingConnected = initialPower.chargingState.chargingConnected
         health[SensorKind.POWER_THERMAL] = SensorHealth(
             state = if (initialPower.sourceAvailable) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
             powerThermalDetail = PowerThermalHealthDetail(

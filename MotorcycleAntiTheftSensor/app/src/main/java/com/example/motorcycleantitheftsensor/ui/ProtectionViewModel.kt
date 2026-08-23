@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.ui
 
 import androidx.lifecycle.ViewModel
 import com.example.motorcycleantitheftsensor.protection.ChargingState
+import com.example.motorcycleantitheftsensor.protection.chargingConnected
 import com.example.motorcycleantitheftsensor.protection.CommandOutcome
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.GuidanceAction
@@ -865,10 +866,10 @@ internal fun powerSummaryRows(
     degradationReasons: Set<String>,
     lightSensorHealth: SensorHealth?,
 ): PowerSummaryRows {
-    val charging = when (chargingState) {
-        ChargingState.CHARGING, ChargingState.FULL -> ChargingRowState.CONNECTED
-        ChargingState.DISCHARGING, ChargingState.NOT_CHARGING -> ChargingRowState.DISCONNECTED
-        ChargingState.UNKNOWN -> ChargingRowState.UNKNOWN
+    val charging = when (chargingState.chargingConnected) {
+        true -> ChargingRowState.CONNECTED
+        false -> ChargingRowState.DISCONNECTED
+        null -> ChargingRowState.UNKNOWN
     }
     val lightUsable = lightSensorHealth != null &&
         (

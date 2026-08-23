@@ -648,19 +648,19 @@ class IncidentEngine(
     }
 
     private companion object {
-        const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
-        const val ENTRY_DOOR_OPEN = "entry_door_open"
-        const val ENTRY_DOOR_STILL_OPEN = "entry_door_still_open"
-        const val ENTRY_DOOR_CLOSED = "entry_door_closed"
-        const val ENTRY_SOURCE_UNAVAILABLE = "entry_source_unavailable"
-        const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
-        const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
+        val ENTRY_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.ENTRY_PREFIX
+        val ENTRY_DOOR_OPEN = ProtectionDiagnostics.ENTRY_DOOR_OPEN
+        val ENTRY_DOOR_STILL_OPEN = ProtectionDiagnostics.ENTRY_DOOR_STILL_OPEN
+        val ENTRY_DOOR_CLOSED = ProtectionDiagnostics.ENTRY_DOOR_CLOSED
+        val ENTRY_SOURCE_UNAVAILABLE = ProtectionDiagnostics.ENTRY_SOURCE_UNAVAILABLE
+        val ENTRY_SOURCE_RECOVERED = ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED
+        val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
 
-        const val POWER_DIAGNOSTIC_PREFIX = "power_"
-        const val POWER_CHARGING_HEALTH = "power_charging_health"
-        const val POWER_WITNESS_DARK = "power_witness_dark"
-        const val POWER_CONFIRMED_LOSS = "power_confirmed_loss"
-        const val POWER_RECOVERED = "power_recovered"
+        val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
+        val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
+        val POWER_WITNESS_DARK = ProtectionDiagnostics.POWER_WITNESS_DARK
+        val POWER_CONFIRMED_LOSS = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+        val POWER_RECOVERED = ProtectionDiagnostics.POWER_RECOVERED
 
         val ACTIVE_PROTECTION_STATES = setOf(
             ProtectionState.ARMED_HEALTHY,

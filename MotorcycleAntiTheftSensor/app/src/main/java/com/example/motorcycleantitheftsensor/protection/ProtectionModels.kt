@@ -36,6 +36,18 @@ enum class ChargingState {
     UNKNOWN,
 }
 
+/**
+ * Single source of truth for charging connectivity: true while the phone draws charger
+ * power, false when unplugged, null when the state is unknown. Used by the armed-session
+ * Power arbiter and the Power summary rows.
+ */
+val ChargingState.chargingConnected: Boolean?
+    get() = when (this) {
+        ChargingState.CHARGING, ChargingState.FULL -> true
+        ChargingState.DISCHARGING, ChargingState.NOT_CHARGING -> false
+        ChargingState.UNKNOWN -> null
+    }
+
 enum class LocationTrackingState {
     STOPPED,
     WAITING_FOR_FIX,
