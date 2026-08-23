@@ -17,6 +17,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
@@ -71,7 +75,18 @@ fun ProtectionScreen(
 
         if (state.profile.showPicker) {
             item(key = "profile-picker") {
-                ProfilePickerSection(onProfileSelected = actions.selectProfile)
+                ProfilePickerSection(
+                    selectedProfile = null,
+                    onProfileSelected = actions.selectProfile,
+                    headingText = "คุณกำลังปกป้องอะไร?",
+                )
+            }
+        } else {
+            item(key = "profile-change-use") {
+                ChangeUseSection(
+                    selectedProfile = state.profile.selectedProfile,
+                    onProfileSelected = actions.selectProfile,
+                )
             }
         }
 
@@ -307,12 +322,58 @@ fun ProtectionScreen(
 const val AUDIO_RUNTIME_CARD_TAG = "audio-threat-status"
 
 @Composable
-private fun ProfilePickerSection(
+private fun ChangeUseSection(
+    selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "การใช้งานปัจจุบัน: ${profileLabel(selectedProfile)}",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        if (!expanded) {
+            Button(
+                onClick = { expanded = true },
+                enabled = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("change_use_button"),
+            ) {
+                Text("เปลี่ยนการใช้งาน (Change use)")
+            }
+        } else {
+            ProfilePickerSection(
+                selectedProfile = selectedProfile,
+                onProfileSelected = { profile ->
+                    expanded = false
+                    onProfileSelected(profile)
+                },
+                headingText = "เลือกการใช้งานใหม่",
+            )
+        }
+    }
+}
+
+private fun profileLabel(profile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?): String =
+    when (profile) {
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE -> "Vehicle Guard"
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY -> "Entry Guard"
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER -> "Power Guard"
+        null -> "ยังไม่ได้เลือก"
+    }
+
+@Composable
+private fun ProfilePickerSection(
+    selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
+    onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
+    headingText: String,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = "คุณกำลังปกป้องอะไร?",
+            text = headingText,
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.semantics { heading() },
         )
@@ -335,7 +396,10 @@ private fun ProfilePickerSection(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(label, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (profile == selectedProfile) "$label (ปัจจุบัน)" else label,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     if (profile != com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE) {
                         Text(
                             text = "Setup required",
