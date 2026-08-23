@@ -228,6 +228,128 @@ class IncidentMessageFormatterTest {
         assertFalse("Message must not contain opened header", message.contains("🚨 ตรวจพบ TAMPER"))
     }
 
+    // -------------------------------------------------------------------------
+    // Entry Guard typed delivery text (spec section 8, all six pinned strings).
+    // -------------------------------------------------------------------------
+
+    private fun entryEvidence(diagnostic: String, angleDeg: Double = 0.0) = IncidentEvidence(
+        kind = SensorKind.VIBRATION,
+        eventElapsedMs = 0L,
+        wallClockMs = 0L,
+        normalizedValue = angleDeg,
+        baselineDelta = angleDeg,
+        diagnostic = diagnostic,
+    )
+
+    @Test
+    fun entryDoorOpenRendersPeakAngleCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_door_open", angleDeg = 23.7)),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(incident)
+        assertEquals("ประตูเปิด 24° จากตำแหน่งปิด", message)
+    }
+
+    @Test
+    fun entryDoorStillOpenUpdateKeepsPeakAngleCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                entryEvidence("entry_door_open", angleDeg = 20.0),
+                entryEvidence("entry_door_still_open", angleDeg = 31.0),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(IncidentUpdate.Updated(incident))
+        assertEquals("ประตูเปิด 31° จากตำแหน่งปิด", message)
+    }
+
+    @Test
+    fun entryDoorClosedRendersStillCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                entryEvidence("entry_door_open", angleDeg = 18.0),
+                entryEvidence("entry_door_closed"),
+            ),
+            lifecycle = IncidentLifecycle.CLOSED,
+            closeReason = "entry door closed confirmed",
+        )
+
+        val message = formatter.format(IncidentUpdate.Closed(incident))
+        assertEquals("ประตูปิดและนิ่งแล้ว", message)
+    }
+
+    @Test
+    fun entrySourceDropoutRendersWaitingCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_source_unavailable")),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(incident)
+        assertEquals("ข้อมูลมุมประตูขาดหาย กำลังรอเซนเซอร์กลับมาทำงาน", message)
+    }
+
+    @Test
+    fun entryMountMovedOutranksDoorOpenCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            severity = IncidentSeverity.CRITICAL,
+            evidence = listOf(
+                entryEvidence("entry_door_open", angleDeg = 25.0),
+                entryEvidence("entry_mount_moved"),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(incident)
+        assertEquals("โทรศัพท์หรือขายึดถูกขยับ กรุณาตรวจสอบและปรับเทียบใหม่", message)
+    }
+
+    @Test
+    fun confirmedImpactEvidenceRendersImpactCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                entryEvidence("entry_door_open", angleDeg = 22.0),
+                IncidentEvidence(
+                    kind = SensorKind.MICROPHONE,
+                    eventElapsedMs = 0L,
+                    wallClockMs = 0L,
+                    normalizedValue = 1.0,
+                    baselineDelta = 9.0,
+                    diagnostic = "impact_corroboration",
+                ),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = formatter.format(incident)
+        assertEquals("ตรวจพบแรงกระแทกที่ประตู", message)
+    }
+
+    @Test
+    fun evidenceInterruptedOwnerStopRendersOwnerStopCopy() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                entryEvidence("entry_door_open", angleDeg = 19.0),
+                entryEvidence("entry_source_unavailable"),
+            ),
+            lifecycle = IncidentLifecycle.CLOSED,
+            closeReason = "owner disarmed while door evidence interrupted",
+        )
+
+        val message = formatter.format(IncidentUpdate.Closed(incident))
+        assertEquals("หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย", message)
+    }
+
     private fun criticalIncident() = SecurityIncident(
         id = "incident-1",
         severity = IncidentSeverity.CRITICAL,

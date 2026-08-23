@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.protection
 
 import com.example.motorcycleantitheftsensor.location.LocationPresentation
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class IncidentMessageFormatter(
     private val getSnapshot: () -> ProtectionSnapshot? = { null }
@@ -11,6 +12,9 @@ class IncidentMessageFormatter(
         presentation: LocationPresentation? = null,
     ): String {
         val incident = update.incidentOrNull() ?: return ""
+        if (incident.type == IncidentType.ENTRY_DOOR) {
+            return entryMessage(update, incident)
+        }
         val code = when (update) {
             is IncidentUpdate.Opened -> GuidanceCode.INCIDENT_OPENED
             is IncidentUpdate.Updated -> GuidanceCode.INCIDENT_UPDATED
@@ -86,6 +90,9 @@ class IncidentMessageFormatter(
 
     fun formatSms(update: IncidentUpdate): String {
         val incident = update.incidentOrNull() ?: return ""
+        if (incident.type == IncidentType.ENTRY_DOOR) {
+            return entryMessage(update, incident)
+        }
         val code = when (update) {
             is IncidentUpdate.Opened -> GuidanceCode.INCIDENT_OPENED
             is IncidentUpdate.Updated -> GuidanceCode.INCIDENT_UPDATED
@@ -183,6 +190,60 @@ class IncidentMessageFormatter(
         is IncidentUpdate.Updated -> incident
         is IncidentUpdate.Escalated -> incident
         is IncidentUpdate.Closed -> incident
+    }
+
+    /**
+     * Typed Entry Guard rendering (spec section 8): the latest entry diagnostic owns
+     * the copy; mount-moved outranks door events; independently confirmed impact
+     * evidence upgrades an open-door message; an owner stop while door evidence is
+     * interrupted never claims a confirmed close.
+     */
+    private fun entryMessage(update: IncidentUpdate, incident: SecurityIncident): String {
+        if (
+            update is IncidentUpdate.Closed &&
+            incident.closeReason?.contains(ENTRY_EVIDENCE_INTERRUPTED_MARKER) == true
+        ) {
+            return "หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย"
+        }
+        val latest = incident.evidence.lastOrNull {
+            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true
+        }
+        return when (latest?.diagnostic) {
+            ENTRY_MOUNT_MOVED -> "โทรศัพท์หรือขายึดถูกขยับ กรุณาตรวจสอบและปรับเทียบใหม่"
+            ENTRY_SOURCE_UNAVAILABLE, ENTRY_SOURCE_RECOVERED ->
+                "ข้อมูลมุมประตูขาดหาย กำลังรอเซนเซอร์กลับมาทำงาน"
+            ENTRY_DOOR_CLOSED -> "ประตูปิดและนิ่งแล้ว"
+            ENTRY_DOOR_OPEN, ENTRY_DOOR_STILL_OPEN ->
+                if (hasConfirmedImpact(incident)) {
+                    "ตรวจพบแรงกระแทกที่ประตู"
+                } else {
+                    "ประตูเปิด ${latest.normalizedValue.roundToInt()}° จากตำแหน่งปิด"
+                }
+            else ->
+                if (update is IncidentUpdate.Closed) {
+                    "ประตูปิดและนิ่งแล้ว"
+                } else {
+                    "🚨 ตรวจพบ ${incident.type.name}"
+                }
+        }
+    }
+
+    /** Supporting vibration/audio evidence independently confirms a door impact. */
+    private fun hasConfirmedImpact(incident: SecurityIncident): Boolean =
+        incident.evidence.any {
+            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) != true &&
+                (it.kind == SensorKind.VIBRATION || it.kind == SensorKind.MICROPHONE)
+        }
+
+    private companion object {
+        const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
+        const val ENTRY_DOOR_OPEN = "entry_door_open"
+        const val ENTRY_DOOR_STILL_OPEN = "entry_door_still_open"
+        const val ENTRY_DOOR_CLOSED = "entry_door_closed"
+        const val ENTRY_SOURCE_UNAVAILABLE = "entry_source_unavailable"
+        const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
+        const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
+        const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
     }
 }
 
