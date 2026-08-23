@@ -8,6 +8,152 @@ object PresentationTextCatalog {
 
     const val NEUTRAL_INCIDENT_GUIDANCE = "ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม"
 
+    /**
+     * Approved profile card wording from the profile-aware Thai UX specification.
+     * Profile names are protection contexts, never installation-type inferences.
+     */
+    fun profile(profile: ProtectionProfile): ProfilePresentation = when (profile) {
+        ProtectionProfile.VEHICLE -> ProfilePresentation(
+            name = "ยานพาหนะ",
+            promise = "แจ้งเตือนเมื่อรถยนต์หรือรถจักรยานยนต์ถูกกระทบ ขยับ หรือเคลื่อนย้าย",
+        )
+        ProtectionProfile.ENTRY -> ProfilePresentation(
+            name = "ประตูและทางเข้า",
+            promise = "แจ้งเตือนเมื่อประตูที่ติดตั้งโทรศัพท์ไว้เปิดเกินมุมที่กำหนด หรือเกิดแรงกระแทก",
+        )
+        ProtectionProfile.POWER -> ProfilePresentation(
+            name = "ไฟเลี้ยงจุดติดตั้ง",
+            promise = "เฝ้าระวังสายชาร์จและไฟยืนยันของปลั๊กหรือรางไฟที่ตั้งค่าไว้",
+        )
+    }
+
+    /** Evidence-role labels approved by the spec (§3.3). */
+    fun evidenceRoleLabel(role: SensorRole): String = when (role) {
+        SensorRole.PRIMARY -> "ใช้ยืนยันหลัก"
+        SensorRole.SUPPORTING -> "ใช้ประกอบการยืนยัน"
+        SensorRole.OFF -> "ไม่ใช้"
+    }
+
+    /**
+     * Profile-aware capability wording. The primary adjustable control exists only
+     * where a real bounded detector parameter changes; supporting evidence never
+     * claims theft, forced entry, or a site-wide outage by itself.
+     */
+    fun capability(profile: ProtectionProfile, capability: SensorCapability): CapabilityPresentation =
+        when (profile) {
+            ProtectionProfile.VEHICLE -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "การขยับที่ต้องการให้แจ้งเตือน",
+                    explanation = "ปรับระดับการตรวจจับได้ตั้งแต่ ต้องขยับมากจึงตรวจพบ ถึง ขยับเล็กน้อยก็ตรวจพบ",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = true,
+                    isGenericSensitivityControl = true,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "การหมุนหรือเอียง",
+                    explanation = "ใช้ประกอบการยืนยันการขยับหรือเคลื่อนย้าย",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กรอบจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งแวดล้อมรอบตัวรถเปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "แสงบริเวณจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งที่บังเซ็นเซอร์ถูกนำออก",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+            ProtectionProfile.ENTRY -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "แรงกระแทกหรือการสั่น",
+                    explanation = "ใช้ประกอบการยืนยันแรงกระแทกที่บานประตู",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "มุมเปลี่ยนจากตำแหน่งเริ่มต้น",
+                    explanation = "วัดมุมเทียบตำแหน่งปิดที่ปรับเทียบไว้ ไม่ใช่ความไวการหมุน",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กบริเวณประตู",
+                    explanation = "ใช้ประกอบการยืนยันเท่านั้น ไม่ใช่หลักฐานว่าประตูเปิด",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "แสงบริเวณประตู",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อแสงที่จุดติดตั้งเปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+            ProtectionProfile.POWER -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "การสั่นหรือถูกขยับ",
+                    explanation = "ใช้ประกอบการยืนยันว่าโทรศัพท์หรือขายึดถูกขยับ",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "การเปลี่ยนการวางแนว",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อการวางโทรศัพท์เปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กบริเวณจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเท่านั้น",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "ไฟยืนยันจุดติดตั้ง",
+                    explanation = "ยืนยันด้วยช่วงสว่างหรือมืดที่ตั้งค่าไว้ตอนเปิดระบบ ไม่ใช้ความไวแสงทั่วไป",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = true,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+        }
+
     fun capabilityName(capability: SensorCapability): String = when (capability) {
         SensorCapability.MOVEMENT -> "การเคลื่อนไหว"
         SensorCapability.ROTATION -> "การหมุนและเอียง"
