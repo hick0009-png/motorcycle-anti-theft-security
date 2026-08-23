@@ -16,6 +16,11 @@ import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionClock
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfileRepository
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfileStoreState
+import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.ProtectionRuntime
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -893,6 +898,86 @@ class ProtectionViewModelTest {
         assertEquals("ไม่สามารถเปิดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
         assertEquals("ไม่สามารถปลดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED).titleTh)
     }
+
+    // --- Task 7: Profile picker and armed-change confirmation ---
+
+    @Test
+    fun unselectedCustomerSeesWhatAreYouProtectingPicker() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.DISARMED_ONLINE),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = fakeProfileRepository(selectedProfile = null),
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.profile.showPicker)
+        assertNull(viewModel.uiState.value.profile.selectedProfile)
+    }
+
+    @Test
+    fun selectingEntryShowsSetupRequiredAndDoesNotArm() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        assertEquals(ProtectionProfile.ENTRY, viewModel.uiState.value.profile.selectedProfile)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, viewModel.uiState.value.profile.setupState)
+
+        viewModel.arm()
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
+    }
+
+    @Test
+    fun armedProfileChangeRequiresConfirmation() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = ProtectionProfile.POWER)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.ARMED_HEALTHY,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.VEHICLE)
+        advanceUntilIdle()
+
+        assertEquals(ProtectionProfile.VEHICLE, viewModel.uiState.value.profile.pendingSwitchTarget)
+        // Nothing persisted and no switch transaction started without explicit confirmation.
+        assertNull(repository.load().switchTransaction)
+        assertEquals(ProtectionProfile.POWER, repository.load().selectedProfile)
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -946,12 +1031,39 @@ private data class ViewModelFixture(
 private fun fakeCoordinator(
     state: ProtectionState,
     blockers: Set<String> = emptySet(),
+    profileRepository: ProtectionProfileRepository? = null,
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = snapshot(state = state, lastTransitionAtMs = 1_000L),
     runtime = FakeRuntime(blockers),
     armingDelay = ArmingDelay { },
     clock = ProtectionClock { 2_000L },
+    profileRepository = profileRepository,
 )
+
+private class ViewModelProfileRepositoryFake(
+    private var state: ProtectionProfileStoreState,
+) : ProtectionProfileRepository {
+    override fun load(): ProtectionProfileStoreState = state
+
+    override fun save(state: ProtectionProfileStoreState): Result<Unit> {
+        this.state = state
+        return Result.success(Unit)
+    }
+
+    override fun update(
+        transform: (ProtectionProfileStoreState) -> ProtectionProfileStoreState,
+    ): Result<ProtectionProfileStoreState> {
+        this.state = transform(this.state)
+        return Result.success(this.state)
+    }
+}
+
+private fun fakeProfileRepository(selectedProfile: ProtectionProfile?): ProtectionProfileRepository =
+    ViewModelProfileRepositoryFake(
+        ProtectionProfilePolicy(nowMs = { 1_000L })
+            .newStoreState()
+            .copy(selectedProfile = selectedProfile),
+    )
 
 private fun snapshot(
     state: ProtectionState,

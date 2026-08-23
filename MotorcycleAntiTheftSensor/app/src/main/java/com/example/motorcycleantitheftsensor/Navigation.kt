@@ -92,6 +92,7 @@ fun MainNavigation(
             coordinator = graph.coordinator,
             incidents = graph.incidents,
             settings = settingsGateway,
+            profileRepository = graph.profileRepository,
             initialMissingPermissions = missingPermissions,
         )
     }
@@ -128,6 +129,10 @@ fun MainNavigation(
             updateSensorConfiguration = protectionViewModel::updateSensorConfiguration,
             applySensorPreset = protectionViewModel::applySensorPreset,
             onSecureFlagChange = onSecureFlagChange,
+            selectProfile = protectionViewModel::selectProfile,
+            confirmProfileSwitch = protectionViewModel::confirmProfileSwitch,
+            cancelProfileSwitch = protectionViewModel::cancelProfileSwitch,
+            restoreRecommendedProfile = protectionViewModel::restoreRecommendedProfile,
         ),
     )
 }

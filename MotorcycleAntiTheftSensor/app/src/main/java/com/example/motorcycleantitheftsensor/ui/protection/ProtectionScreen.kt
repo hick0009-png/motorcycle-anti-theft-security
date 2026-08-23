@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -67,6 +68,22 @@ fun ProtectionScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val stateGuidance = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(protection.state.toGuidanceCode())
+
+        if (state.profile.showPicker) {
+            item(key = "profile-picker") {
+                ProfilePickerSection(onProfileSelected = actions.selectProfile)
+            }
+        }
+
+        state.profile.pendingSwitchTarget?.let { target ->
+            item(key = "profile-switch-confirmation") {
+                ProfileSwitchConfirmationCard(
+                    target = target,
+                    onConfirm = actions.confirmProfileSwitch,
+                    onCancel = actions.cancelProfileSwitch,
+                )
+            }
+        }
 
         protection.persistentGuidance?.let { guidance ->
             item(key = "persistent-guidance") {
@@ -288,6 +305,71 @@ fun ProtectionScreen(
 }
 
 const val AUDIO_RUNTIME_CARD_TAG = "audio-threat-status"
+
+@Composable
+private fun ProfilePickerSection(
+    onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "คุณกำลังปกป้องอะไร?",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        listOf(
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE to "Vehicle Guard",
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY to "Entry Guard",
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER to "Power Guard",
+        ).forEach { (profile, label) ->
+            Surface(
+                onClick = { onProfileSelected(profile) },
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 1.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("profile_card_${profile.name}"),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(label, style = MaterialTheme.typography.titleMedium)
+                    if (profile != com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE) {
+                        Text(
+                            text = "Setup required",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSwitchConfirmationCard(
+    target: com.example.motorcycleantitheftsensor.protection.ProtectionProfile,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    StatusCard(title = "ยืนยันการเปลี่ยนการใช้งาน") {
+        Text(
+            text = "การเปลี่ยนจะหยุดการป้องกันปัจจุบันและจะไม่เปิดใหม่อัตโนมัติ",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Keep current protection")
+            }
+            Button(onClick = onConfirm, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Stop protection and change use")
+            }
+        }
+    }
+}
 
 @Composable
 private fun StatusCard(

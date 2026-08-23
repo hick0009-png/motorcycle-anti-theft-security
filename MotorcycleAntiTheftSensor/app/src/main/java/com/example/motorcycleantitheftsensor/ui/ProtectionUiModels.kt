@@ -10,8 +10,10 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
@@ -88,6 +90,19 @@ data class ProtectionEventRow(
 
 data class ProtectionUiMessage(val id: Long, val content: GuidanceContent)
 
+/**
+ * Profile read model projected only from coordinator/repository data.
+ * Readiness is never inferred in Compose; [setupState] comes from the domain.
+ */
+data class ProtectionProfileUiState(
+    val selectedProfile: ProtectionProfile? = null,
+    val armedProfile: ProtectionProfile? = null,
+    val setupState: ProfileSetupState? = null,
+    val customized: Boolean = false,
+    val showPicker: Boolean = false,
+    val pendingSwitchTarget: ProtectionProfile? = null,
+)
+
 data class ProtectionStatusUiState(
     val state: ProtectionState,
     val lastTransitionAtMs: Long,
@@ -143,6 +158,7 @@ data class ProtectionUiState(
     val eventsOperationInFlight: Boolean = false,
     val activeSettingsOperation: SettingsOperation? = null,
     val audio: AudioUiTelemetry = AudioUiTelemetry(),
+    val profile: ProtectionProfileUiState = ProtectionProfileUiState(),
 ) {
     companion object {
         fun from(
@@ -163,6 +179,7 @@ data class ProtectionUiState(
             eventsOperationInFlight: Boolean = false,
             activeSettingsOperation: SettingsOperation? = null,
             audio: AudioUiTelemetry = AudioUiTelemetry(),
+            profile: ProtectionProfileUiState = ProtectionProfileUiState(),
         ): ProtectionUiState = ProtectionUiState(
             destination = destination,
             protection = snapshot.toStatusUiState(),
@@ -185,6 +202,7 @@ data class ProtectionUiState(
             eventsOperationInFlight = eventsOperationInFlight,
             activeSettingsOperation = activeSettingsOperation,
             audio = audio,
+            profile = profile,
         )
     }
 }

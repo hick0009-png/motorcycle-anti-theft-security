@@ -10,6 +10,9 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfileRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
@@ -53,6 +56,8 @@ class ProtectionViewModel(
     private val coordinator: ProtectionCoordinator,
     private val incidents: IncidentRepository,
     private val settings: ProtectionSettingsGateway,
+    private val profileRepository: ProtectionProfileRepository? = null,
+    private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
     private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
@@ -81,37 +86,44 @@ class ProtectionViewModel(
     private val projectedSnapshots = coordinator.snapshot.filter { snapshot ->
         snapshotProjectionGate.shouldProject(snapshot, nowMs())
     }
+    @Volatile private var pendingSwitchTarget: ProtectionProfile? = null
+    private val profileState = MutableStateFlow(ProtectionProfileUiState())
 
     val audioTelemetry: StateFlow<AudioTelemetry> = coordinator.audioTelemetry
 
     val uiState: StateFlow<ProtectionUiState> = combine(
-        projectedSnapshots,
-        destination,
-        settingsSummary,
-        presentation,
-        currentTimeMs,
-    ) { snapshot, selectedDestination, currentSettings, inputs, currentTime ->
-        ProtectionUiState.from(
-            snapshot = snapshot,
-            incidents = inputs.incidents,
-            settings = currentSettings,
-            nowMs = currentTime,
-            destination = selectedDestination,
-            eventsLoading = inputs.eventsLoading,
-            eventsError = inputs.eventsError,
-            operationInFlight = inputs.anyOperationInFlight,
-            message = inputs.message,
-            settingsLoading = inputs.settingsLoading,
-            settingsLoaded = inputs.settingsLoaded,
-            settingsError = inputs.settingsError,
-            protectionOperationInFlight = inputs.protectionOperationInFlight,
-            settingsOperationInFlight = inputs.settingsOperationInFlight,
-            eventsOperationInFlight = inputs.eventsOperationInFlight,
-            activeSettingsOperation = inputs.activeSettingsOperation,
-            audio = coordinator.audioTelemetry.value.toAudioUiTelemetry(
-                elapsedNowMs = elapsedNowMs(),
-            ),
-        )
+        combine(
+            projectedSnapshots,
+            destination,
+            settingsSummary,
+            presentation,
+            currentTimeMs,
+        ) { snapshot, selectedDestination, currentSettings, inputs, currentTime ->
+            ProtectionUiState.from(
+                snapshot = snapshot,
+                incidents = inputs.incidents,
+                settings = currentSettings,
+                nowMs = currentTime,
+                destination = selectedDestination,
+                eventsLoading = inputs.eventsLoading,
+                eventsError = inputs.eventsError,
+                operationInFlight = inputs.anyOperationInFlight,
+                message = inputs.message,
+                settingsLoading = inputs.settingsLoading,
+                settingsLoaded = inputs.settingsLoaded,
+                settingsError = inputs.settingsError,
+                protectionOperationInFlight = inputs.protectionOperationInFlight,
+                settingsOperationInFlight = inputs.settingsOperationInFlight,
+                eventsOperationInFlight = inputs.eventsOperationInFlight,
+                activeSettingsOperation = inputs.activeSettingsOperation,
+                audio = coordinator.audioTelemetry.value.toAudioUiTelemetry(
+                    elapsedNowMs = elapsedNowMs(),
+                ),
+            )
+        },
+        profileState,
+    ) { base, profile ->
+        base.copy(profile = profile)
     }.stateIn(
         scope = scope,
         started = SharingStarted.Eagerly,
@@ -136,10 +148,83 @@ class ProtectionViewModel(
         }
         scope.launch { refreshEvents() }
         scope.launch { readSettings(initialMissingPermissions) }
+        scope.launch { refreshProfile() }
     }
 
     fun selectDestination(destination: ProtectionDestination) {
         this.destination.value = destination
+    }
+
+    /**
+     * Selects a protection profile. While disarmed the selection applies immediately;
+     * while armed with an existing selection it only stages [pendingSwitchTarget] and
+     * never touches the running runtime until explicit confirmation.
+     */
+    fun selectProfile(profile: ProtectionProfile) = runProtectionCommand(GuidanceCode.COMMAND_UNKNOWN) {
+        val repository = profileRepository ?: return@runProtectionCommand
+        val armed = coordinator.snapshot.value.state in setOf(
+            ProtectionState.ARMING,
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+            ProtectionState.ALERT_ACTIVE,
+        )
+        val currentlySelected = runCatching { repository.load().selectedProfile }.getOrNull()
+        if (armed && currentlySelected != null && currentlySelected != profile) {
+            // Armed change requires explicit confirmation; stage only, persist nothing.
+            pendingSwitchTarget = profile
+            refreshProfile()
+            return@runProtectionCommand
+        }
+        publishResult(coordinator.selectProfile(nextCommandId(), profile))
+        pendingSwitchTarget = null
+        refreshProfile()
+    }
+
+    fun confirmProfileSwitch() = runProtectionCommand(GuidanceCode.COMMAND_UNKNOWN) {
+        val target = pendingSwitchTarget ?: return@runProtectionCommand
+        publishResult(coordinator.changeProfile(nextCommandId(), target, confirmed = true))
+        pendingSwitchTarget = null
+        refreshProfile()
+    }
+
+    fun cancelProfileSwitch() {
+        pendingSwitchTarget = null
+        scope.launch { refreshProfile() }
+    }
+
+    fun restoreRecommendedProfile() = runProtectionCommand(GuidanceCode.SETTINGS_SAVE_FAILED) {
+        val repository = profileRepository ?: return@runProtectionCommand
+        val state = runCatching { repository.load() }.getOrNull() ?: return@runProtectionCommand
+        val selected = state.selectedProfile ?: return@runProtectionCommand
+        val restored = profilePolicy.restoreRecommended(state, selected)
+        val saved = repository.save(restored)
+        if (saved.isSuccess) {
+            publishResult(coordinator.selectProfile(nextCommandId(), selected))
+        } else {
+            publishMessage(UserGuidanceCatalog.content(GuidanceCode.SETTINGS_SAVE_FAILED))
+        }
+        refreshProfile()
+    }
+
+    private suspend fun refreshProfile() {
+        val repository = profileRepository ?: return
+        val state = try {
+            withContext(dispatcher) { repository.load() }
+        } catch (_: Exception) {
+            return
+        }
+        val selected = state.selectedProfile
+        val resolved = selected?.let { candidate ->
+            runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
+        }
+        profileState.value = ProtectionProfileUiState(
+            selectedProfile = selected,
+            armedProfile = coordinator.snapshot.value.armedProfileSnapshot?.profile,
+            setupState = resolved?.setupState,
+            customized = resolved?.customized ?: false,
+            showPicker = selected == null,
+            pendingSwitchTarget = pendingSwitchTarget,
+        )
     }
 
     private var activeProtectionJob: kotlinx.coroutines.Job? = null
