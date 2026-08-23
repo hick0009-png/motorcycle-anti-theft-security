@@ -124,6 +124,8 @@ data class StoredProfileConfiguration(
     val sensorOverrides: SensorFusionProfileOverrides,
     val specificOverrides: ProfileSpecificOverrides,
     val setupState: ProfileSetupState,
+    /** Commissioned Entry hinge model; null until two-cycle commissioning succeeds. */
+    val entryHingeModel: EntryHingeModel? = null,
 )
 
 data class ResolvedProfileConfiguration(

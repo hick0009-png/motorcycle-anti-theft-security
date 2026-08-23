@@ -78,6 +78,33 @@ class ProtectionProfilePolicy(
         )
     }
 
+    /** Explicit Entry commissioning success: stores the hinge model and flips to READY. */
+    fun commissionEntry(
+        state: ProtectionProfileStoreState,
+        model: EntryHingeModel,
+    ): ProtectionProfileStoreState {
+        val entry = state.profiles.getValue(ProtectionProfile.ENTRY)
+        return updateProfile(
+            state,
+            entry.copy(
+                entryHingeModel = model,
+                setupState = ProfileSetupState.READY,
+            ),
+        )
+    }
+
+    /** Fingerprint invalidation or owner-initiated recommissioning requirement. */
+    fun decommissionEntry(state: ProtectionProfileStoreState): ProtectionProfileStoreState {
+        val entry = state.profiles.getValue(ProtectionProfile.ENTRY)
+        return updateProfile(
+            state,
+            entry.copy(
+                entryHingeModel = null,
+                setupState = ProfileSetupState.SETUP_REQUIRED,
+            ),
+        )
+    }
+
     private fun initialProfile(profile: ProtectionProfile): StoredProfileConfiguration =
         StoredProfileConfiguration(
             profile = profile,

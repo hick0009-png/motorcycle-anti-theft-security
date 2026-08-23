@@ -36,6 +36,11 @@ class ProtectionProfileCodec(
             profileObj.put("setupState", stored.setupState.name)
             profileObj.put("sensorOverrides", encodeSensorOverrides(stored.sensorOverrides))
             profileObj.put("specificOverrides", encodeSpecificOverrides(stored.specificOverrides))
+            if (stored.entryHingeModel != null) {
+                profileObj.put("entryHingeModel", encodeHingeModel(stored.entryHingeModel))
+            } else {
+                profileObj.put("entryHingeModel", JSONObject.NULL)
+            }
             profilesArray.put(profileObj)
         }
         root.put("profiles", profilesArray)
@@ -86,12 +91,14 @@ class ProtectionProfileCodec(
                 val sensorOverrides = decodeSensorOverrides(profileObj.getJSONObject("sensorOverrides"))
                 val specificOverrides =
                     decodeSpecificOverrides(profile, profileObj.getJSONObject("specificOverrides"))
+                val entryHingeModel = decodeOptionalHingeModel(profileObj)
                 profiles[profile] = StoredProfileConfiguration(
                     profile = profile,
                     presetVersion = presetVersion,
                     sensorOverrides = sensorOverrides,
                     specificOverrides = specificOverrides,
                     setupState = setupState,
+                    entryHingeModel = entryHingeModel,
                 )
             }
             val missing = ProtectionProfile.entries.filterNot { profiles.containsKey(it) }
@@ -315,6 +322,59 @@ class ProtectionProfileCodec(
 
     private fun putOptionalName(obj: JSONObject, key: String, value: String?) {
         if (value != null) obj.put(key, value) else obj.put(key, JSONObject.NULL)
+    }
+
+    private fun encodeHingeModel(model: EntryHingeModel): JSONObject {
+        val obj = JSONObject()
+        obj.put("axisX", model.axisX)
+        obj.put("axisY", model.axisY)
+        obj.put("axisZ", model.axisZ)
+        obj.put("allowedDirection", model.allowedDirection)
+        obj.put("residualToleranceDeg", model.residualToleranceDeg)
+        obj.put("algorithmVersion", model.algorithmVersion)
+        obj.put("sensorIdentity", model.sensorIdentity)
+        obj.put("mountSignature", model.mountSignature)
+        obj.put("orientationSourcePolicy", model.orientationSourcePolicy)
+        return obj
+    }
+
+    private fun decodeOptionalHingeModel(profileObj: JSONObject): EntryHingeModel? {
+        if (profileObj.isNull("entryHingeModel")) return null
+        val obj = profileObj.getJSONObject("entryHingeModel")
+        val axisX = obj.getDouble("axisX")
+        val axisY = obj.getDouble("axisY")
+        val axisZ = obj.getDouble("axisZ")
+        val length = kotlin.math.sqrt(axisX * axisX + axisY * axisY + axisZ * axisZ)
+        require(kotlin.math.abs(length - 1.0) < 0.01) {
+            "Entry hinge axis must be a unit vector, found length $length"
+        }
+        val allowedDirection = obj.getInt("allowedDirection")
+        require(allowedDirection == 1 || allowedDirection == -1) {
+            "Entry hinge allowed direction must be +/-1"
+        }
+        val residualToleranceDeg = obj.getDouble("residualToleranceDeg")
+        require(residualToleranceDeg > 0.0 && residualToleranceDeg <= 45.0) {
+            "Entry hinge residual tolerance must be within (0, 45] degrees"
+        }
+        val algorithmVersion = obj.getInt("algorithmVersion")
+        require(algorithmVersion >= 1) { "Entry commissioning algorithm version must be >= 1" }
+        val sensorIdentity = obj.getString("sensorIdentity")
+        val mountSignature = obj.getString("mountSignature")
+        val orientationSourcePolicy = obj.getString("orientationSourcePolicy")
+        require(sensorIdentity.isNotBlank() && mountSignature.isNotBlank() && orientationSourcePolicy.isNotBlank()) {
+            "Entry hinge model identity fields must not be blank"
+        }
+        return EntryHingeModel(
+            axisX = axisX,
+            axisY = axisY,
+            axisZ = axisZ,
+            allowedDirection = allowedDirection,
+            residualToleranceDeg = residualToleranceDeg,
+            algorithmVersion = algorithmVersion,
+            sensorIdentity = sensorIdentity,
+            mountSignature = mountSignature,
+            orientationSourcePolicy = orientationSourcePolicy,
+        )
     }
 
     private object ProfileKinds {

@@ -117,4 +117,70 @@ class ProtectionProfileCodecTest {
         assertEquals("POWER", profiles.getJSONObject(2).getString("profile"))
         assertTrue(root.isNull("selectedProfile"))
     }
+
+    private val hingeModel = EntryHingeModel(
+        axisX = 0.0,
+        axisY = 0.0,
+        axisZ = 1.0,
+        allowedDirection = 1,
+        residualToleranceDeg = 7.5,
+        algorithmVersion = 1,
+        sensorIdentity = "rotation-vector",
+        mountSignature = "mount-a",
+        orientationSourcePolicy = "default",
+    )
+
+    @Test
+    fun roundTripPreservesEntryHingeModelAndReadySetupState() {
+        val base = policy.newStoreState()
+        val commissioned = policy.commissionEntry(base, hingeModel)
+
+        assertEquals(ProfileSetupState.READY, commissioned.profiles.getValue(ProtectionProfile.ENTRY).setupState)
+        assertEquals(commissioned, codec.decode(codec.encode(commissioned)))
+    }
+
+    @Test
+    fun legacyPayloadWithoutHingeModelDecodesWithNullModel() {
+        // A payload written before the additive field exists must load unchanged
+        // with entryHingeModel = null and SETUP_REQUIRED preserved.
+        val legacyJson = codec.encode(policy.newStoreState())
+        val decoded = codec.decode(legacyJson)
+
+        assertEquals(null, decoded.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel)
+        assertEquals(
+            ProfileSetupState.SETUP_REQUIRED,
+            decoded.profiles.getValue(ProtectionProfile.ENTRY).setupState,
+        )
+    }
+
+    @Test
+    fun decommissionEntryClearsModelAndReturnsToSetupRequired() {
+        val commissioned = policy.commissionEntry(policy.newStoreState(), hingeModel)
+        val decommissioned = policy.decommissionEntry(commissioned)
+
+        assertEquals(null, decommissioned.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel)
+        assertEquals(
+            ProfileSetupState.SETUP_REQUIRED,
+            decommissioned.profiles.getValue(ProtectionProfile.ENTRY).setupState,
+        )
+        assertEquals(
+            commissioned.profiles.getValue(ProtectionProfile.POWER),
+            decommissioned.profiles.getValue(ProtectionProfile.POWER),
+        )
+    }
+
+    @Test
+    fun nonUnitHingeAxisIsRejected() {
+        val commissioned = policy.commissionEntry(policy.newStoreState(), hingeModel)
+        val root = org.json.JSONObject(codec.encode(commissioned))
+        val profiles = root.getJSONArray("profiles")
+        for (i in 0 until profiles.length()) {
+            val profile = profiles.getJSONObject(i)
+            if (profile.getString("profile") == "ENTRY") {
+                profile.getJSONObject("entryHingeModel").put("axisX", 5.0)
+            }
+        }
+
+        assertThrows(IllegalArgumentException::class.java) { codec.decode(root.toString()) }
+    }
 }
