@@ -2,10 +2,12 @@ package com.example.motorcycleantitheftsensor.ui
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -199,6 +201,102 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithText("เปลี่ยนการใช้งาน").assertIsDisplayed()
         composeRule.onNodeWithText("เปลี่ยนการใช้งาน (Change use)").assertDoesNotExist()
+    }
+
+    private fun settingsUiState(
+        profile: ProtectionProfile,
+        entryAngleDegrees: Int? = null,
+    ) = ProtectionUiState.from(
+        snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+            state = ProtectionState.DISARMED_ONLINE,
+            serviceRunning = true,
+        ),
+        incidents = emptyList(),
+        settings = ProtectionSettingsSummary(
+            tokenConfigured = true,
+            pairedOwnerCount = 1,
+            pairingCode = null,
+            sensitivity = 5,
+            smsFallbackConfigured = false,
+            missingPermissions = emptySet(),
+        ),
+        nowMs = 1_000L,
+        profile = ProtectionProfileUiState(
+            selectedProfile = profile,
+            armedProfile = null,
+            setupState = ProfileSetupState.READY,
+            pendingSwitchTarget = null,
+            entryAngleDegrees = entryAngleDegrees,
+        ),
+    )
+
+    private fun settingsActions() = ProtectionAppActions(
+        selectDestination = {},
+        arm = {},
+        disarm = {},
+        clearHistory = {},
+        changeSensitivity = {},
+        requestPermissions = {},
+        replaceBotToken = {},
+        configureSmsFallback = { _, _ -> },
+        retry = {},
+        retrySettings = {},
+        resetPairing = {},
+        consumeMessage = {},
+    )
+
+    private fun assertHeadingsAppearInApprovedOrder() {
+        listOf(
+            "การใช้งานปัจจุบัน",
+            "การตรวจจับของรูปแบบนี้",
+            "การแจ้งเตือน",
+            "ความต่อเนื่องของระบบ",
+            "การวินิจฉัยขั้นสูง",
+        ).forEach { heading ->
+            composeRule.onNodeWithText(heading).performScrollTo()
+            composeRule.onNodeWithText(heading).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun vehicleSettingsShowFiveSectionsAndMovementControlWithoutOldSensitivityLabel() {
+        composeRule.setContent { ProtectionAppScreen(settingsUiState(ProtectionProfile.VEHICLE), settingsActions()) }
+
+        assertHeadingsAppearInApprovedOrder()
+        composeRule.onNodeWithText("การขยับที่ต้องการให้แจ้งเตือน").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodes(hasText("ระดับความไว", substring = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun entrySettingsShowAngleOutcomeQuickChoicesAndNoMagneticControl() {
+        composeRule.setContent {
+            ProtectionAppScreen(settingsUiState(ProtectionProfile.ENTRY, entryAngleDegrees = 15), settingsActions())
+        }
+
+        composeRule.onNodeWithText("แจ้งเมื่อประตูเปิดเกิน 15° จากตำแหน่งปิด").assertIsDisplayed()
+        composeRule.onNodeWithText("5°").assertIsDisplayed()
+        composeRule.onNodeWithText("15°").assertIsDisplayed()
+        composeRule.onNodeWithText("30°").assertIsDisplayed()
+        composeRule.onAllNodes(hasText("µT", substring = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun powerSettingsShowIndependentChargingAndWitnessRows() {
+        composeRule.setContent { ProtectionAppScreen(settingsUiState(ProtectionProfile.POWER), settingsActions()) }
+
+        composeRule.onNodeWithText("การชาร์จโทรศัพท์").assertIsDisplayed()
+        composeRule.onNodeWithText("ไฟยืนยันจุดติดตั้ง").assertIsDisplayed()
+    }
+
+    @Test
+    fun advancedTechnicalControlsStayHiddenUntilDisclosureExpanded() {
+        composeRule.setContent { ProtectionAppScreen(settingsUiState(ProtectionProfile.VEHICLE), settingsActions()) }
+
+        composeRule.onNodeWithText("การวินิจฉัยขั้นสูง").performScrollTo()
+        composeRule.onNodeWithText("แสดงการวินิจฉัยขั้นสูง").performClick()
+        composeRule.onNodeWithText("รูปแบบการทำงาน (Preset):").assertIsDisplayed()
     }
 
     @Test

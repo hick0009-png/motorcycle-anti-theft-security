@@ -66,6 +66,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.motorcycleantitheftsensor.autostart.BackgroundKeepAliveManager
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
@@ -73,8 +74,10 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
+import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
@@ -110,6 +113,7 @@ fun SettingsScreen(
     var smsKey by remember { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
+    var advancedDiagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
 
     val activeOp = state.activeSettingsOperation
     val savingBotToken = activeOp == SettingsOperation.REPLACE_BOT_TOKEN
@@ -165,7 +169,7 @@ fun SettingsScreen(
         item(key = "settings-header") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "⚙️ การตั้งค่าระบบความปลอดภัย",
+                    text = "การตั้งค่าระบบความปลอดภัย",
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -204,6 +208,198 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "section-current-use") {
+            Text(
+                text = "การใช้งานปัจจุบัน",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+            )
+            val selectedProfile = state.profile.selectedProfile
+            if (selectedProfile == null) {
+                SettingsCard(title = "ยังไม่ได้เลือกรูปแบบการใช้งาน") {
+                    Text(
+                        text = "เลือกรูปแบบการเฝ้าระวังจากหน้าปกป้องก่อน เพื่อให้การตรวจจับตรงกับจุดติดตั้ง",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                val profilePresentation = PresentationTextCatalog.profile(selectedProfile)
+                SettingsCard(title = profilePresentation.name) {
+                    Text(
+                        text = profilePresentation.promise,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item(key = "section-profile-detection") {
+            Text(
+                text = "การตรวจจับของรูปแบบนี้",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+            )
+            when (state.profile.selectedProfile) {
+                ProtectionProfile.VEHICLE -> {
+                    val movement = PresentationTextCatalog.capability(
+                        ProtectionProfile.VEHICLE,
+                        SensorCapability.MOVEMENT,
+                    )
+                    var sensitivityDraft by remember(state.settings.sensitivity) {
+                        mutableIntStateOf(state.settings.sensitivity)
+                    }
+                    SettingsCard(title = movement.title) {
+                        Text(
+                            text = movement.explanation,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "ระดับการตรวจจับปัจจุบัน",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Surface(
+                                color = ActionBlue.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
+                            ) {
+                                Text(
+                                    text = "$sensitivityDraft/10",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
+                        AccessibleSensitivitySlider(
+                            value = sensitivityDraft,
+                            onValueChange = { sensitivityDraft = it },
+                            onValueChangeFinished = { actions.changeSensitivity(sensitivityDraft) },
+                            enabled = !state.settingsOperationInFlight,
+                            sliderContentDescription = "ระดับการตรวจจับ $sensitivityDraft เต็ม 10",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                ProtectionProfile.ENTRY -> {
+                    val angle = state.profile.entryAngleDegrees ?: 15
+                    SettingsCard(title = "มุมเปิดประตูที่ต้องการให้แจ้งเตือน") {
+                        Text(
+                            text = "แจ้งเมื่อประตูเปิดเกิน $angle° จากตำแหน่งปิด",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "มุมวัดจากตำแหน่งปิดที่ปรับเทียบไว้",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(5, 15, 30).forEach { choice ->
+                                val selected = angle == choice
+                                if (selected) {
+                                    Button(
+                                        onClick = { actions.entrySetAngle(choice) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .heightIn(min = 48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                                        shape = RoundedCornerShape(12.dp),
+                                    ) {
+                                        Text("$choice°", fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { actions.entrySetAngle(choice) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .heightIn(min = 48.dp),
+                                        border = BorderStroke(1.dp, BorderNeutral),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                    ) {
+                                        Text("$choice°")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ProtectionProfile.POWER -> {
+                    val rows = state.profile.powerSummary
+                    SettingsCard(title = "สถานะไฟเลี้ยงจุดติดตั้ง") {
+                        Text(
+                            text = "ระบบยืนยันไฟเลี้ยงขาดเมื่อทั้งการชาร์จโทรศัพท์และไฟยืนยันหายต่อเนื่องตามเวลาที่กำหนด",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        DiagnosticRow(
+                            "การชาร์จโทรศัพท์",
+                            when (rows?.charging) {
+                                ChargingRowState.CONNECTED -> "เชื่อมต่อ"
+                                ChargingRowState.DISCONNECTED -> "หยุด"
+                                ChargingRowState.UNKNOWN, null -> "ไม่ทราบ"
+                            },
+                        )
+                        DiagnosticRow(
+                            "ไฟยืนยันจุดติดตั้ง",
+                            when (rows?.witness) {
+                                WitnessRowState.DETECTED -> "พบ"
+                                WitnessRowState.DARK -> "ไม่พบ"
+                                WitnessRowState.UNAVAILABLE, null -> "ใช้งานไม่ได้"
+                            },
+                        )
+                    }
+                }
+                null -> Unit
+            }
+        }
+
+        item(key = "section-alert-channels") {
+            Text(
+                text = "การแจ้งเตือน",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+
+        item(key = "section-advanced-diagnostics") {
+            Text(
+                text = "การวินิจฉัยขั้นสูง",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+            )
+            OutlinedButton(
+                onClick = { advancedDiagnosticsExpanded = !advancedDiagnosticsExpanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+                border = BorderStroke(1.dp, BorderNeutral),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    if (advancedDiagnosticsExpanded) "ซ่อนการวินิจฉัยขั้นสูง" else "แสดงการวินิจฉัยขั้นสูง",
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        if (advancedDiagnosticsExpanded) {
         item(key = "sensor-fusion-settings") {
             var showAdvancedDialog by rememberSaveable { mutableStateOf(false) }
             var showNoPrimaryWarningDialog by rememberSaveable { mutableStateOf(false) }
@@ -212,7 +408,7 @@ fun SettingsScreen(
                 ?: remember { configPolicy.forPreset(SensorPreset.BALANCED) }
             val displayPreset = state.settings.sensorDisplayPreset ?: configPolicy.displayPreset(currentConfig)
 
-            SettingsCard(title = "🛡️ เซ็นเซอร์ป้องกันและการตรวจจับ (Sensor Fusion)") {
+            SettingsCard(title = "เซ็นเซอร์ขั้นสูงและบทบาทการตรวจจับ") {
                 Text(
                     text = "ระบบตรวจจับการโจรกรรมหลายมิติแบบปรับแต่งได้",
                     style = MaterialTheme.typography.bodyMedium,
@@ -350,7 +546,7 @@ fun SettingsScreen(
                                     border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
                                 ) {
                                     Text(
-                                        text = "ระดับความไว $sliderValue/10",
+                                        text = "ระดับการตรวจจับ $sliderValue/10",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = ProgressCyan,
@@ -369,7 +565,7 @@ fun SettingsScreen(
                                     actions.updateSensorConfiguration(updatedConfig)
                                 },
                                 enabled = !state.settingsOperationInFlight,
-                                sliderContentDescription = "ระดับความไว $sliderValue เต็ม 10",
+                                sliderContentDescription = "ระดับการตรวจจับ $sliderValue เต็ม 10",
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -387,7 +583,7 @@ fun SettingsScreen(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("⚙️ ตั้งค่าเซ็นเซอร์ขั้นสูง (Advanced Role Mapping)", fontWeight = FontWeight.SemiBold)
+                    Text("กำหนดบทบาทเซ็นเซอร์ขั้นสูง", fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -738,6 +934,14 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "section-continuity") {
+            Text(
+                text = "ความต่อเนื่องของระบบ",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+
         item(key = "permissions") {
             SettingsCard(title = "🔑 สิทธิการเข้าถึงของระบบ (Permissions)") {
                 if (state.settings.missingPermissions.isEmpty()) {
@@ -873,7 +1077,7 @@ fun SettingsScreen(
         item(key = "audio-diagnostics") {
             val micHealth = state.protection.sensorHealth[SensorKind.MICROPHONE]
             val audio = state.audio
-            SettingsCard(title = "🎤 การวิเคราะห์เสียงคุกคาม (Audio Threat AI)") {
+            SettingsCard(title = "การวิเคราะห์เสียงคุกคาม") {
                 DiagnosticRow(
                     "ฮาร์ดแวร์ไมโครโฟน",
                     microphoneHealthText(micHealth),
@@ -923,6 +1127,7 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -1023,7 +1228,7 @@ private fun AccessibleSensitivitySlider(
     onValueChangeFinished: () -> Unit,
     enabled: Boolean,
     modifier: Modifier = Modifier,
-    sliderContentDescription: String = "ระดับความไว $value เต็ม 10",
+    sliderContentDescription: String = "ระดับการตรวจจับ $value เต็ม 10",
 ) {
     val valueRange = 1f..10f
     val updateFromX: (Float, Float) -> Unit = { x, width ->
