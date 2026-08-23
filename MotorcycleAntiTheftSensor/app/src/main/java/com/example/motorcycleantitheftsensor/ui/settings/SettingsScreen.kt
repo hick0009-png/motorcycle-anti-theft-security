@@ -73,17 +73,6 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
-import com.example.motorcycleantitheftsensor.theme.AlertRed
-import com.example.motorcycleantitheftsensor.theme.ArmedGreen
-import com.example.motorcycleantitheftsensor.theme.CyanAccent
-import com.example.motorcycleantitheftsensor.theme.DarkBorder
-import com.example.motorcycleantitheftsensor.theme.DarkSurface
-import com.example.motorcycleantitheftsensor.theme.DarkSurfaceVariant
-import com.example.motorcycleantitheftsensor.theme.TextHighEmphasis
-import com.example.motorcycleantitheftsensor.theme.TextMediumEmphasis
-import com.example.motorcycleantitheftsensor.theme.TextMuted
-import com.example.motorcycleantitheftsensor.theme.TrustBlue
-import com.example.motorcycleantitheftsensor.theme.WarningAmber
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
@@ -92,6 +81,24 @@ import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
 import com.example.motorcycleantitheftsensor.ui.microphoneHealthText
 import java.util.Locale
 import kotlin.math.roundToInt
+
+/**
+ * Paper-light palette mirroring [com.example.motorcycleantitheftsensor.theme.ThemeKt]
+ * semantics (onSurface / onSurfaceVariant / outline / surface). These file-private
+ * values intentionally keep the legacy token names to minimize diff scope; every pair
+ * meets WCAG AA (≥4.5:1) on white. The legacy OLED dark-slate imports were removed.
+ */
+private val TextHighEmphasis = Color(0xFF171717)   // onSurface — headings/body
+private val TextMediumEmphasis = Color(0xFF4B4B4B) // onSurfaceVariant — secondary text
+private val TextMuted = Color(0xFF767676)          // outline — captions only
+private val DarkSurface = Color(0xFFFFFFFF)        // card surface
+private val DarkSurfaceVariant = Color(0xFFF2F2F0) // inner rows / chips
+private val DarkBorder = Color(0xFFC9C9C6)         // borders / inactive tracks
+private val TrustBlue = Color(0xFF1D4ED8)          // actions/links on white (6.3:1)
+private val ArmedGreen = Color(0xFF047857)         // armed/healthy text (5.2:1)
+private val WarningAmber = Color(0xFFB45309)       // warning text (4.7:1)
+private val AlertRed = Color(0xFFB91C1C)           // error text / destructive fill
+private val CyanAccent = Color(0xFF0891B2)         // decorative progress only
 
 @Composable
 fun SettingsScreen(
