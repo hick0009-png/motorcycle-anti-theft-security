@@ -145,13 +145,60 @@ class ProtectionProfilesUiTest {
             )
         }
 
-        composeRule.onNodeWithText("Keep current protection")
+        composeRule.onNodeWithText("ใช้รูปแบบเดิมต่อ")
             .assertIsDisplayed()
             .performClick()
         composeRule.runOnIdle { check(!confirmed) { "Cancel must not confirm" } }
         composeRule.runOnIdle { check(cancelled) { "Cancel must be invoked" } }
 
-        composeRule.onNodeWithText("Stop protection and change use").assertIsDisplayed()
+        composeRule.onNodeWithText("หยุดการปกป้องแล้วเปลี่ยน").assertIsDisplayed()
+    }
+
+    @Test
+    fun changeUseEntryUsesApprovedThaiLabelWithoutMixedLanguage() {
+        composeRule.setContent {
+            ProtectionAppScreen(
+                state = ProtectionUiState.from(
+                    snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        serviceRunning = true,
+                    ),
+                    incidents = emptyList(),
+                    settings = ProtectionSettingsSummary(
+                        tokenConfigured = true,
+                        pairedOwnerCount = 1,
+                        pairingCode = null,
+                        sensitivity = 5,
+                        smsFallbackConfigured = false,
+                        missingPermissions = emptySet(),
+                    ),
+                    nowMs = 1_000L,
+                    profile = ProtectionProfileUiState(
+                        selectedProfile = ProtectionProfile.POWER,
+                        armedProfile = null,
+                        setupState = ProfileSetupState.READY,
+                        pendingSwitchTarget = null,
+                    ),
+                ),
+                actions = ProtectionAppActions(
+                    selectDestination = {},
+                    arm = {},
+                    disarm = {},
+                    clearHistory = {},
+                    changeSensitivity = {},
+                    requestPermissions = {},
+                    replaceBotToken = {},
+                    configureSmsFallback = { _, _ -> },
+                    retry = {},
+                    retrySettings = {},
+                    resetPairing = {},
+                    consumeMessage = {},
+                ),
+            )
+        }
+
+        composeRule.onNodeWithText("เปลี่ยนการใช้งาน").assertIsDisplayed()
+        composeRule.onNodeWithText("เปลี่ยนการใช้งาน (Change use)").assertDoesNotExist()
     }
 
     @Test

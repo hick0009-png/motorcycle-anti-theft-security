@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -110,6 +111,8 @@ fun ProtectionAppScreen(
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
                             val selected = state.destination == item.destination
+                            val destinationLabel = stringResource(item.labelRes)
+                            val destinationContentDescription = stringResource(item.contentDescriptionRes)
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -123,7 +126,7 @@ fun ProtectionAppScreen(
                                     )
                                     .testTag(PRIMARY_DESTINATION_TAG)
                                     .semantics(mergeDescendants = true) {
-                                        contentDescription = "${item.label} destination"
+                                        contentDescription = destinationContentDescription
                                     }
                                     .padding(vertical = 2.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -155,7 +158,7 @@ fun ProtectionAppScreen(
                                     }
                                 }
                                 Text(
-                                    text = item.label,
+                                    text = destinationLabel,
                                     style = MaterialTheme.typography.labelMedium,
                                     color = Color.Black,
                                     modifier = Modifier.testTag(
@@ -238,22 +241,26 @@ private val ProtectionMonochromeColorScheme = lightColorScheme(
 
 private enum class PrimaryDestination(
     val destination: ProtectionDestination,
-    val label: String,
+    val labelRes: Int,
+    val contentDescriptionRes: Int,
     val iconResource: Int,
 ) {
     PROTECTION(
         destination = ProtectionDestination.PROTECTION,
-        label = "Protection",
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_content_description,
         iconResource = android.R.drawable.ic_secure,
     ),
     EVENTS(
         destination = ProtectionDestination.EVENTS,
-        label = "Events",
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_events_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_events_content_description,
         iconResource = android.R.drawable.ic_menu_recent_history,
     ),
     SETTINGS(
         destination = ProtectionDestination.SETTINGS,
-        label = "Settings",
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_content_description,
         iconResource = android.R.drawable.ic_menu_preferences,
     ),
 }

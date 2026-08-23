@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -178,7 +179,7 @@ fun ProtectionScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Review permissions")
+                        Text(stringResource(com.example.motorcycleantitheftsensor.R.string.action_review_permissions))
                     }
                 }
             }
@@ -199,7 +200,7 @@ fun ProtectionScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Review permissions")
+                        Text(stringResource(com.example.motorcycleantitheftsensor.R.string.action_review_permissions))
                     }
                 }
             }
@@ -360,7 +361,7 @@ private fun ChangeUseSection(
                     .heightIn(min = 48.dp)
                     .testTag("change_use_button"),
             ) {
-                Text("เปลี่ยนการใช้งาน (Change use)")
+                Text(stringResource(com.example.motorcycleantitheftsensor.R.string.action_change_use))
             }
         } else {
             ProfilePickerSection(
@@ -444,10 +445,10 @@ private fun ProfileSwitchConfirmationCard(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Keep current protection")
+                Text(stringResource(com.example.motorcycleantitheftsensor.R.string.action_keep_current_protection))
             }
             Button(onClick = onConfirm, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Stop protection and change use")
+                Text(stringResource(com.example.motorcycleantitheftsensor.R.string.action_stop_protection_and_change_use))
             }
         }
     }

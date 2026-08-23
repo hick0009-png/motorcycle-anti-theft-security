@@ -53,9 +53,9 @@ class ProtectionAppScreenTest {
     fun shellHasExactlyThreePrimaryDestinationsAndNoDemoControls() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
 
-        compose.onNodeWithText("Protection").assertExists()
-        compose.onNodeWithText("Events").assertExists()
-        compose.onNodeWithText("Settings").assertExists()
+        compose.onNodeWithText("ปกป้อง").assertExists()
+        compose.onNodeWithText("เหตุการณ์").assertExists()
+        compose.onNodeWithText("ตั้งค่า").assertExists()
         compose.onAllNodes(hasTestTag("primary_destination")).assertCountEquals(3)
         compose.onAllNodes(hasText("Demo", substring = true, ignoreCase = true))
             .assertCountEquals(0)
@@ -115,32 +115,40 @@ class ProtectionAppScreenTest {
     fun everySelectedDestinationHasStableVisibleLabelAndIconBounds() {
         showWithLocalNavigation(healthyState())
 
-        listOf("Protection", "Events", "Settings").forEach { label ->
-            val labelTag = "primary_destination_label_${label.uppercase()}"
+        listOf(
+            "PROTECTION" to "แท็บปกป้อง",
+            "EVENTS" to "แท็บเหตุการณ์",
+            "SETTINGS" to "แท็บตั้งค่า",
+        ).forEach { (enumName, contentDescription) ->
+            val labelTag = "primary_destination_label_$enumName"
             compose.onNodeWithTag(labelTag, useUnmergedTree = true).performClick()
-            compose.onNodeWithContentDescription("$label destination")
+            compose.onNodeWithContentDescription(contentDescription)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(80.dp)
             compose.onNodeWithTag(labelTag, useUnmergedTree = true)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(16.dp)
             compose.onNodeWithTag(
-                "primary_destination_icon_${label.uppercase()}",
+                "primary_destination_icon_$enumName",
                 useUnmergedTree = true,
             ).assertHeightIsEqualTo(24.dp)
         }
 
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Diagnostics"))
-        listOf("Protection", "Events", "Settings").forEach { label ->
-            compose.onNodeWithContentDescription("$label destination")
+        listOf(
+            "PROTECTION" to "แท็บปกป้อง",
+            "EVENTS" to "แท็บเหตุการณ์",
+            "SETTINGS" to "แท็บตั้งค่า",
+        ).forEach { (enumName, contentDescription) ->
+            compose.onNodeWithContentDescription(contentDescription)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(48.dp)
             compose.onNodeWithTag(
-                "primary_destination_label_${label.uppercase()}",
+                "primary_destination_label_$enumName",
                 useUnmergedTree = true,
             ).assertIsDisplayed()
             compose.onNodeWithTag(
-                "primary_destination_icon_${label.uppercase()}",
+                "primary_destination_icon_$enumName",
                 useUnmergedTree = true,
             ).assertIsDisplayed()
         }
@@ -162,11 +170,11 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText(
-            "Microphone access is missing. Noise detection will be unavailable.",
+            "ยังไม่ได้ให้สิทธิ์ไมโครโฟน การตรวจจับเสียงผิดปกติจะใช้ไม่ได้",
         ).assertExists()
         compose.onNodeWithText("Reduced sensor coverage").assertExists()
         compose.onNodeWithText("Protection blockers").assertDoesNotExist()
-        compose.onNodeWithText("Review permissions").performClick()
+        compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.runOnIdle {
             assertEquals(ProtectionDestination.SETTINGS, selectedDestination)
         }
@@ -574,11 +582,11 @@ class ProtectionAppScreenTest {
     }
 
     private fun openEvents() {
-        compose.onNodeWithText("Events").performClick()
+        compose.onNodeWithText("เหตุการณ์").performClick()
     }
 
     private fun openSettings() {
-        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("ตั้งค่า").performClick()
     }
 }
 
