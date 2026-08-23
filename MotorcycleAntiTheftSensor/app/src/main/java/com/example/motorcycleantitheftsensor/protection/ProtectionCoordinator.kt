@@ -18,6 +18,9 @@ import kotlin.math.roundToInt
 @JvmInline
 value class RecoveryGenerationToken(val value: Long)
 
+/** Degradation reason recorded when the per-arm Power witness challenge was skipped. */
+private const val POWER_CHALLENGE_DEGRADED = "Power witness placement not revalidated"
+
 class ProtectionCoordinator(
     initialSnapshot: ProtectionSnapshot,
     private val runtime: ProtectionRuntime,
@@ -31,6 +34,9 @@ class ProtectionCoordinator(
     private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
     private val entryCommissioningContextProvider:
         (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
+    private val powerCommissioningContextProvider:
+        (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
+    private val powerIntegrityChallenge: (() -> Boolean)? = null,
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -190,15 +196,74 @@ class ProtectionCoordinator(
                     entryHingeModel = storedModel
                 }
 
+                // Power Guard: Arm requires a commissioned witness model whose fingerprint
+                // still matches the current commissioning context (spec section 4.3).
+                var powerWitnessModel: PowerWitnessModel? = null
+                if (selectedProfile == ProtectionProfile.POWER) {
+                    val storedModel = profileState.profiles.getValue(ProtectionProfile.POWER).powerWitnessModel
+                    if (storedModel == null) {
+                        currentArmedSessionId.set(null)
+                        armingEpoch.incrementAndGet()
+                        runtime.stopDetectors()
+                        transition(
+                            state = ProtectionState.SETUP_REQUIRED,
+                            blockers = setOf("Selected profile setup required"),
+                            degradations = readiness.degradations,
+                        )
+                        return@withLock result(
+                            commandId,
+                            CommandOutcome.REJECTED,
+                            "Selected profile is not ready: setup required",
+                        )
+                    }
+                    val currentContext = powerCommissioningContextProvider?.invoke()
+                    if (currentContext != null &&
+                        PowerWitnessCommissioningPolicy.requiresRecommission(
+                            PowerWitnessCommissioningPolicy.storedContextOf(storedModel),
+                            currentContext,
+                        )
+                    ) {
+                        // Fingerprint invalidated: decommission durably and refuse to arm.
+                        profileRepository.update { profilePolicy.decommissionPower(it) }
+                        currentArmedSessionId.set(null)
+                        armingEpoch.incrementAndGet()
+                        runtime.stopDetectors()
+                        transition(
+                            state = ProtectionState.SETUP_REQUIRED,
+                            blockers = setOf("Power commissioning invalidated"),
+                            degradations = readiness.degradations,
+                        )
+                        return@withLock result(
+                            commandId,
+                            CommandOutcome.REJECTED,
+                            "Power commissioning invalidated; recommission required",
+                        )
+                    }
+                    powerWitnessModel = storedModel
+                    // Full Healthy readiness requires the per-arm lamp off/on integrity
+                    // challenge; skipping arms degraded without any incident.
+                    val challengePassed = powerIntegrityChallenge?.invoke() ?: false
+                    if (!challengePassed) {
+                        armingDegradations = armingDegradations + setOf(POWER_CHALLENGE_DEGRADED)
+                    }
+                }
+
                 val sessionId = UUID.randomUUID().toString()
-                val modelFingerprint = entryHingeModel?.let(EntryCommissioningPolicy::fingerprint)
-                val calibrationSnapshot: ArmedCalibrationSnapshot = if (entryHingeModel != null) {
-                    EntryArmedCalibrationSnapshot(
+                val modelFingerprint = when {
+                    entryHingeModel != null -> EntryCommissioningPolicy.fingerprint(entryHingeModel)
+                    powerWitnessModel != null -> PowerWitnessCommissioningPolicy.fingerprint(powerWitnessModel)
+                    else -> null
+                }
+                val calibrationSnapshot: ArmedCalibrationSnapshot = when {
+                    entryHingeModel != null -> EntryArmedCalibrationSnapshot(
                         generation = runtime.currentGenerationId(),
                         modelFingerprint = modelFingerprint!!,
                     )
-                } else {
-                    VehicleArmedCalibrationSnapshot(generation = runtime.currentGenerationId())
+                    powerWitnessModel != null -> PowerArmedCalibrationSnapshot(
+                        generation = runtime.currentGenerationId(),
+                        modelFingerprint = modelFingerprint!!,
+                    )
+                    else -> VehicleArmedCalibrationSnapshot(generation = runtime.currentGenerationId())
                 }
                 val armedSnapshot = ArmedProfileSnapshot(
                     armedSessionId = sessionId,
@@ -263,6 +328,14 @@ class ProtectionCoordinator(
                         resolved.specificSettings as EntryProfileSettings,
                     )
                 }
+                // Power Guard: freeze the armed-session arbiter for the commissioned model.
+                powerWitnessModel?.let { model ->
+                    runtime.beginPowerSession(
+                        sessionId,
+                        model,
+                        resolved.specificSettings as PowerProfileSettings,
+                    )
+                }
             } else {
                 val sessionId = UUID.randomUUID().toString()
                 currentArmedSessionId.set(sessionId)
@@ -307,6 +380,7 @@ class ProtectionCoordinator(
                     currentArmedSessionId.set(null)
                     runtime.stopDetectors()
                     runtime.clearEntryBaseline()
+                    runtime.clearPowerSession()
                     clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                     transition(
                         state = ProtectionState.DISARMED_ONLINE,
@@ -323,6 +397,7 @@ class ProtectionCoordinator(
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
+                runtime.clearPowerSession()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 if (snapshot.value.state == ProtectionState.ARMING) {
                     transition(
@@ -338,6 +413,7 @@ class ProtectionCoordinator(
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
+                runtime.clearPowerSession()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 return@withLock result(commandId, CommandOutcome.UNKNOWN, "Arming was cancelled")
             }
@@ -350,6 +426,7 @@ class ProtectionCoordinator(
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
+                runtime.clearPowerSession()
                 clearFrozenArmedSnapshotDurably(frozenSnapshotRef.get())
                 transition(
                     state = ProtectionState.DISARMED_ONLINE,
@@ -421,6 +498,7 @@ class ProtectionCoordinator(
                 currentArmedSessionId.set(null)
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
+                runtime.clearPowerSession()
                 val incidentHistoryPersisted = incidentCloser("owner disarmed")
                 if (!incidentHistoryPersisted) {
                     recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)

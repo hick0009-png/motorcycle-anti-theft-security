@@ -82,6 +82,25 @@ interface AndroidDetectorSet {
 
     /** Live orientation samples while a commissioning stream is active. */
     fun entryOrientationSamples(): Flow<EntryOrientationSample> = emptyFlow()
+
+    /** Power Guard armed-session hook; default no-op for non-POWER detector sets. */
+    fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
+    }
+
+    /** Clears the armed-session Power arbiter. */
+    fun clearPowerSession() {
+    }
+
+    /** Registers the ambient-light witness source for the guided commissioning flow. */
+    fun startPowerCommissioningStream() {
+    }
+
+    /** Stops the commissioning witness stream. */
+    fun stopPowerCommissioningStream() {
+    }
+
+    /** Live witness-light samples while a commissioning stream is active. */
+    fun powerWitnessSamples(): Flow<PowerWitnessSample> = emptyFlow()
 }
 
 data class IncidentObservationBatch(
@@ -161,6 +180,25 @@ class AndroidProtectionRuntime(
 
     override fun entryOrientationSamples(): Flow<EntryOrientationSample> =
         detectors.entryOrientationSamples()
+
+    override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
+        detectors.beginPowerSession(sessionId, model, settings)
+    }
+
+    override fun clearPowerSession() {
+        detectors.clearPowerSession()
+    }
+
+    override fun startPowerCommissioningStream() {
+        detectors.startPowerCommissioningStream()
+    }
+
+    override fun stopPowerCommissioningStream() {
+        detectors.stopPowerCommissioningStream()
+    }
+
+    override fun powerWitnessSamples(): Flow<PowerWitnessSample> =
+        detectors.powerWitnessSamples()
 
 
     private fun handleObservation(observation: SensorObservation) {
@@ -398,6 +436,10 @@ class PlatformAndroidDetectorSet(
     private val entrySession = EntryArmedSessionController()
     private var entryOrientationListener: android.hardware.SensorEventListener? = null
     private val entrySampleFlow = MutableSharedFlow<EntryOrientationSample>(extraBufferCapacity = 64)
+
+    /** Armed-session Power Guard state; inactive unless a Power session begins. */
+    private val powerSession = PowerArmedSessionController()
+    private val powerSampleFlow = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
 
     init {
         val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -673,6 +715,27 @@ class PlatformAndroidDetectorSet(
         entrySession.end()
         unregisterEntryOrientationSource()
     }
+
+    override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
+        powerSession.begin(controller.currentGenerationId(), model, settings)
+    }
+
+    override fun clearPowerSession() {
+        powerSession.end()
+    }
+
+    /**
+     * Commissioning witness stream: the POWER profile keeps AMBIENT_LIGHT registered as
+     * its primary source through the normal configuration path, so no dedicated listener
+     * is required here; the guided flow observes live lux via [powerWitnessSamples].
+     */
+    override fun startPowerCommissioningStream() {
+    }
+
+    override fun stopPowerCommissioningStream() {
+    }
+
+    override fun powerWitnessSamples(): Flow<PowerWitnessSample> = powerSampleFlow
 
     /**
      * Dedicated game/rotation-vector listener feeding the armed-session Entry policy.

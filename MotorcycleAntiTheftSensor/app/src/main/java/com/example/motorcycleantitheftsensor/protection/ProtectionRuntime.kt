@@ -115,4 +115,30 @@ interface ProtectionRuntime {
 
     /** Live relative-orientation samples for commissioning UI; empty by default. */
     fun entryOrientationSamples(): Flow<EntryOrientationSample> = emptyFlow()
+
+    /**
+     * Power Guard armed-session hook: freezes the commissioned witness model and starts
+     * the composite charging/witness evaluation. Default no-op keeps non-POWER runtimes
+     * and host fakes unaffected.
+     */
+    fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
+    }
+
+    /** Clears the armed-session Power arbiter (owner disarm or controlled profile change). */
+    fun clearPowerSession() {
+    }
+
+    /**
+     * Commissioning-time witness stream: registers the ambient-light source without an
+     * armed session so the guided lamp off/on flow can observe live samples.
+     */
+    fun startPowerCommissioningStream() {
+    }
+
+    /** Stops the commissioning witness stream unless an armed session needs it. */
+    fun stopPowerCommissioningStream() {
+    }
+
+    /** Live witness-light samples for commissioning UI; empty by default. */
+    fun powerWitnessSamples(): Flow<PowerWitnessSample> = emptyFlow()
 }

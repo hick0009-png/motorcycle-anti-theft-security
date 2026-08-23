@@ -1574,6 +1574,273 @@ class ProtectionCoordinatorTest {
         val opened = verdicts.single() as EntryDetectionVerdict.DoorOpened
         assertEquals(20.0, opened.angleDeg, 0.5)
     }
+
+    // -------------------------------------------------------------------------
+    // Power Guard wiring (spec sections 4.3/5): commissioned-witness gate, frozen
+    // armed snapshot, arbiter session lifecycle, generation-scoped debounce windows.
+    // -------------------------------------------------------------------------
+
+    private fun powerWitnessModel(
+        sensorIdentity: String = "ambient-light/test",
+    ): PowerWitnessModel = PowerWitnessModel(
+        darkMinLux = 0.0,
+        darkMaxLux = 5.0,
+        litMinLux = 50.0,
+        litMaxLux = 500.0,
+        guardBandLux = 10.0,
+        algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+        sensorIdentity = sensorIdentity,
+        hoodSignature = "test-hood",
+    )
+
+    private fun powerCoordinator(
+        runtime: FakeRuntime,
+        profileRepository: InMemoryProtectionProfileRepository,
+        profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L }),
+        commissioningContext: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
+        integrityChallenge: (() -> Boolean)? = null,
+    ): ProtectionCoordinator = coordinator(
+        runtime,
+        ArmingDelay { },
+        profileRepository = profileRepository,
+        profilePolicy = profilePolicy,
+        powerCommissioningContextProvider = commissioningContext,
+        powerIntegrityChallenge = integrityChallenge,
+    )
+
+    private fun commissionedPowerRepository(
+        profilePolicy: ProtectionProfilePolicy,
+        model: PowerWitnessModel,
+    ): InMemoryProtectionProfileRepository {
+        val state = profilePolicy.commissionPower(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.POWER),
+            model,
+        )
+        return InMemoryProtectionProfileRepository(state)
+    }
+
+    @Test
+    fun powerArmBlockedIntoSetupRequiredWithoutCommissioning() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.POWER),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(runtime, profileRepository, profilePolicy)
+
+        val result = coordinator.arm("power-uncommissioned", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
+        assertFalse(runtime.started)
+        assertEquals(0, runtime.powerBeginCalls)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
+    fun powerArmFreezesCommissionedWitnessModelIntoArmedSnapshot() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val model = powerWitnessModel()
+        val profileRepository = commissionedPowerRepository(profilePolicy, model)
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+            generationId = 7L,
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { true },
+        )
+
+        val result = coordinator.arm("power-arm", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        val frozen = coordinator.snapshot.value.armedProfileSnapshot
+        assertNotNull(frozen)
+        assertEquals(ProtectionProfile.POWER, frozen!!.profile)
+        val fingerprint = PowerWitnessCommissioningPolicy.fingerprint(model)
+        assertEquals(fingerprint, frozen.commissionedModelFingerprint)
+        val calibration = frozen.armedCalibrationSnapshot
+        assertTrue(calibration is PowerArmedCalibrationSnapshot)
+        calibration as PowerArmedCalibrationSnapshot
+        assertEquals(fingerprint, calibration.modelFingerprint)
+        assertEquals(7L, calibration.generation)
+        assertEquals(1, runtime.powerBeginCalls)
+        assertEquals(frozen.armedSessionId, runtime.lastBeganPowerSessionId)
+        assertEquals(model, runtime.lastBeganPowerModel)
+    }
+
+    @Test
+    fun latePowerSettingsEditCannotMutateFrozenArmedSnapshot() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { true },
+        )
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("power-arm", CommandOrigin.LOCAL).outcome)
+        val before = coordinator.snapshot.value.armedProfileSnapshot
+
+        val edit = coordinator.updateSelectedProfile("loss-edit") { state ->
+            val power = state.profiles.getValue(ProtectionProfile.POWER)
+            power.copy(specificOverrides = PowerProfileOverrides(lossConfirmationMs = 10_000L))
+        }
+
+        assertEquals(CommandOutcome.APPLIED, edit.outcome)
+        assertEquals(before, coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
+    fun stalePowerCommissioningContextDecommissionsAndBlocksArm() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(
+            profilePolicy,
+            powerWitnessModel(sensorIdentity = "sensor-A"),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            commissioningContext = {
+                PowerWitnessCommissioningPolicy.CommissioningContext(
+                    sensorIdentity = "sensor-B",
+                    hoodSignature = "test-hood",
+                    algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+                    powerUseContinuous = true,
+                )
+            },
+        )
+
+        val result = coordinator.arm("power-stale", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
+        assertFalse(runtime.started)
+        val stored = profileRepository.load().profiles.getValue(ProtectionProfile.POWER)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, stored.setupState)
+        assertNull(stored.powerWitnessModel)
+    }
+
+    @Test
+    fun skippedPowerChallengeArmsDegradedWithoutIncident() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        val result = coordinator.arm("power-skip-challenge", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertEquals(ProtectionState.ARMED_DEGRADED, result.resultingState)
+        assertEquals(ProtectionState.ARMED_DEGRADED, coordinator.snapshot.value.state)
+        assertTrue(
+            coordinator.snapshot.value.degradationReasons.any {
+                it.contains("witness placement not revalidated")
+            },
+        )
+    }
+
+    @Test
+    fun disarmClearsRuntimePowerSessionAndRearmBeginsFreshSession() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { true },
+        )
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("arm-1", CommandOrigin.LOCAL).outcome)
+        assertEquals(1, runtime.powerBeginCalls)
+        assertEquals(0, runtime.powerClearCalls)
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.disarm("disarm-1", CommandOrigin.LOCAL).outcome)
+        assertEquals(1, runtime.powerClearCalls)
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("arm-2", CommandOrigin.LOCAL).outcome)
+        assertEquals(2, runtime.powerBeginCalls)
+    }
+
+    @Test
+    fun powerGenerationChangeResetsDebounceWindowsWithoutReconfirming() {
+        val controller = PowerArmedSessionController()
+        val model = powerWitnessModel()
+        val settings = PowerProfileSettings(lossConfirmationMs = 100L)
+        controller.begin(generation = 1L, model = model, settings = settings)
+
+        fun signal(charging: Boolean, lux: Double, timestampMs: Long) = PowerSignalSample(
+            chargingConnected = charging,
+            witnessLux = lux,
+            fresh = true,
+            timestampMs = timestampMs,
+        )
+
+        // Healthy dual baseline under generation 1.
+        assertTrue(controller.onSample(signal(true, model.litMinLux + 1.0, 0L), currentGeneration = 1L).isEmpty())
+
+        // Dual-loss streak starts under generation 1; confirmation window not yet satisfied.
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 10L), currentGeneration = 1L).isEmpty())
+
+        // Generation change resets the debounce window: the pending streak is discarded
+        // even though this sample would otherwise complete the confirmation window.
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 120L), currentGeneration = 2L).isEmpty())
+
+        // The restarted streak is still young.
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 130L), currentGeneration = 2L).isEmpty())
+
+        // Full window under the new generation confirms the outage exactly once.
+        val verdicts = controller.onSample(signal(false, model.darkMinLux, 240L), currentGeneration = 2L)
+        assertEquals(1, verdicts.size)
+        assertTrue(verdicts.single() is PowerArbiterVerdict.ConfirmedLossOpened)
+    }
+
+    @Test
+    fun noConfirmedOutageClaimWithoutCompatibleCalibration() {
+        val controller = PowerArmedSessionController()
+        val model = powerWitnessModel()
+
+        fun signal(lux: Double, timestampMs: Long) = PowerSignalSample(
+            chargingConnected = false,
+            witnessLux = lux,
+            fresh = true,
+            timestampMs = timestampMs,
+        )
+
+        // No begin(): no compatible calibration exists, so even sustained dual-loss
+        // evidence can never produce a confirmed-outage claim.
+        repeat(5) { index ->
+            val verdicts = controller.onSample(signal(model.darkMinLux, index * 1_000L), currentGeneration = 1L)
+            assertTrue(verdicts.isEmpty())
+        }
+    }
 }
 
 private class InMemoryProtectionProfileRepository(
@@ -1613,6 +1880,8 @@ private fun coordinator(
     profileRepository: ProtectionProfileRepository? = null,
     profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
     entryCommissioningContextProvider: (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
+    powerCommissioningContextProvider: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
+    powerIntegrityChallenge: (() -> Boolean)? = null,
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1630,6 +1899,8 @@ private fun coordinator(
     profileRepository = profileRepository,
     profilePolicy = profilePolicy,
     entryCommissioningContextProvider = entryCommissioningContextProvider,
+    powerCommissioningContextProvider = powerCommissioningContextProvider,
+    powerIntegrityChallenge = powerIntegrityChallenge,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(
@@ -1651,6 +1922,14 @@ private class FakeRuntime(
     var entryBeginCalls = 0
         private set
     var entryClearCalls = 0
+        private set
+    var powerBeginCalls = 0
+        private set
+    var powerClearCalls = 0
+        private set
+    var lastBeganPowerSessionId: String? = null
+        private set
+    var lastBeganPowerModel: PowerWitnessModel? = null
         private set
     var lastBeganSessionId: String? = null
         private set
@@ -1728,5 +2007,15 @@ private class FakeRuntime(
 
     override fun clearEntryBaseline() {
         entryClearCalls += 1
+    }
+
+    override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
+        powerBeginCalls += 1
+        lastBeganPowerSessionId = sessionId
+        lastBeganPowerModel = model
+    }
+
+    override fun clearPowerSession() {
+        powerClearCalls += 1
     }
 }

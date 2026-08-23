@@ -105,6 +105,33 @@ class ProtectionProfilePolicy(
         )
     }
 
+    /** Explicit Power commissioning success: stores the witness model and flips to READY. */
+    fun commissionPower(
+        state: ProtectionProfileStoreState,
+        model: PowerWitnessModel,
+    ): ProtectionProfileStoreState {
+        val power = state.profiles.getValue(ProtectionProfile.POWER)
+        return updateProfile(
+            state,
+            power.copy(
+                powerWitnessModel = model,
+                setupState = ProfileSetupState.READY,
+            ),
+        )
+    }
+
+    /** Fingerprint invalidation or owner-initiated recommissioning requirement. */
+    fun decommissionPower(state: ProtectionProfileStoreState): ProtectionProfileStoreState {
+        val power = state.profiles.getValue(ProtectionProfile.POWER)
+        return updateProfile(
+            state,
+            power.copy(
+                powerWitnessModel = null,
+                setupState = ProfileSetupState.SETUP_REQUIRED,
+            ),
+        )
+    }
+
     private fun initialProfile(profile: ProtectionProfile): StoredProfileConfiguration =
         StoredProfileConfiguration(
             profile = profile,

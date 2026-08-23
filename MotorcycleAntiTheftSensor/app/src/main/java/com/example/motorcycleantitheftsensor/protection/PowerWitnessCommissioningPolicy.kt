@@ -182,5 +182,18 @@ class PowerWitnessCommissioningPolicy(
                 previous.hoodSignature != current.hoodSignature ||
                 previous.algorithmVersion != current.algorithmVersion ||
                 !current.powerUseContinuous
+
+        /**
+         * Rebuilds the commissioning context a stored model was commissioned under. A
+         * commissioned model always predates continuous POWER use, so
+         * [CommissioningContext.powerUseContinuous] is true; any later discontinuity is
+         * expressed by the current context supplied at Arm time.
+         */
+        fun storedContextOf(model: PowerWitnessModel): CommissioningContext = CommissioningContext(
+            sensorIdentity = model.sensorIdentity,
+            hoodSignature = model.hoodSignature,
+            algorithmVersion = model.algorithmVersion,
+            powerUseContinuous = true,
+        )
     }
 }
