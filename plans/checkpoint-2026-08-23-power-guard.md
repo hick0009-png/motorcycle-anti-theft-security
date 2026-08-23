@@ -1,15 +1,13 @@
-# Power Guard Checkpoint — 2026-08-23 (updated: end of session 2)
+# Power Guard Checkpoint — 2026-08-23 (updated: end of session 3)
 
 ## Resume point
 
 - Worktree: `D:\security\.worktrees\continuity-recovery-tdd`
 - Branch: `codex/continuity-recovery-tdd`
-- Head: `c7cf72f` (feat: wire power guard coordinator and runtime hooks (Task 5))
-- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–5 complete and committed.
-  Task 6 (Commissioning UI + Power summary rows) JUST STARTED: additive UI models
-  already committed (`a3`-series below); ViewModel/Screen/tests NOT started.
-  Task 7 (full gate + device acceptance) NOT started. Entry Guard manual device
-  acceptance still pending with owner.**
+- Head: `6c068d7` (feat: add power guard commissioning ui and summary rows (Task 6))
+- **Status: Power Guard plan (slice 3 of 4) — Tasks 1–6 complete and committed.
+  Task 7 (full gate + device acceptance + final checkpoint) NOT started.
+  Entry Guard manual device acceptance still pending with owner.**
 
 ## Plan document
 
@@ -27,7 +25,9 @@
 | `d30c120` | feat: add power guard ambiguity policy and typed delivery text (Task 4) |
 | `a0c0291` | docs: checkpoint power guard progress through task 4 |
 | `c7cf72f` | feat: wire power guard coordinator and runtime hooks (Task 5) |
-| (next)    | feat: stage power guard ui models for commissioning flow (Task 6 wip) — see "Uncommitted work" |
+| `c9eb27f` | feat: stage power guard ui models for commissioning flow (task 6 wip) |
+| `48c987c` | docs: checkpoint power guard task 5 complete |
+| `6c068d7` | feat: add power guard commissioning ui and summary rows (Task 6) |
 
 ## Completed this session (Task 5 — commit `c7cf72f`, 7 files, +579)
 
@@ -90,51 +90,37 @@ PowerArmedSessionController test), `noConfirmedOutageClaimWithoutCompatibleCalib
 FakeRuntime extended with `powerBeginCalls/powerClearCalls/lastBeganPowerSessionId/
 lastBeganPowerModel`; `coordinator()` helper forwards the two new params.
 
-## Task 6 progress (JUST STARTED)
+## Task 6 progress (COMPLETE — commit `6c068d7`, 11 files, +602)
 
-### Already done (committed as "feat: stage power guard ui models...")
-`ProtectionUiModels.kt` — additive only, compiles standalone:
-- `PowerCommissioningPhase { DARK_WINDOW, LIT_WINDOW, COMMISSIONED, FAILED }`
-- `PowerCommissioningUiState(phase, liveLux, failureReason)`
-- `ChargingRowState { CONNECTED, DISCONNECTED, UNKNOWN }`,
-  `WitnessRowState { DETECTED, DARK, UNAVAILABLE }`, `PowerSummaryRows(charging, witness)`
-- `ProtectionProfileUiState` += `powerCommissioning: PowerCommissioningUiState? = null`
-  and `powerSummary: PowerSummaryRows? = null` (both defaulted at END → source-compatible).
-
-### NOT started (exact next steps, in order)
-1. **PowerArmChallengeRegistry.kt** (new, protection pkg): `@Volatile passedAtMs`;
-   `markPassed(nowMs)`; `isSatisfied(nowMs)` = passed within
-   `DEFAULT_VALIDITY_MS = 10L * 60_000L`. (A draft was interrupted mid-write — file does
-   NOT exist yet; recreate from this spec.)
-2. **ProtectionViewModel.kt**: add params `powerRuntime: ProtectionRuntime? = null`,
-   `powerArmChallenge: PowerArmChallengeRegistry? = null`; state
-   `powerCommissioningState: MutableStateFlow<PowerCommissioningUiState?>`; policy vars
-   (`PowerWitnessCommissioningPolicy` + State + job); add 4th flow to the uiState
-   combine; actions `startPowerCommissioning()` / `cancelPowerCommissioning()` /
-   `markPowerChallengePassed()` mirroring the Entry trio (lines ~238–329). Policy
-   construction suggestion: windowDurationMs=5_000, maxSampleGapMs=2_000,
-   maxRangeSpanLux=20.0, guardBandLux=10.0, sensorIdentity=
-   `EntryCommissioningEnvironment.sensorIdentity()`, hoodSignature=constant
-   (e.g. "hood-default-v1" — pin real value at Task 7 device acceptance).
-   On COMMISSIONED: `repository.update { profilePolicy.commissionPower(it, model) }`,
-   stop stream, refreshProfile.
-3. **Summary rows derivation**: `snapshot.chargingState: ChargingState` already exists
-   (ProtectionModels.kt line ~194) → charging row CONNECTED/DISCONNECTED/UNKNOWN;
-   witness row from degradation reasons ("witness placement not revalidated" →
-   UNAVAILABLE) + light sensor health; neither row alone claims an outage. Project into
-   `profileState` inside `refreshProfile()` when selectedProfile==POWER.
-4. **Composition wiring**: coordinator is built in `ProtectionRuntimeGraph.kt:456`
-   (entry context provider at :487 — add power context provider + challenge registry
-   there); ViewModel built in `Navigation.kt:90` (pass `powerRuntime = graph.runtime`
-   equivalent + registry).
-5. **Compose UI**: new `PowerGuardSection.kt` mirroring `EntryGuardSection.kt` (guided
-   lamp off/on flow, live lux, two independent summary rows with text+icon+color and
-   recovery instruction, skip-challenge → Armed Degraded scoped copy); hook into
-   `ProtectionScreen.kt` where the Entry section renders.
-6. **Tests**: extend `ProtectionViewModelTest` (commissioning drives setupState READY;
-   skip-challenge arms degraded with scoped copy; summary always shows both rows
-   independently; neither row alone claims outage); extend androidTest
-   `ProtectionProfilesUiTest` compile-only.
+All six steps from the session-2 plan landed in one commit:
+1. `PowerArmChallengeRegistry.kt` (new): `markPassed(nowMs)` / `isSatisfied(nowMs)`
+   within `DEFAULT_VALIDITY_MS = 10 min`, fail-closed on expiry/absence.
+2. `ProtectionViewModel.kt`: params `powerRuntime` / `powerArmChallenge`;
+   `powerCommissioningState` flow (4th combine input); policy vars; actions
+   `startPowerCommissioning()` / `cancelPowerCommissioning()` / `markPowerChallengePassed()`;
+   `advancePowerCommissioning()` persists via `commissionPower` on COMMISSIONED then
+   stops stream + refreshes profile. Hood signature now shared:
+   `PowerWitnessCommissioningPolicy.DEFAULT_HOOD_SIGNATURE` ("hood-default-v1").
+3. Summary rows: internal `powerSummaryRows(chargingState, degradationReasons,
+   lightSensorHealth)` at the bottom of ProtectionViewModel.kt; charging CHARGING/FULL →
+   CONNECTED, DISCHARGING/NOT_CHARGING → DISCONNECTED, else UNKNOWN; witness UNAVAILABLE
+   when `POWER_CHALLENGE_DEGRADED` (now `internal const`) present or light sensor not
+   HEALTHY/AVAILABLE; projected in `refreshProfile()` only for selectedProfile==POWER.
+4. Wiring: `Graph.powerArmChallenge` exposed; graph builds registry +
+   `powerCommissioningContextProvider` (sensor identity + DEFAULT_HOOD_SIGNATURE +
+   ALGORITHM_VERSION + continuous=true) + `powerIntegrityChallenge =
+   { registry.isSatisfied(wallClock.nowMs()) }`; Navigation passes
+   `powerRuntime = graph.runtime` and `powerArmChallenge = graph.powerArmChallenge`.
+5. Compose UI: new `PowerGuardSection.kt` (guided lamp off/on with live lux, glyph+color
+   summary rows with recovery hints, single-signal disclaimer copy, placement-confirm
+   button, Armed-Degraded scoped copy); hooked into ProtectionScreen next to Entry;
+   three defaulted callbacks added to `ProtectionAppActions` and wired in Navigation.
+6. Tests: 4 new host tests GREEN (`powerCommissioningPersistsWitnessModelAndDrivesSetupToReady`,
+   `skippedPowerChallengeArmsDegradedWithScopedWitnessCopy`,
+   `powerSummaryRowsDeriveIndependentlyFromEachSignal`,
+   `powerSummaryProjectedOnlyForSelectedPowerProfile`) + FakePowerSampleRuntime +
+   extended fakeCoordinator; androidTest `powerSummaryShowsBothRowsIndependently`
+   added compile-only.
 
 ## Verification evidence so far
 
@@ -148,6 +134,8 @@ All runs: one Gradle invocation at a time, `--no-daemon --max-workers=1`,
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*PowerEpisodeOutboxPolicyTest" --tests "*ProtectionProfileCodecTest"  # GREEN
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*PowerAmbiguityPolicyTest" --tests "*PowerIncidentFormatterTest" --tests "*IncidentMessageFormatterTest"  # GREEN
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionCoordinatorTest*"  # GREEN: 71 tests, 0 failures (session 2, Task 5)
+.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionViewModelTest"     # GREEN incl. 4 new POWER tests (session 3)
+.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionViewModelTest" compileDebugAndroidTestKotlin  # BUILD SUCCESSFUL in 1m 8s (session 3, pre-commit)
 ```
 
 ## Decisions
@@ -202,5 +190,9 @@ $env:ANDROID_HOME='C:\Users\ASUS\AppData\Local\Android\Sdk'
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests "*ProtectionCoordinatorTest*"
 ```
 
-Then start Task 6 step 1: create `PowerArmChallengeRegistry.kt` per the spec above,
-then failing ViewModel tests (Task 6 Step 1) per the plan document Task 6 section.
+Then start Task 7 step 1 (full host gate) per the plan document:
+`.\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest` (expect ≥750 tests,
+zero failures) plus `compileDebugAndroidTestKotlin`, then assembleDebug + device
+acceptance on Huawei INE-LX2. Device work still required: wire ambient-light →
+`PowerWitnessSample` emission and charging observation into the arbiter pipeline in
+`PlatformAndroidDetectorSet` before acceptance.
