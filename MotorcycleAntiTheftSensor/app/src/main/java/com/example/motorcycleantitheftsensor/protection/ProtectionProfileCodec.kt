@@ -41,6 +41,11 @@ class ProtectionProfileCodec(
             } else {
                 profileObj.put("entryHingeModel", JSONObject.NULL)
             }
+            if (stored.powerWitnessModel != null) {
+                profileObj.put("powerWitnessModel", encodeWitnessModel(stored.powerWitnessModel))
+            } else {
+                profileObj.put("powerWitnessModel", JSONObject.NULL)
+            }
             profilesArray.put(profileObj)
         }
         root.put("profiles", profilesArray)
@@ -92,6 +97,7 @@ class ProtectionProfileCodec(
                 val specificOverrides =
                     decodeSpecificOverrides(profile, profileObj.getJSONObject("specificOverrides"))
                 val entryHingeModel = decodeOptionalHingeModel(profileObj)
+                val powerWitnessModel = decodeOptionalWitnessModel(profileObj)
                 profiles[profile] = StoredProfileConfiguration(
                     profile = profile,
                     presetVersion = presetVersion,
@@ -99,6 +105,7 @@ class ProtectionProfileCodec(
                     specificOverrides = specificOverrides,
                     setupState = setupState,
                     entryHingeModel = entryHingeModel,
+                    powerWitnessModel = powerWitnessModel,
                 )
             }
             val missing = ProtectionProfile.entries.filterNot { profiles.containsKey(it) }
@@ -322,6 +329,46 @@ class ProtectionProfileCodec(
 
     private fun putOptionalName(obj: JSONObject, key: String, value: String?) {
         if (value != null) obj.put(key, value) else obj.put(key, JSONObject.NULL)
+    }
+
+    /** Additive POWER extension (Power Guard plan Task 3): commissioned witness evidence. */
+    private fun encodeWitnessModel(model: PowerWitnessModel): JSONObject {
+        val obj = JSONObject()
+        obj.put("darkMinLux", model.darkMinLux)
+        obj.put("darkMaxLux", model.darkMaxLux)
+        obj.put("litMinLux", model.litMinLux)
+        obj.put("litMaxLux", model.litMaxLux)
+        obj.put("guardBandLux", model.guardBandLux)
+        obj.put("algorithmVersion", model.algorithmVersion)
+        obj.put("sensorIdentity", model.sensorIdentity)
+        obj.put("hoodSignature", model.hoodSignature)
+        return obj
+    }
+
+    /**
+     * Older payloads written before the Power Guard plan simply lack the key; they
+     * load with a null witness model and keep their truthful SETUP_REQUIRED state.
+     */
+    private fun decodeOptionalWitnessModel(profileObj: JSONObject): PowerWitnessModel? {
+        if (!profileObj.has("powerWitnessModel") || profileObj.isNull("powerWitnessModel")) return null
+        val obj = profileObj.getJSONObject("powerWitnessModel")
+        val darkMin = obj.getDouble("darkMinLux")
+        val darkMax = obj.getDouble("darkMaxLux")
+        val litMin = obj.getDouble("litMinLux")
+        val litMax = obj.getDouble("litMaxLux")
+        val band = obj.getDouble("guardBandLux")
+        require(darkMin <= darkMax && litMin <= litMax) { "Invalid power witness ranges" }
+        require(litMin - darkMax >= band) { "Power witness ranges not separated by guard band" }
+        return PowerWitnessModel(
+            darkMinLux = darkMin,
+            darkMaxLux = darkMax,
+            litMinLux = litMin,
+            litMaxLux = litMax,
+            guardBandLux = band,
+            algorithmVersion = obj.getInt("algorithmVersion"),
+            sensorIdentity = obj.getString("sensorIdentity"),
+            hoodSignature = obj.getString("hoodSignature"),
+        )
     }
 
     private fun encodeHingeModel(model: EntryHingeModel): JSONObject {

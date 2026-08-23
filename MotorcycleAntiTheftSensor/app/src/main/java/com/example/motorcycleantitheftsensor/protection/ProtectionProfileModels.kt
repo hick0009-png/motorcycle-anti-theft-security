@@ -126,6 +126,8 @@ data class StoredProfileConfiguration(
     val setupState: ProfileSetupState,
     /** Commissioned Entry hinge model; null until two-cycle commissioning succeeds. */
     val entryHingeModel: EntryHingeModel? = null,
+    /** Commissioned Power witness-lamp evidence; null until lamp off/on commissioning succeeds. */
+    val powerWitnessModel: PowerWitnessModel? = null,
 )
 
 data class ResolvedProfileConfiguration(
