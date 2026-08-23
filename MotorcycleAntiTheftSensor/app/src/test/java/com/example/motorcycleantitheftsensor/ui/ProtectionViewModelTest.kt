@@ -6,8 +6,13 @@ import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
 import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
 import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
+import com.example.motorcycleantitheftsensor.protection.ChargingState
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
+import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
@@ -1101,6 +1106,157 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
         assertFalse(viewModel.uiState.value.profile.entryRequiresControlledRearm)
     }
+
+    // -------------------------------------------------------------------------
+    // Power Guard commissioning + summary rows (spec sections 4.3 and 3.6).
+    // -------------------------------------------------------------------------
+
+    private fun powerViewModelFixture(
+        scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
+        state: ProtectionState = ProtectionState.DISARMED_ONLINE,
+        powerIntegrityChallenge: (() -> Boolean)? = null,
+    ): Triple<ProtectionViewModel, ViewModelProfileRepositoryFake, FakePowerSampleRuntime> {
+        val dispatcher = StandardTestDispatcher(scheduler)
+        val repository = ViewModelProfileRepositoryFake(
+            ProtectionProfilePolicy(nowMs = { 1_000L })
+                .newStoreState()
+                .copy(selectedProfile = ProtectionProfile.POWER),
+        )
+        val runtime = FakePowerSampleRuntime()
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = state,
+                profileRepository = repository,
+                powerIntegrityChallenge = powerIntegrityChallenge,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            powerRuntime = runtime,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        return Triple(viewModel, repository, runtime)
+    }
+
+    /** Continuous dark window (lux≈5) then lit window (lux≈200) inside the policy limits. */
+    private fun darkThenLitWitnessSamples(): List<PowerWitnessSample> = buildList {
+        var t = 0L
+        while (t <= 5_000L) {
+            add(PowerWitnessSample(lux = 5.0, timestampMs = t, fresh = true))
+            t += 1_000L
+        }
+        t = 6_000L
+        while (t <= 11_000L) {
+            add(PowerWitnessSample(lux = 200.0, timestampMs = t, fresh = true))
+            t += 1_000L
+        }
+    }
+
+    @Test
+    fun powerCommissioningPersistsWitnessModelAndDrivesSetupToReady() = runTest {
+        val (viewModel, repository, runtime) = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.DARK_WINDOW,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        darkThenLitWitnessSamples().forEach(runtime::emit)
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.POWER)
+        assertEquals(ProfileSetupState.READY, stored.setupState)
+        assertNotNull(stored.powerWitnessModel)
+        assertEquals(ProfileSetupState.READY, viewModel.uiState.value.profile.setupState)
+        assertNull(viewModel.uiState.value.profile.powerCommissioning)
+        assertTrue(runtime.streamStopped)
+    }
+
+    @Test
+    fun skippedPowerChallengeArmsDegradedWithScopedWitnessCopy() = runTest {
+        val (viewModel, repository, _) = powerViewModelFixture(
+            testScheduler,
+            powerIntegrityChallenge = { false },
+        )
+        val policy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        repository.update {
+            policy.commissionPower(
+                it,
+                PowerWitnessModel(
+                    darkMinLux = 5.0,
+                    darkMaxLux = 8.0,
+                    litMinLux = 200.0,
+                    litMaxLux = 220.0,
+                    guardBandLux = 10.0,
+                    algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+                    sensorIdentity = "test-sensor",
+                    hoodSignature = "hood-test",
+                ),
+            )
+        }
+        advanceUntilIdle()
+
+        viewModel.arm()
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
+        val summary = viewModel.uiState.value.profile.powerSummary
+        assertNotNull(summary)
+        assertEquals(WitnessRowState.UNAVAILABLE, summary?.witness)
+    }
+
+    @Test
+    fun powerSummaryRowsDeriveIndependentlyFromEachSignal() {
+        // Charger connected while the witness is degraded: both rows stay independent.
+        val connectedWitnessDown = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = setOf(POWER_CHALLENGE_DEGRADED),
+            lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
+        )
+        assertEquals(ChargingRowState.CONNECTED, connectedWitnessDown.charging)
+        assertEquals(WitnessRowState.UNAVAILABLE, connectedWitnessDown.witness)
+
+        // Charger lost while the witness still sees the lamp: never an outage claim.
+        val chargerGoneWitnessUp = powerSummaryRows(
+            chargingState = ChargingState.NOT_CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(SensorHealthState.AVAILABLE),
+        )
+        assertEquals(ChargingRowState.DISCONNECTED, chargerGoneWitnessUp.charging)
+        assertEquals(WitnessRowState.DETECTED, chargerGoneWitnessUp.witness)
+
+        // Unknown charging plus stale light evidence stays honest on both rows.
+        val unknownBoth = powerSummaryRows(
+            chargingState = ChargingState.UNKNOWN,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(SensorHealthState.STALE),
+        )
+        assertEquals(ChargingRowState.UNKNOWN, unknownBoth.charging)
+        assertEquals(WitnessRowState.UNAVAILABLE, unknownBoth.witness)
+
+        assertEquals(
+            ChargingRowState.CONNECTED,
+            powerSummaryRows(ChargingState.FULL, emptySet(), null).charging,
+        )
+    }
+
+    @Test
+    fun powerSummaryProjectedOnlyForSelectedPowerProfile() = runTest {
+        val (viewModel, _, _) = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+        assertEquals(ProtectionProfile.POWER, viewModel.uiState.value.profile.selectedProfile)
+        assertNotNull(viewModel.uiState.value.profile.powerSummary)
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.profile.powerSummary)
+    }
 }
 
 private class FakeEntrySampleRuntime : ProtectionRuntime {
@@ -1132,6 +1288,39 @@ private class FakeEntrySampleRuntime : ProtectionRuntime {
     }
 
     override fun stopEntryCommissioningStream() {
+        streamStopped = true
+    }
+}
+
+private class FakePowerSampleRuntime : ProtectionRuntime {
+    private val samples = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
+    var streamStarted = false
+        private set
+    var streamStopped = false
+        private set
+
+    fun emit(sample: PowerWitnessSample) {
+        samples.tryEmit(sample)
+    }
+
+    override fun readiness(): ReadinessReport = ReadinessReport(emptySet(), emptySet())
+
+    override fun startDetectors(): DetectorStartResult = DetectorStartResult(true)
+
+    override fun stopDetectors() = Unit
+
+    override fun applySensitivity(level: Int) = Unit
+
+    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> =
+        mapOf(SensorKind.LIGHT to SensorHealth(SensorHealthState.HEALTHY))
+
+    override fun powerWitnessSamples(): Flow<PowerWitnessSample> = samples
+
+    override fun startPowerCommissioningStream() {
+        streamStarted = true
+    }
+
+    override fun stopPowerCommissioningStream() {
         streamStopped = true
     }
 }
@@ -1188,12 +1377,14 @@ private fun fakeCoordinator(
     state: ProtectionState,
     blockers: Set<String> = emptySet(),
     profileRepository: ProtectionProfileRepository? = null,
+    powerIntegrityChallenge: (() -> Boolean)? = null,
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = snapshot(state = state, lastTransitionAtMs = 1_000L),
     runtime = FakeRuntime(blockers),
     armingDelay = ArmingDelay { },
     clock = ProtectionClock { 2_000L },
     profileRepository = profileRepository,
+    powerIntegrityChallenge = powerIntegrityChallenge,
 )
 
 private class ViewModelProfileRepositoryFake(

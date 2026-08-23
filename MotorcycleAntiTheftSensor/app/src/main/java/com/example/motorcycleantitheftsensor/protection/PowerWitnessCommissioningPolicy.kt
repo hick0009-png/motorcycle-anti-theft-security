@@ -157,6 +157,13 @@ class PowerWitnessCommissioningPolicy(
         const val REJECTION_NOT_SEPARATED = "ranges-not-separated-by-guard-band"
 
         /**
+         * Hood signature pinned for this slice; the real value is confirmed during
+         * Task 7 device acceptance and must stay stable afterwards or every stored
+         * witness model invalidates.
+         */
+        const val DEFAULT_HOOD_SIGNATURE = "hood-default-v1"
+
+        /**
          * Stable, inspectable fingerprint covering every invalidating field: recorded
          * ranges, guard band, algorithm version, sensor identity, and hood signature.
          */

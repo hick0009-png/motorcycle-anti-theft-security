@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.ui
 
 import androidx.lifecycle.ViewModel
+import com.example.motorcycleantitheftsensor.protection.ChargingState
 import com.example.motorcycleantitheftsensor.protection.CommandOutcome
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.GuidanceAction
@@ -14,6 +15,10 @@ import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileOverrides
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
+import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
+import com.example.motorcycleantitheftsensor.protection.PowerArmChallengeRegistry
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -25,6 +30,8 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRuntime
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
+import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
@@ -66,6 +73,8 @@ class ProtectionViewModel(
     private val profileRepository: ProtectionProfileRepository? = null,
     private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
     private val entryRuntime: ProtectionRuntime? = null,
+    private val powerRuntime: ProtectionRuntime? = null,
+    private val powerArmChallenge: PowerArmChallengeRegistry? = null,
     private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
@@ -102,6 +111,10 @@ class ProtectionViewModel(
     private var commissioningPolicyState = EntryCommissioningPolicy.State()
     private var commissioningClosedBaseline: EntryOrientationSample? = null
     private var commissioningJob: kotlinx.coroutines.Job? = null
+    private val powerCommissioningState = MutableStateFlow<PowerCommissioningUiState?>(null)
+    private var powerCommissioningPolicy: PowerWitnessCommissioningPolicy? = null
+    private var powerCommissioningPolicyState = PowerWitnessCommissioningPolicy.State()
+    private var powerCommissioningJob: kotlinx.coroutines.Job? = null
 
     val audioTelemetry: StateFlow<AudioTelemetry> = coordinator.audioTelemetry
 
@@ -137,8 +150,14 @@ class ProtectionViewModel(
         },
         profileState,
         entryCommissioningState,
-    ) { base, profile, commissioning ->
-        base.copy(profile = profile.copy(commissioning = commissioning))
+        powerCommissioningState,
+    ) { base, profile, commissioning, powerCommissioning ->
+        base.copy(
+            profile = profile.copy(
+                commissioning = commissioning,
+                powerCommissioning = powerCommissioning,
+            ),
+        )
     }.stateIn(
         scope = scope,
         started = SharingStarted.Eagerly,
@@ -328,6 +347,83 @@ class ProtectionViewModel(
         }
     }
 
+    /** Starts the guided lamp off/on witness commissioning flow (charger connected). */
+    fun startPowerCommissioning() {
+        val runtime = powerRuntime ?: return
+        val repository = profileRepository ?: return
+        val policy = PowerWitnessCommissioningPolicy(
+            windowDurationMs = 5_000L,
+            maxSampleGapMs = 2_000L,
+            maxRangeSpanLux = 20.0,
+            guardBandLux = 10.0,
+            sensorIdentity = EntryCommissioningEnvironment.sensorIdentity(),
+            hoodSignature = PowerWitnessCommissioningPolicy.DEFAULT_HOOD_SIGNATURE,
+        )
+        powerCommissioningPolicy = policy
+        // start() enters DARK_WINDOW; a bare State() stays IDLE and drops every sample.
+        powerCommissioningPolicyState = policy.start()
+        powerCommissioningState.value = PowerCommissioningUiState(
+            phase = PowerCommissioningPhase.DARK_WINDOW,
+        )
+        runtime.startPowerCommissioningStream()
+        powerCommissioningJob = scope.launch {
+            runtime.powerWitnessSamples().collect { sample ->
+                advancePowerCommissioning(repository, runtime, sample)
+            }
+        }
+    }
+
+    fun cancelPowerCommissioning() {
+        powerCommissioningJob?.cancel()
+        powerCommissioningJob = null
+        powerCommissioningPolicy = null
+        powerRuntime?.stopPowerCommissioningStream()
+        powerCommissioningState.value = null
+        scope.launch { refreshProfile() }
+    }
+
+    /** Records the per-arm lamp off/on integrity challenge as just passed. */
+    fun markPowerChallengePassed() {
+        powerArmChallenge?.markPassed(nowMs())
+    }
+
+    private suspend fun advancePowerCommissioning(
+        repository: ProtectionProfileRepository,
+        runtime: ProtectionRuntime,
+        sample: PowerWitnessSample,
+    ) {
+        val policy = powerCommissioningPolicy ?: return
+        val current = powerCommissioningState.value ?: return
+        powerCommissioningPolicyState = policy.onSample(powerCommissioningPolicyState, sample)
+
+        val nextPhase = when (powerCommissioningPolicyState.phase) {
+            PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW -> PowerCommissioningPhase.DARK_WINDOW
+            PowerWitnessCommissioningPolicy.Phase.LIT_WINDOW -> PowerCommissioningPhase.LIT_WINDOW
+            PowerWitnessCommissioningPolicy.Phase.COMMISSIONED -> PowerCommissioningPhase.COMMISSIONED
+            PowerWitnessCommissioningPolicy.Phase.IDLE -> PowerCommissioningPhase.FAILED
+        }
+        powerCommissioningState.value = current.copy(
+            phase = nextPhase,
+            liveLux = sample.lux,
+            failureReason = powerCommissioningPolicyState.rejectionReason,
+        )
+
+        if (powerCommissioningPolicyState.phase == PowerWitnessCommissioningPolicy.Phase.COMMISSIONED) {
+            val model = powerCommissioningPolicyState.model
+            if (model != null) {
+                repository.update { profilePolicy.commissionPower(it, model) }
+            }
+            powerCommissioningPolicy = null
+            runtime.stopPowerCommissioningStream()
+            powerCommissioningState.value = null
+            // Refresh before cancelling: this runs inside the commissioning job and a
+            // self-cancel here would abort the profile-state refresh below.
+            refreshProfile()
+            powerCommissioningJob?.cancel()
+            powerCommissioningJob = null
+        }
+    }
+
     fun restoreRecommendedProfile() = runProtectionCommand(GuidanceCode.SETTINGS_SAVE_FAILED) {
         val repository = profileRepository ?: return@runProtectionCommand
         val state = runCatching { repository.load() }.getOrNull() ?: return@runProtectionCommand
@@ -354,15 +450,25 @@ class ProtectionViewModel(
             runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
         }
         val entryAngle = (resolved?.specificSettings as? EntryProfileSettings)?.angleThresholdDegrees
+        val snapshot = coordinator.snapshot.value
         profileState.value = ProtectionProfileUiState(
             selectedProfile = selected,
-            armedProfile = coordinator.snapshot.value.armedProfileSnapshot?.profile,
+            armedProfile = snapshot.armedProfileSnapshot?.profile,
             setupState = resolved?.setupState,
             customized = resolved?.customized ?: false,
             showPicker = selected == null,
             pendingSwitchTarget = pendingSwitchTarget,
             entryAngleDegrees = entryAngle,
             entryRequiresControlledRearm = pendingEntryRearm,
+            powerSummary = if (selected == ProtectionProfile.POWER) {
+                powerSummaryRows(
+                    chargingState = snapshot.chargingState,
+                    degradationReasons = snapshot.degradationReasons,
+                    lightSensorHealth = snapshot.sensorHealth[SensorKind.LIGHT],
+                )
+            } else {
+                null
+            },
         )
     }
 
@@ -746,4 +852,33 @@ class ProtectionViewModel(
             missingPermissions = emptySet(),
         )
     }
+}
+
+/**
+ * Projects the two independent POWER signal rows (spec sections 3.6/5) from
+ * coordinator-owned data only. Neither row alone may claim an outage: a charger loss
+ * is a health condition, a dark/unavailable witness is a health condition, and only
+ * their dual confirmation belongs to the arbiter's incident pipeline.
+ */
+internal fun powerSummaryRows(
+    chargingState: ChargingState,
+    degradationReasons: Set<String>,
+    lightSensorHealth: SensorHealth?,
+): PowerSummaryRows {
+    val charging = when (chargingState) {
+        ChargingState.CHARGING, ChargingState.FULL -> ChargingRowState.CONNECTED
+        ChargingState.DISCHARGING, ChargingState.NOT_CHARGING -> ChargingRowState.DISCONNECTED
+        ChargingState.UNKNOWN -> ChargingRowState.UNKNOWN
+    }
+    val lightUsable = lightSensorHealth != null &&
+        (
+            lightSensorHealth.state == SensorHealthState.HEALTHY ||
+                lightSensorHealth.state == SensorHealthState.AVAILABLE
+            )
+    val witness = when {
+        POWER_CHALLENGE_DEGRADED in degradationReasons -> WitnessRowState.UNAVAILABLE
+        lightUsable -> WitnessRowState.DETECTED
+        else -> WitnessRowState.UNAVAILABLE
+    }
+    return PowerSummaryRows(charging = charging, witness = witness)
 }

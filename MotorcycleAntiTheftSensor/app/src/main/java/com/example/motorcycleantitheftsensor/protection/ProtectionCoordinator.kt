@@ -19,7 +19,7 @@ import kotlin.math.roundToInt
 value class RecoveryGenerationToken(val value: Long)
 
 /** Degradation reason recorded when the per-arm Power witness challenge was skipped. */
-private const val POWER_CHALLENGE_DEGRADED = "Power witness placement not revalidated"
+internal const val POWER_CHALLENGE_DEGRADED = "Power witness placement not revalidated"
 
 class ProtectionCoordinator(
     initialSnapshot: ProtectionSnapshot,

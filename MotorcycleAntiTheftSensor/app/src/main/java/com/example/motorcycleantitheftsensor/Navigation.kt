@@ -93,6 +93,8 @@ fun MainNavigation(
             incidents = graph.incidents,
             settings = settingsGateway,
             profileRepository = graph.profileRepository,
+            powerRuntime = graph.runtime,
+            powerArmChallenge = graph.powerArmChallenge,
             initialMissingPermissions = missingPermissions,
         )
     }
@@ -136,6 +138,9 @@ fun MainNavigation(
             entrySetAngle = protectionViewModel::setEntryAngle,
             entryStartCommissioning = protectionViewModel::startEntryCommissioning,
             entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,
+            powerStartCommissioning = protectionViewModel::startPowerCommissioning,
+            powerCancelCommissioning = protectionViewModel::cancelPowerCommissioning,
+            powerMarkChallengePassed = protectionViewModel::markPowerChallengePassed,
         ),
     )
 }

@@ -78,6 +78,24 @@ class ProtectionProfilesUiTest {
         composeRule.onAllNodesWithText("Setup required").assertCountEquals(2)
     }
 
+    /** Compile-only this slice; executed on device during Task 7 acceptance. */
+    @Test
+    fun powerSummaryShowsBothRowsIndependently() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = ProfileSetupState.READY,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.CONNECTED,
+                    witness = WitnessRowState.UNAVAILABLE,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithText("กำลังชาร์จ").assertIsDisplayed()
+        composeRule.onNodeWithText("ไฟยืนยัน: ใช้งานไม่ได้").assertIsDisplayed()
+    }
+
     @Test
     fun armedChangeUseKeepsProtectionUntilExplicitConfirmation() {
         var confirmed = false

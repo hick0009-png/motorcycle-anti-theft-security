@@ -109,6 +109,15 @@ fun ProtectionScreen(
             }
         }
 
+        if (state.profile.selectedProfile == com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER) {
+            item(key = "power-guard") {
+                PowerGuardSection(
+                    profile = state.profile,
+                    actions = actions,
+                )
+            }
+        }
+
         protection.persistentGuidance?.let { guidance ->
             item(key = "persistent-guidance") {
                 StatusCard(title = guidance.titleTh) {

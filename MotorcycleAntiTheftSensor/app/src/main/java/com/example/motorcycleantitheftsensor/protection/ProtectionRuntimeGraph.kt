@@ -43,6 +43,7 @@ object ProtectionRuntimeGraph {
         val livePursuitCoordinator: LivePursuitCoordinator,
         val sensorRepository: SensorConfigurationRepository? = null,
         val profileRepository: ProtectionProfileRepository? = null,
+        val powerArmChallenge: PowerArmChallengeRegistry = PowerArmChallengeRegistry(),
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -453,6 +454,7 @@ object ProtectionRuntimeGraph {
         val configuredSensitivity = initialConfig.capability(SensorCapability.MOVEMENT).sensitivity
         preferences.setSensitivity(configuredSensitivity)
         runtime.applySensitivity(configuredSensitivity)
+        val graphPowerArmChallenge = PowerArmChallengeRegistry()
         coordinator = ProtectionCoordinator(
             initialSnapshot = ProtectionSnapshot.offline(wallClock.nowMs()).copy(
                 sensitivityLevel = configuredSensitivity,
@@ -487,6 +489,15 @@ object ProtectionRuntimeGraph {
             entryCommissioningContextProvider = {
                 EntryCommissioningEnvironment.currentContext(entryUseContinuous = true)
             },
+            powerCommissioningContextProvider = {
+                PowerWitnessCommissioningPolicy.CommissioningContext(
+                    sensorIdentity = EntryCommissioningEnvironment.sensorIdentity(),
+                    hoodSignature = PowerWitnessCommissioningPolicy.DEFAULT_HOOD_SIGNATURE,
+                    algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+                    powerUseContinuous = true,
+                )
+            },
+            powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
         )
         runtime.applySensitivity(configuredSensitivity)
         coordinator.recordSensorHealthSnapshot(runtime.currentSensorHealth())
@@ -535,6 +546,7 @@ object ProtectionRuntimeGraph {
             livePursuitCoordinator = livePursuitCoordinator,
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
+            powerArmChallenge = graphPowerArmChallenge,
         )
     }
 
