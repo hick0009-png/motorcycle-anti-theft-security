@@ -612,7 +612,7 @@ git commit -m "feat: recover frozen protection profiles"
 - Consumes: coordinator profile APIs and repository-backed profile read model.
 - Produces: visible profile picker/cards, persistent active-profile identity, confirmation flow, and profile-scoped Settings state.
 
-- [ ] **Step 1: Write failing ViewModel tests**
+- [x] **Step 1: Write failing ViewModel tests**
 
 ```kotlin
 @Test fun unselectedCustomerSeesWhatAreYouProtectingPicker() = runTest {
@@ -635,7 +635,7 @@ git commit -m "feat: recover frozen protection profiles"
 }
 ```
 
-- [ ] **Step 2: Run ViewModel tests and confirm RED**
+- [x] **Step 2: Run ViewModel tests and confirm RED**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionViewModelTest'
@@ -643,7 +643,7 @@ git commit -m "feat: recover frozen protection profiles"
 
 Expected: compilation fails because profile UI state/actions do not exist.
 
-- [ ] **Step 3: Add profile read model and actions**
+- [x] **Step 3: Add profile read model and actions**
 
 ```kotlin
 data class ProtectionProfileUiState(
@@ -666,7 +666,7 @@ data class ProtectionAppActions(
 
 Project profile state only from coordinator/repository data. Do not infer readiness in Compose. `ProtectionScreen` shows a profile chip and Change use action. When no profile is selected, show the three “What are you protecting?” cards. `SettingsScreen` places current use/profile before detection settings and labels customized values. Entry and Power cards show `Setup required`; their Arm action remains blocked by domain state. Vehicle uses the existing protection summary and Arm path. Keep the existing three bottom destinations; profiles are not tabs.
 
-- [ ] **Step 4: Add Compose UI tests for semantics and confirmation**
+- [x] **Step 4: Add Compose UI tests for semantics and confirmation**
 
 ```kotlin
 @Test fun profilePickerHasThreeNamedCardsAndNoFalseReadyClaim() {
@@ -683,7 +683,7 @@ Project profile state only from coordinator/repository data. Do not infer readin
 }
 ```
 
-- [ ] **Step 5: Run host UI-model tests, then compile instrumentation tests separately**
+- [x] **Step 5: Run host UI-model tests, then compile instrumentation tests separately**
 
 ```powershell
 .\gradlew.bat --no-daemon --max-workers=1 testDebugUnitTest --tests '*ProtectionViewModelTest'
@@ -692,7 +692,7 @@ Project profile state only from coordinator/repository data. Do not infer readin
 
 Expected: ViewModel tests pass and Android-test sources compile. Do not run emulator and Huawei instrumentation simultaneously.
 
-- [ ] **Step 6: Commit visible profile selection**
+- [x] **Step 6: Commit visible profile selection**
 
 ```powershell
 git add MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionUiModels.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModel.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionAppScreen.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/protection/ProtectionScreen.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt MotorcycleAntiTheftSensor/app/src/main/java/com/example/motorcycleantitheftsensor/Navigation.kt MotorcycleAntiTheftSensor/app/src/test/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModelTest.kt MotorcycleAntiTheftSensor/app/src/androidTest/java/com/example/motorcycleantitheftsensor/ui/ProtectionProfilesUiTest.kt
