@@ -104,6 +104,9 @@ data class ProtectionProfileUiState(
     val entryAngleDegrees: Int? = null,
     val entryRequiresControlledRearm: Boolean = false,
     val commissioning: EntryCommissioningUiState? = null,
+    val powerCommissioning: PowerCommissioningUiState? = null,
+    /** Two independent POWER signal rows; null for non-POWER profiles. */
+    val powerSummary: PowerSummaryRows? = null,
 )
 
 /** Guided two-cycle commissioning progress for the เข็มทิศประตู flow (spec section 9). */
@@ -120,6 +123,33 @@ data class EntryCommissioningUiState(
     val liveAngleDeg: Double = 0.0,
     val selectedAngleDeg: Int = 15,
     val failureReason: String? = null,
+)
+
+/** Guided lamp off/on witness commissioning progress for Power Guard (spec 4.3). */
+enum class PowerCommissioningPhase {
+    DARK_WINDOW,
+    LIT_WINDOW,
+    COMMISSIONED,
+    FAILED,
+}
+
+data class PowerCommissioningUiState(
+    val phase: PowerCommissioningPhase,
+    val liveLux: Double? = null,
+    val failureReason: String? = null,
+)
+
+/**
+ * Independent POWER signal rows (spec sections 3.6/5): neither row alone may claim an
+ * outage; each carries its own state so the owner reads them separately.
+ */
+enum class ChargingRowState { CONNECTED, DISCONNECTED, UNKNOWN }
+
+enum class WitnessRowState { DETECTED, DARK, UNAVAILABLE }
+
+data class PowerSummaryRows(
+    val charging: ChargingRowState = ChargingRowState.UNKNOWN,
+    val witness: WitnessRowState = WitnessRowState.UNAVAILABLE,
 )
 
 data class ProtectionStatusUiState(
