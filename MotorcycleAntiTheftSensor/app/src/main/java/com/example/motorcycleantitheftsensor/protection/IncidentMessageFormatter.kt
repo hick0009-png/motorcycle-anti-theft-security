@@ -15,6 +15,9 @@ class IncidentMessageFormatter(
         if (incident.type == IncidentType.ENTRY_DOOR) {
             return entryMessage(update, incident)
         }
+        if (incident.type == IncidentType.POWER) {
+            return powerMessage(update, incident)
+        }
         val code = when (update) {
             is IncidentUpdate.Opened -> GuidanceCode.INCIDENT_OPENED
             is IncidentUpdate.Updated -> GuidanceCode.INCIDENT_UPDATED
@@ -92,6 +95,9 @@ class IncidentMessageFormatter(
         val incident = update.incidentOrNull() ?: return ""
         if (incident.type == IncidentType.ENTRY_DOOR) {
             return entryMessage(update, incident)
+        }
+        if (incident.type == IncidentType.POWER) {
+            return powerMessage(update, incident)
         }
         val code = when (update) {
             is IncidentUpdate.Opened -> GuidanceCode.INCIDENT_OPENED
@@ -235,6 +241,34 @@ class IncidentMessageFormatter(
                 (it.kind == SensorKind.VIBRATION || it.kind == SensorKind.MICROPHONE)
         }
 
+    /**
+     * Typed Power Guard rendering (parent spec sections 4.3/5): the latest power
+     * diagnostic owns the copy. One-signal conditions are health alerts that are
+     * never called a power outage; only the dual-signal state claims a confirmed
+     * loss; recovery copy states the monitored point is stable again.
+     */
+    private fun powerMessage(update: IncidentUpdate, incident: SecurityIncident): String {
+        val latest = incident.evidence.lastOrNull {
+            it.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true
+        }
+        return when (latest?.diagnostic) {
+            POWER_CHARGING_HEALTH ->
+                "การชาร์จโทรศัพท์หยุด ตรวจสอบสายชาร์จ ที่ชาร์จ หรือพอร์ตชาร์จของโทรศัพท์"
+            POWER_WITNESS_DARK ->
+                "ไฟยืนยันไม่พบ ตรวจสอบหลอดไฟยืนยัน การวางตำแหน่ง และเส้นทางจ่ายไฟ"
+            POWER_CONFIRMED_LOSS ->
+                "ยืนยันไฟเลี้ยงขาดในจุดที่เฝ้าระวัง"
+            POWER_RECOVERED ->
+                "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
+            else ->
+                if (update is IncidentUpdate.Closed) {
+                    "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
+                } else {
+                    "🚨 ตรวจพบ ${incident.type.name}"
+                }
+        }
+    }
+
     private companion object {
         const val ENTRY_DIAGNOSTIC_PREFIX = "entry_"
         const val ENTRY_DOOR_OPEN = "entry_door_open"
@@ -244,6 +278,12 @@ class IncidentMessageFormatter(
         const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
         const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
         const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
+
+        const val POWER_DIAGNOSTIC_PREFIX = "power_"
+        const val POWER_CHARGING_HEALTH = "power_charging_health"
+        const val POWER_WITNESS_DARK = "power_witness_dark"
+        const val POWER_CONFIRMED_LOSS = "power_confirmed_loss"
+        const val POWER_RECOVERED = "power_recovered"
     }
 }
 
