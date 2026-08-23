@@ -135,4 +135,83 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithText("Stop protection and change use").assertIsDisplayed()
     }
+
+    @Test
+    fun entryGuardSetupSectionShowsCompassQuickChoicesAndStartsCommissioning() {
+        var startedAtAngle: Int? = null
+        composeRule.setContent {
+            ProtectionAppScreen(
+                state = ProtectionUiState.from(
+                    snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+                        state = ProtectionState.DISARMED_ONLINE,
+                        serviceRunning = true,
+                        telegramPolling = true,
+                        telegramReachable = true,
+                    ),
+                    incidents = emptyList(),
+                    settings = ProtectionSettingsSummary(
+                        tokenConfigured = true,
+                        pairedOwnerCount = 1,
+                        pairingCode = null,
+                        sensitivity = 5,
+                        smsFallbackConfigured = false,
+                        missingPermissions = emptySet(),
+                    ),
+                    nowMs = 1_000L,
+                    profile = ProtectionProfileUiState(
+                        selectedProfile = ProtectionProfile.ENTRY,
+                        setupState = ProfileSetupState.SETUP_REQUIRED,
+                        entryAngleDegrees = 15,
+                    ),
+                ),
+                actions = ProtectionAppActions(
+                    selectDestination = {},
+                    arm = {},
+                    disarm = {},
+                    clearHistory = {},
+                    changeSensitivity = {},
+                    requestPermissions = {},
+                    replaceBotToken = {},
+                    configureSmsFallback = { _, _ -> },
+                    retry = {},
+                    retrySettings = {},
+                    resetPairing = {},
+                    consumeMessage = {},
+                    entryStartCommissioning = { startedAtAngle = it },
+                ),
+            )
+        }
+
+        composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
+        composeRule.onNodeWithText("ปรับเทียบตำแหน่งปิดของประตูก่อนเริ่มใช้งาน")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("15°").assertIsDisplayed()
+        composeRule.onNodeWithText("แจ้งเมื่อประตูเปิดเกิน 15° จากตำแหน่งปิด")
+            .assertIsDisplayed()
+
+        composeRule.onNodeWithText("เริ่มปรับเทียบ")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.runOnIdle { check(startedAtAngle == 15) { "Start must pass selected angle" } }
+    }
+
+    @Test
+    fun entryGuardReadySummaryShowsClosedStateAndControlledRearmBanner() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.ENTRY,
+                armedProfile = ProtectionProfile.ENTRY,
+                setupState = ProfileSetupState.READY,
+                entryAngleDegrees = 15,
+                entryRequiresControlledRearm = true,
+            ),
+        )
+
+        composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
+        composeRule.onNodeWithText("ประตูปิด · 0°").assertIsDisplayed()
+        composeRule.onNodeWithText("แจ้งเมื่อเกิน 15°").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",
+        ).assertIsDisplayed()
+    }
 }

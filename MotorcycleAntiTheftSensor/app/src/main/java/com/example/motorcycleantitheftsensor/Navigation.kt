@@ -133,6 +133,9 @@ fun MainNavigation(
             confirmProfileSwitch = protectionViewModel::confirmProfileSwitch,
             cancelProfileSwitch = protectionViewModel::cancelProfileSwitch,
             restoreRecommendedProfile = protectionViewModel::restoreRecommendedProfile,
+            entrySetAngle = protectionViewModel::setEntryAngle,
+            entryStartCommissioning = protectionViewModel::startEntryCommissioning,
+            entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,
         ),
     )
 }

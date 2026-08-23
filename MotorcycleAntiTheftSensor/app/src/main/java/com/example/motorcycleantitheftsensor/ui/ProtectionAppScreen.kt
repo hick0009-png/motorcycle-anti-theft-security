@@ -44,6 +44,9 @@ import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
 
 data class ProtectionAppActions(
     val selectDestination: (ProtectionDestination) -> Unit,
+    val entrySetAngle: (Int) -> Unit = {},
+    val entryStartCommissioning: (Int) -> Unit = {},
+    val entryCancelCommissioning: () -> Unit = {},
     val arm: () -> Unit,
     val disarm: () -> Unit,
     val clearHistory: () -> Unit,

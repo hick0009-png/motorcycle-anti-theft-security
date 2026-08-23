@@ -15,9 +15,12 @@ import com.example.motorcycleantitheftsensor.sensor.PowerThermalMonitor
 import com.example.motorcycleantitheftsensor.sensor.VibrationDetector
 
 import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController
 import com.example.motorcycleantitheftsensor.sensor.SensorCapabilityController
 import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
@@ -68,6 +71,17 @@ interface AndroidDetectorSet {
     /** Clears the armed-session Entry baseline and stops its orientation listener. */
     fun clearEntryBaseline() {
     }
+
+    /** Registers the rotation source for the guided commissioning flow. */
+    fun startEntryCommissioningStream() {
+    }
+
+    /** Stops the commissioning orientation stream. */
+    fun stopEntryCommissioningStream() {
+    }
+
+    /** Live orientation samples while a commissioning stream is active. */
+    fun entryOrientationSamples(): Flow<EntryOrientationSample> = emptyFlow()
 }
 
 data class IncidentObservationBatch(
@@ -136,6 +150,17 @@ class AndroidProtectionRuntime(
     override fun clearEntryBaseline() {
         detectors.clearEntryBaseline()
     }
+
+    override fun startEntryCommissioningStream() {
+        detectors.startEntryCommissioningStream()
+    }
+
+    override fun stopEntryCommissioningStream() {
+        detectors.stopEntryCommissioningStream()
+    }
+
+    override fun entryOrientationSamples(): Flow<EntryOrientationSample> =
+        detectors.entryOrientationSamples()
 
 
     private fun handleObservation(observation: SensorObservation) {
@@ -372,6 +397,7 @@ class PlatformAndroidDetectorSet(
     /** Armed-session Entry Guard state; inactive unless an Entry session begins. */
     private val entrySession = EntryArmedSessionController()
     private var entryOrientationListener: android.hardware.SensorEventListener? = null
+    private val entrySampleFlow = MutableSharedFlow<EntryOrientationSample>(extraBufferCapacity = 64)
 
     init {
         val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -631,6 +657,18 @@ class PlatformAndroidDetectorSet(
         registerEntryOrientationSource()
     }
 
+    override fun startEntryCommissioningStream() {
+        registerEntryOrientationSource()
+    }
+
+    override fun stopEntryCommissioningStream() {
+        if (!entrySession.isActive) {
+            unregisterEntryOrientationSource()
+        }
+    }
+
+    override fun entryOrientationSamples(): Flow<EntryOrientationSample> = entrySampleFlow
+
     override fun clearEntryBaseline() {
         entrySession.end()
         unregisterEntryOrientationSource()
@@ -661,6 +699,7 @@ class PlatformAndroidDetectorSet(
                     fresh = true,
                 )
                 val verdicts = entrySession.onSample(sample, controller.currentGenerationId())
+                entrySampleFlow.tryEmit(sample)
                 verdicts.forEach { verdict -> record(entryVerdictObservation(verdict, sample)) }
             }
 

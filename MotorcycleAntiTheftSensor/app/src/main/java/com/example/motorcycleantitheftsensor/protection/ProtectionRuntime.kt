@@ -1,8 +1,10 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import com.example.motorcycleantitheftsensor.sensor.SensorConfigurationApplyResult
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 data class ReadinessReport(
     val blockers: Set<String>,
@@ -99,4 +101,18 @@ interface ProtectionRuntime {
     /** Clears the armed-session Entry baseline (owner disarm or controlled profile change). */
     fun clearEntryBaseline() {
     }
+
+    /**
+     * Commissioning-time orientation stream: registers the rotation source without an
+     * armed session so the two-cycle guided flow can observe live samples.
+     */
+    fun startEntryCommissioningStream() {
+    }
+
+    /** Stops the commissioning orientation stream unless an armed session needs it. */
+    fun stopEntryCommissioningStream() {
+    }
+
+    /** Live relative-orientation samples for commissioning UI; empty by default. */
+    fun entryOrientationSamples(): Flow<EntryOrientationSample> = emptyFlow()
 }

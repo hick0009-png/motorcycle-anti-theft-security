@@ -9,6 +9,9 @@ import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
+import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
+import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
+import com.example.motorcycleantitheftsensor.protection.EntryQuaternion
 import com.example.motorcycleantitheftsensor.protection.IncidentEvidence
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
@@ -39,6 +42,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -977,6 +981,158 @@ class ProtectionViewModelTest {
         // Nothing persisted and no switch transaction started without explicit confirmation.
         assertNull(repository.load().switchTransaction)
         assertEquals(ProtectionProfile.POWER, repository.load().selectedProfile)
+    }
+
+    // -------------------------------------------------------------------------
+    // Entry Guard commissioning + angle control (spec sections 5 and 9).
+    // -------------------------------------------------------------------------
+
+    private fun entryViewModelFixture(
+        scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
+        state: ProtectionState = ProtectionState.DISARMED_ONLINE,
+    ): Triple<ProtectionViewModel, ViewModelProfileRepositoryFake, FakeEntrySampleRuntime> {
+        val dispatcher = StandardTestDispatcher(scheduler)
+        val repository = ViewModelProfileRepositoryFake(
+            ProtectionProfilePolicy(nowMs = { 1_000L })
+                .newStoreState()
+                .copy(selectedProfile = ProtectionProfile.ENTRY),
+        )
+        val runtime = FakeEntrySampleRuntime()
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(state = state, profileRepository = repository),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            entryRuntime = runtime,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        return Triple(viewModel, repository, runtime)
+    }
+
+    private fun resolvedEntryAngle(repository: ViewModelProfileRepositoryFake): Int {
+        val settings = ProtectionProfilePolicy(nowMs = { 1_000L })
+            .resolve(repository.load(), ProtectionProfile.ENTRY)
+            .specificSettings as EntryProfileSettings
+        return settings.angleThresholdDegrees
+    }
+
+    @Test
+    fun entryCommissioningPersistsModelAndDrivesSetupToReady() = runTest {
+        val (viewModel, repository, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        fun twist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+            timestampMs = timestampMs,
+            quaternion = EntryQuaternion(
+                w = Math.cos(Math.toRadians(degrees / 2)),
+                x = 0.0,
+                y = 0.0,
+                z = Math.sin(Math.toRadians(degrees / 2)),
+            ),
+            fresh = true,
+        )
+
+        // Still check: five continuous seconds near the closed position.
+        runtime.emit(twist(0.0, 0L))
+        var t = 1_000L
+        while (t <= 5_000L) {
+            runtime.emit(twist(0.0, t))
+            t += 1_000L
+        }
+        // Cycle one: open past the threshold, then return below the close threshold.
+        runtime.emit(twist(20.0, 5_500L))
+        runtime.emit(twist(20.0, 6_000L))
+        runtime.emit(twist(0.0, 6_500L))
+        // Cycle two must agree with cycle one.
+        runtime.emit(twist(20.0, 7_000L))
+        runtime.emit(twist(20.0, 7_500L))
+        runtime.emit(twist(0.0, 8_000L))
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.ENTRY)
+        assertEquals(ProfileSetupState.READY, stored.setupState)
+        assertNotNull(stored.entryHingeModel)
+        assertEquals(ProfileSetupState.READY, viewModel.uiState.value.profile.setupState)
+        assertNull(viewModel.uiState.value.profile.commissioning)
+    }
+
+    @Test
+    fun entryAngleQuickChoicesAndSliderBoundsAreEnforced() = runTest {
+        val (viewModel, repository, _) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.setEntryAngle(4)
+        advanceUntilIdle()
+        assertEquals(5, resolvedEntryAngle(repository))
+
+        viewModel.setEntryAngle(91)
+        advanceUntilIdle()
+        assertEquals(90, resolvedEntryAngle(repository))
+
+        viewModel.setEntryAngle(30)
+        advanceUntilIdle()
+        assertEquals(30, resolvedEntryAngle(repository))
+        assertEquals(30, viewModel.uiState.value.profile.entryAngleDegrees)
+    }
+
+    @Test
+    fun armedEntryAngleChangeDefersWithControlledRearmRequest() = runTest {
+        val (viewModel, repository, _) = entryViewModelFixture(
+            testScheduler,
+            state = ProtectionState.ARMED_HEALTHY,
+        )
+        advanceUntilIdle()
+
+        viewModel.setEntryAngle(45)
+        advanceUntilIdle()
+
+        // Persisted for the next controlled arm; the running session keeps its frozen
+        // threshold and the owner is directed through disarm/calibrate/re-arm.
+        assertEquals(45, resolvedEntryAngle(repository))
+        assertTrue(viewModel.uiState.value.profile.entryRequiresControlledRearm)
+
+        viewModel.disarm()
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.profile.entryRequiresControlledRearm)
+    }
+}
+
+private class FakeEntrySampleRuntime : ProtectionRuntime {
+    private val samples = MutableSharedFlow<EntryOrientationSample>(extraBufferCapacity = 64)
+    var streamStarted = false
+        private set
+    var streamStopped = false
+        private set
+
+    fun emit(sample: EntryOrientationSample) {
+        samples.tryEmit(sample)
+    }
+
+    override fun readiness(): ReadinessReport = ReadinessReport(emptySet(), emptySet())
+
+    override fun startDetectors(): DetectorStartResult = DetectorStartResult(true)
+
+    override fun stopDetectors() = Unit
+
+    override fun applySensitivity(level: Int) = Unit
+
+    override fun currentSensorHealth(): Map<SensorKind, SensorHealth> =
+        mapOf(SensorKind.VIBRATION to SensorHealth(SensorHealthState.HEALTHY))
+
+    override fun entryOrientationSamples(): Flow<EntryOrientationSample> = samples
+
+    override fun startEntryCommissioningStream() {
+        streamStarted = true
+    }
+
+    override fun stopEntryCommissioningStream() {
+        streamStopped = true
     }
 }
 

@@ -100,6 +100,15 @@ fun ProtectionScreen(
             }
         }
 
+        if (state.profile.selectedProfile == com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY) {
+            item(key = "entry-guard") {
+                EntryGuardSection(
+                    profile = state.profile,
+                    actions = actions,
+                )
+            }
+        }
+
         protection.persistentGuidance?.let { guidance ->
             item(key = "persistent-guidance") {
                 StatusCard(title = guidance.titleTh) {

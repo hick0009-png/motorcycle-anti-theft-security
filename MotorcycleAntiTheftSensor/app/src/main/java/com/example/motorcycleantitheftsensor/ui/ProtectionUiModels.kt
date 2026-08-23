@@ -101,6 +101,25 @@ data class ProtectionProfileUiState(
     val customized: Boolean = false,
     val showPicker: Boolean = false,
     val pendingSwitchTarget: ProtectionProfile? = null,
+    val entryAngleDegrees: Int? = null,
+    val entryRequiresControlledRearm: Boolean = false,
+    val commissioning: EntryCommissioningUiState? = null,
+)
+
+/** Guided two-cycle commissioning progress for the เข็มทิศประตู flow (spec section 9). */
+enum class EntryCommissioningPhase {
+    STILL_CHECK,
+    CYCLE_ONE,
+    CYCLE_TWO,
+    COMMISSIONED,
+    FAILED,
+}
+
+data class EntryCommissioningUiState(
+    val phase: EntryCommissioningPhase,
+    val liveAngleDeg: Double = 0.0,
+    val selectedAngleDeg: Int = 15,
+    val failureReason: String? = null,
 )
 
 data class ProtectionStatusUiState(

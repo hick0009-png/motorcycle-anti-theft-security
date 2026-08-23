@@ -7,6 +7,12 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceAction
 import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.GuidanceSeverity
+import com.example.motorcycleantitheftsensor.protection.EntryCommissioningEnvironment
+import com.example.motorcycleantitheftsensor.protection.EntryCommissioningPolicy
+import com.example.motorcycleantitheftsensor.protection.EntryOrientationMath
+import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
+import com.example.motorcycleantitheftsensor.protection.EntryProfileOverrides
+import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
@@ -15,6 +21,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfileRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.ProtectionRuntime
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
@@ -58,6 +65,7 @@ class ProtectionViewModel(
     private val settings: ProtectionSettingsGateway,
     private val profileRepository: ProtectionProfileRepository? = null,
     private val profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(),
+    private val entryRuntime: ProtectionRuntime? = null,
     private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
@@ -87,7 +95,13 @@ class ProtectionViewModel(
         snapshotProjectionGate.shouldProject(snapshot, nowMs())
     }
     @Volatile private var pendingSwitchTarget: ProtectionProfile? = null
+    @Volatile private var pendingEntryRearm: Boolean = false
     private val profileState = MutableStateFlow(ProtectionProfileUiState())
+    private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
+    private var commissioningPolicy: EntryCommissioningPolicy? = null
+    private var commissioningPolicyState = EntryCommissioningPolicy.State()
+    private var commissioningClosedBaseline: EntryOrientationSample? = null
+    private var commissioningJob: kotlinx.coroutines.Job? = null
 
     val audioTelemetry: StateFlow<AudioTelemetry> = coordinator.audioTelemetry
 
@@ -122,8 +136,9 @@ class ProtectionViewModel(
             )
         },
         profileState,
-    ) { base, profile ->
-        base.copy(profile = profile)
+        entryCommissioningState,
+    ) { base, profile, commissioning ->
+        base.copy(profile = profile.copy(commissioning = commissioning))
     }.stateIn(
         scope = scope,
         started = SharingStarted.Eagerly,
@@ -192,6 +207,127 @@ class ProtectionViewModel(
         scope.launch { refreshProfile() }
     }
 
+    /**
+     * Sets the Entry alert angle. Values outside 5-90 are clamped (quick choices and
+     * slider bounds per spec section 9). While armed the change is persisted for the
+     * next controlled arm and the owner is directed through disarm/calibrate/re-arm;
+     * the running session keeps its frozen threshold.
+     */
+    fun setEntryAngle(degrees: Int) = runSettingsCommand(
+        SettingsOperation.UPDATE_SENSOR_CONFIG,
+        GuidanceCode.SETTINGS_SAVE_FAILED,
+    ) {
+        val clamped = degrees.coerceIn(5, 90)
+        val result = coordinator.updateSelectedProfile(nextCommandId()) { state ->
+            val entry = state.profiles.getValue(ProtectionProfile.ENTRY)
+            entry.copy(specificOverrides = EntryProfileOverrides(angleThresholdDegrees = clamped))
+        }
+        publishResult(result)
+        if (result.outcome == CommandOutcome.APPLIED) {
+            val armed = coordinator.snapshot.value.state in setOf(
+                ProtectionState.ARMING,
+                ProtectionState.ARMED_HEALTHY,
+                ProtectionState.ARMED_DEGRADED,
+                ProtectionState.ALERT_ACTIVE,
+            )
+            pendingEntryRearm = armed
+            refreshProfile()
+        }
+    }
+
+    /** Starts the guided two-cycle เข็มทิศประตู commissioning flow. */
+    fun startEntryCommissioning(alertAngleDeg: Int) {
+        val runtime = entryRuntime ?: return
+        val repository = profileRepository ?: return
+        val selectedAngle = alertAngleDeg.coerceIn(5, 90)
+        val policy = EntryCommissioningPolicy(
+            stillRequiredMs = 5_000L,
+            stillToleranceDeg = 2.0,
+            minPeakAngleDeg = selectedAngle.toDouble(),
+            closeThresholdDeg = 3.0,
+            axisAgreementToleranceDeg = 10.0,
+            sensorIdentity = EntryCommissioningEnvironment.sensorIdentity(),
+            mountSignature = EntryCommissioningEnvironment.mountSignature(),
+            orientationSourcePolicy = EntryCommissioningEnvironment.ORIENTATION_SOURCE_POLICY,
+        )
+        commissioningPolicy = policy
+        // start() enters STILL_CHECK; a bare State() stays IDLE and drops every sample.
+        commissioningPolicyState = policy.start()
+        commissioningClosedBaseline = null
+        entryCommissioningState.value = EntryCommissioningUiState(
+            phase = EntryCommissioningPhase.STILL_CHECK,
+            selectedAngleDeg = selectedAngle,
+        )
+        runtime.startEntryCommissioningStream()
+        commissioningJob = scope.launch {
+            runtime.entryOrientationSamples().collect { sample ->
+                advanceEntryCommissioning(repository, runtime, sample)
+            }
+        }
+    }
+
+    fun cancelEntryCommissioning() {
+        commissioningJob?.cancel()
+        commissioningJob = null
+        commissioningPolicy = null
+        commissioningClosedBaseline = null
+        entryRuntime?.stopEntryCommissioningStream()
+        entryCommissioningState.value = null
+        scope.launch { refreshProfile() }
+    }
+
+    private suspend fun advanceEntryCommissioning(
+        repository: ProtectionProfileRepository,
+        runtime: ProtectionRuntime,
+        sample: EntryOrientationSample,
+    ) {
+        val policy = commissioningPolicy ?: return
+        val current = entryCommissioningState.value ?: return
+        val previousPhase = commissioningPolicyState.phase
+        commissioningPolicyState = policy.onSample(commissioningPolicyState, sample)
+
+        // Live angle for the compass display: relative to the most recent closed reading.
+        val closed = commissioningClosedBaseline
+        val liveDeg = if (closed != null) {
+            EntryOrientationMath.totalRotationDeg(
+                EntryOrientationMath.relativeRotation(closed.quaternion, sample.quaternion),
+            )
+        } else {
+            0.0
+        }
+        if (
+            commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE ||
+            commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO ||
+            previousPhase == EntryCommissioningPolicy.Phase.STILL_CHECK
+        ) {
+            if (liveDeg <= 3.0) commissioningClosedBaseline = sample
+        }
+
+        val nextPhase = when (commissioningPolicyState.phase) {
+            EntryCommissioningPolicy.Phase.STILL_CHECK -> EntryCommissioningPhase.STILL_CHECK
+            EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE -> EntryCommissioningPhase.CYCLE_ONE
+            EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO -> EntryCommissioningPhase.CYCLE_TWO
+            EntryCommissioningPolicy.Phase.COMMISSIONED -> EntryCommissioningPhase.COMMISSIONED
+            EntryCommissioningPolicy.Phase.IDLE -> EntryCommissioningPhase.FAILED
+        }
+        entryCommissioningState.value = current.copy(phase = nextPhase, liveAngleDeg = liveDeg)
+
+        if (commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.COMMISSIONED) {
+            val model = commissioningPolicyState.model
+            if (model != null) {
+                repository.update { profilePolicy.commissionEntry(it, model) }
+            }
+            commissioningPolicy = null
+            runtime.stopEntryCommissioningStream()
+            entryCommissioningState.value = null
+            // Refresh before cancelling: this runs inside the commissioning job and a
+            // self-cancel here would abort the profile-state refresh below.
+            refreshProfile()
+            commissioningJob?.cancel()
+            commissioningJob = null
+        }
+    }
+
     fun restoreRecommendedProfile() = runProtectionCommand(GuidanceCode.SETTINGS_SAVE_FAILED) {
         val repository = profileRepository ?: return@runProtectionCommand
         val state = runCatching { repository.load() }.getOrNull() ?: return@runProtectionCommand
@@ -217,6 +353,7 @@ class ProtectionViewModel(
         val resolved = selected?.let { candidate ->
             runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
         }
+        val entryAngle = (resolved?.specificSettings as? EntryProfileSettings)?.angleThresholdDegrees
         profileState.value = ProtectionProfileUiState(
             selectedProfile = selected,
             armedProfile = coordinator.snapshot.value.armedProfileSnapshot?.profile,
@@ -224,6 +361,8 @@ class ProtectionViewModel(
             customized = resolved?.customized ?: false,
             showPicker = selected == null,
             pendingSwitchTarget = pendingSwitchTarget,
+            entryAngleDegrees = entryAngle,
+            entryRequiresControlledRearm = pendingEntryRearm,
         )
     }
 
@@ -236,6 +375,8 @@ class ProtectionViewModel(
 
     fun disarm() = runProtectionCommand(GuidanceCode.COMMAND_DISARM_REJECTED) {
         publishResult(coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL))
+        pendingEntryRearm = false
+        refreshProfile()
     }
 
     fun changeSensitivity(level: Int) = runSettingsCommand(SettingsOperation.CHANGE_SENSITIVITY, GuidanceCode.COMMAND_UNKNOWN) {
