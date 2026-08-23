@@ -149,8 +149,8 @@ Visual and accessibility tokens:
 
 | Token | Value |
 |---|---|
-| Paper background | `#FCFBF8` |
-| Card | `#FFFFFF` |
+| Paper background | `#FFFFFF` |
+| Card | `#FFFFFF` with a 1 dp outline border |
 | Primary / secondary ink | `#171717` / `#4B4B4B` |
 | Outline | `#767676` |
 | Primary action | `#171717` with white text |

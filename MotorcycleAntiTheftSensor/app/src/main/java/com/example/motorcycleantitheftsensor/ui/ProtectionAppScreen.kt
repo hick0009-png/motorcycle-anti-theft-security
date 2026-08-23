@@ -23,7 +23,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -58,6 +58,10 @@ data class ProtectionAppActions(
     val updateSensorConfiguration: (com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration) -> Unit = {},
     val applySensorPreset: (com.example.motorcycleantitheftsensor.protection.SensorPreset) -> Unit = {},
     val onSecureFlagChange: (Boolean) -> Unit = {},
+    val selectProfile: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit = {},
+    val confirmProfileSwitch: () -> Unit = {},
+    val cancelProfileSwitch: () -> Unit = {},
+    val restoreRecommendedProfile: () -> Unit = {},
 )
 
 @Composable
@@ -95,7 +99,7 @@ fun ProtectionAppScreen(
                     modifier = Modifier
                         .height(80.dp)
                         .testTag(PRIMARY_NAVIGATION_TAG),
-                    color = Color.Black,
+                    color = Color.White,
                 ) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
@@ -123,7 +127,7 @@ fun ProtectionAppScreen(
                                 ),
                             ) {
                                 Surface(
-                                    color = if (selected) Color.White else Color.Transparent,
+                                    color = if (selected) Color.Black else Color.Transparent,
                                     shape = RoundedCornerShape(20.dp),
                                 ) {
                                     Box(
@@ -135,7 +139,7 @@ fun ProtectionAppScreen(
                                         Icon(
                                             painter = painterResource(item.iconResource),
                                             contentDescription = null,
-                                            tint = if (selected) Color.Black else Color.White,
+                                            tint = if (selected) Color.White else Color.Black,
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .testTag(
@@ -147,7 +151,7 @@ fun ProtectionAppScreen(
                                 Text(
                                     text = item.label,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White,
+                                    color = Color.Black,
                                     modifier = Modifier.testTag(
                                         "primary_destination_label_${item.name}",
                                     ),
@@ -181,48 +185,49 @@ fun ProtectionAppScreen(
     }
 }
 
-private val NearBlack = Color(0xFF0D0D0D)
-private val DarkGray = Color(0xFF1E1E1E)
-private val MediumGray = Color(0xFF424242)
-private val LightGray = Color(0xFFBDBDBD)
+private val NearWhite = Color(0xFFF7F7F7)
+private val LightGraySurface = Color(0xFFEEEEEC)
+private val MediumGray = Color(0xFF9A9A9A)
+private val DarkInk = Color(0xFF171717)
 
-private val ProtectionMonochromeColorScheme = darkColorScheme(
-    primary = Color.White,
-    onPrimary = Color.Black,
+// Paper-light monochrome scheme: white surfaces, black ink.
+private val ProtectionMonochromeColorScheme = lightColorScheme(
+    primary = DarkInk,
+    onPrimary = Color.White,
     primaryContainer = Color.White,
-    onPrimaryContainer = Color.Black,
-    inversePrimary = Color.Black,
-    secondary = Color.White,
-    onSecondary = Color.Black,
+    onPrimaryContainer = DarkInk,
+    inversePrimary = Color.White,
+    secondary = DarkInk,
+    onSecondary = Color.White,
     secondaryContainer = Color.White,
-    onSecondaryContainer = Color.Black,
-    tertiary = Color.White,
-    onTertiary = Color.Black,
+    onSecondaryContainer = DarkInk,
+    tertiary = DarkInk,
+    onTertiary = Color.White,
     tertiaryContainer = Color.White,
-    onTertiaryContainer = Color.Black,
-    background = Color.Black,
-    onBackground = Color.White,
-    surface = Color.Black,
-    onSurface = Color.White,
-    surfaceVariant = DarkGray,
-    onSurfaceVariant = Color.White,
-    surfaceTint = Color.White,
-    inverseSurface = Color.White,
-    inverseOnSurface = Color.Black,
-    error = Color.White,
-    onError = Color.Black,
-    errorContainer = Color.White,
-    onErrorContainer = Color.Black,
-    outline = LightGray,
-    outlineVariant = MediumGray,
+    onTertiaryContainer = DarkInk,
+    background = Color.White,
+    onBackground = DarkInk,
+    surface = Color.White,
+    onSurface = DarkInk,
+    surfaceVariant = LightGraySurface,
+    onSurfaceVariant = DarkInk,
+    surfaceTint = Color.Transparent,
+    inverseSurface = DarkInk,
+    inverseOnSurface = Color.White,
+    error = Color(0xFFA81818),
+    onError = Color.White,
+    errorContainer = Color(0xFFFCE8E6),
+    onErrorContainer = Color(0xFFA81818),
+    outline = MediumGray,
+    outlineVariant = LightGraySurface,
     scrim = Color.Black,
-    surfaceBright = MediumGray,
-    surfaceContainer = Color.Black,
-    surfaceContainerHigh = DarkGray,
-    surfaceContainerHighest = MediumGray,
-    surfaceContainerLow = NearBlack,
-    surfaceContainerLowest = Color.Black,
-    surfaceDim = Color.Black,
+    surfaceBright = Color.White,
+    surfaceContainer = Color.White,
+    surfaceContainerHigh = NearWhite,
+    surfaceContainerHighest = LightGraySurface,
+    surfaceContainerLow = Color.White,
+    surfaceContainerLowest = Color.White,
+    surfaceDim = LightGraySurface,
 )
 
 private enum class PrimaryDestination(
