@@ -26,4 +26,17 @@
     <string name="advanced_disclosure_show">แสดงการวินิจฉัยขั้นสูง</string>
     <string name="advanced_disclosure_hide">ซ่อนการวินิจฉัยขั้นสูง</string>
     <string name="runtime_health_title">สถานะระบบ</string>
+
+    <!-- Events history screen (profile-aware Thai UX, Task 5; mirrors PresentationTextCatalog) -->
+    <string name="events_loading_title">กำลังโหลดเหตุการณ์</string>
+    <string name="events_empty_title">ยังไม่มีเหตุการณ์</string>
+    <string name="events_empty_detail">เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้</string>
+    <string name="events_error_title">เกิดข้อผิดพลาดในการโหลดเหตุการณ์</string>
+    <string name="events_retry_action">ลองใหม่</string>
+    <string name="events_history_header">ประวัติเหตุการณ์</string>
+    <string name="events_clear_history_action">ล้างประวัติ</string>
+    <string name="events_clear_confirm_title">ยืนยันการล้างประวัติ</string>
+    <string name="events_clear_confirm_body">การดำเนินการนี้จะลบประวัติเหตุการณ์ในเครื่องอย่างถาวร</string>
+    <string name="events_clear_confirm_action">ยืนยัน</string>
+    <string name="events_cancel_action">ยกเลิก</string>
 </resources>

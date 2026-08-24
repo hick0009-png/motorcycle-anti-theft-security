@@ -25,9 +25,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.R
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionEventRow
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
@@ -44,7 +47,7 @@ fun EventsScreen(
 
     when {
         state.eventsLoading -> EventMessage(
-            title = "Loading events",
+            title = stringResource(R.string.events_loading_title),
             contentPadding = contentPadding,
             modifier = modifier,
             progress = true,
@@ -58,8 +61,8 @@ fun EventsScreen(
         )
 
         state.events.isEmpty() -> EventMessage(
-            title = "No protection events",
-            detail = "Incidents will appear here when protection records them.",
+            title = stringResource(R.string.events_empty_title),
+            detail = stringResource(R.string.events_empty_detail),
             contentPadding = contentPadding,
             modifier = modifier,
         )
@@ -74,7 +77,7 @@ fun EventsScreen(
             item(key = "events-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Events",
+                        text = stringResource(R.string.events_history_header),
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.semantics { heading() },
                     )
@@ -85,7 +88,7 @@ fun EventsScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Clear history")
+                        Text(stringResource(R.string.events_clear_history_action))
                     }
                 }
             }
@@ -98,8 +101,8 @@ fun EventsScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear event history?") },
-            text = { Text("This permanently removes the local event history.") },
+            title = { Text(stringResource(R.string.events_clear_confirm_title)) },
+            text = { Text(stringResource(R.string.events_clear_confirm_body)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -108,7 +111,7 @@ fun EventsScreen(
                     },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Confirm clear")
+                    Text(stringResource(R.string.events_clear_confirm_action))
                 }
             },
             dismissButton = {
@@ -116,13 +119,18 @@ fun EventsScreen(
                     onClick = { confirmClear = false },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.events_cancel_action))
                 }
             },
         )
     }
 }
 
+/**
+ * Renders persisted incident facts through the shared Thai presentation catalog.
+ * Evidence stays bounded to what the incident actually recorded; no raw enum
+ * names, English field prefixes, diagnostics, tokens, or identifiers are shown.
+ */
 @Composable
 private fun EventRow(event: ProtectionEventRow) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -130,13 +138,16 @@ private fun EventRow(event: ProtectionEventRow) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(event.type.displayName(), style = MaterialTheme.typography.titleMedium)
-            Text("Source: REAL")
-            Text("Severity: ${event.severity.displayName()}")
-            Text("Lifecycle: ${event.lifecycle.displayName()}")
-            Text("Evidence: ${event.evidenceSummary}")
-            Text("Time: ${formatProtectionTimestamp(event.updatedAtMs)}")
-            Text("Delivery: ${event.deliveryState.displayName()}")
+            Text(
+                text = PresentationTextCatalog.incidentTitle(event.type),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(PresentationTextCatalog.formatEventSourceLine())
+            Text(PresentationTextCatalog.formatEventSeverityLine(event.severity))
+            Text(PresentationTextCatalog.formatEventLifecycleLine(event.lifecycle))
+            Text(PresentationTextCatalog.EVENT_EVIDENCE_PREFIX + event.evidenceSummary)
+            Text(PresentationTextCatalog.EVENT_TIME_PREFIX + formatProtectionTimestamp(event.updatedAtMs))
+            Text(PresentationTextCatalog.formatEventDeliveryLine(event.deliveryState))
         }
     }
 }
@@ -160,7 +171,7 @@ private fun EventError(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Unable to load events",
+                text = stringResource(R.string.events_error_title),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.semantics { heading() },
             )
@@ -169,7 +180,7 @@ private fun EventError(
                 onClick = retry,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("Retry")
+                Text(stringResource(R.string.events_retry_action))
             }
         }
     }
@@ -204,8 +215,3 @@ private fun EventMessage(
         }
     }
 }
-
-private fun Enum<*>.displayName(): String = name
-    .lowercase()
-    .replace('_', ' ')
-    .replaceFirstChar(Char::uppercase)

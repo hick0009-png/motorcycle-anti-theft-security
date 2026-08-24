@@ -291,9 +291,13 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(historyState(), actions)
 
         openEvents()
-        compose.onNodeWithText("Clear history").performClick()
+        compose.onNodeWithText("ล้างประวัติ").performClick()
         assertEquals(0, clearCalls)
-        compose.onNodeWithText("Confirm clear").performClick()
+        compose.onNodeWithText("ยืนยันการล้างประวัติ").assertExists()
+        compose.onNodeWithText("ยกเลิก").performClick()
+        assertEquals(0, clearCalls)
+        compose.onNodeWithText("ล้างประวัติ").performClick()
+        compose.onNodeWithText("ยืนยัน").performClick()
         assertEquals(1, clearCalls)
     }
 
@@ -319,7 +323,8 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNodeWithText("Loading events").assertExists()
+        compose.onNodeWithText("กำลังโหลดเหตุการณ์").assertExists()
+        compose.onAllNodes(hasText("Loading events", substring = true)).assertCountEquals(0)
     }
 
     @Test
@@ -334,7 +339,7 @@ class ProtectionAppScreenTest {
             )
         }
         compose.onNodeWithText("History unavailable").assertExists()
-        compose.onNodeWithText("Retry").assertExists()
+        compose.onNodeWithText("ลองใหม่").assertExists()
     }
 
     @Test
@@ -428,7 +433,8 @@ class ProtectionAppScreenTest {
                 fakeActions(),
             )
         }
-        compose.onNode(hasText("No protection events") and isHeading()).assertExists()
+        compose.onNode(hasText("ยังไม่มีเหตุการณ์") and isHeading()).assertExists()
+        compose.onNodeWithText("เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้").assertExists()
     }
 
     @Test
@@ -461,12 +467,47 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun eventCardsRenderThaiLabelsWithoutRawEnumsOrEnglishPrefixes() {
+        compose.setContent {
+            ProtectionAppScreen(
+                historyState().copy(destination = ProtectionDestination.EVENTS),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("🚨 รถอาจถูกเคลื่อนย้าย").assertExists()
+        compose.onNodeWithText("แหล่งข้อมูล: เหตุการณ์จริง").assertExists()
+        compose.onNodeWithText("ความรุนแรง: เตือนภัย").assertExists()
+        compose.onNodeWithText("สถานะเหตุการณ์: สิ้นสุดแล้ว").assertExists()
+        compose.onNodeWithText("หลักฐาน: ตรวจพบแรงสั่นต่อเนื่อง (2.5 m/s²)").assertExists()
+        compose.onNodeWithText("การแจ้งเตือน: ส่งสำเร็จ").assertExists()
+        listOf(
+            "OPEN",
+            "CLOSED",
+            "INTERRUPTED",
+            "PENDING",
+            "SENT",
+            "FAILED",
+            "NOT_ELIGIBLE",
+            "Source:",
+            "Severity:",
+            "Lifecycle:",
+            "Evidence:",
+            "Time:",
+            "Delivery:",
+            "REAL",
+        ).forEach { fragment ->
+            compose.onAllNodes(hasText(fragment, substring = true)).assertCountEquals(0)
+        }
+    }
+
+    @Test
     fun eventsUseReadableLocalTimestampInsteadOfRawEpochMillis() {
         val state = historyState().copy(destination = ProtectionDestination.EVENTS)
         compose.setContent { ProtectionAppScreen(state, fakeActions()) }
 
         compose.onNodeWithText(
-            "Time: ${formatProtectionTimestamp(TEST_TIMESTAMP_MS)}",
+            "เวลา: ${formatProtectionTimestamp(TEST_TIMESTAMP_MS)}",
         ).assertExists()
         compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
             .assertCountEquals(0)
@@ -674,7 +715,7 @@ private fun historyState(): ProtectionUiState =
                 type = IncidentType.VIBRATION,
                 severity = IncidentSeverity.WARNING,
                 lifecycle = IncidentLifecycle.CLOSED,
-                evidenceSummary = "VIBRATION: movement",
+                evidenceSummary = "ตรวจพบแรงสั่นต่อเนื่อง (2.5 m/s²)",
                 updatedAtMs = TEST_TIMESTAMP_MS,
                 deliveryState = DeliveryState.SENT,
             ),

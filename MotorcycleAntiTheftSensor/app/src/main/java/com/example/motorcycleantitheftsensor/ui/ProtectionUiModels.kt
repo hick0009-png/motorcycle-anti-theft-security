@@ -10,6 +10,7 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -409,15 +410,8 @@ internal fun audioThreatCategoryLabel(category: com.example.motorcycleantithefts
         com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.ENGINE_RUNNING -> "เครื่องยนต์กำลังทำงาน"
     }
 
-internal fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String = when (lifecycle) {
-    IncidentLifecycle.OPEN -> "กำลังดำเนินเหตุการณ์"
-    IncidentLifecycle.CLOSED -> "สิ้นสุดแล้ว"
-    IncidentLifecycle.INTERRUPTED -> "ยกระดับเป็นวิกฤต"
-}
+internal fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String =
+    PresentationTextCatalog.incidentLifecycleLabel(lifecycle)
 
-internal fun deliveryStateLabel(state: DeliveryState): String = when (state) {
-    DeliveryState.PENDING -> "รอส่ง"
-    DeliveryState.SENT -> "ส่งสำเร็จ"
-    DeliveryState.FAILED -> "ส่งไม่สำเร็จ"
-    DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเงื่อนไขการส่ง"
-}
+internal fun deliveryStateLabel(state: DeliveryState): String =
+    PresentationTextCatalog.deliveryStateLabel(state)

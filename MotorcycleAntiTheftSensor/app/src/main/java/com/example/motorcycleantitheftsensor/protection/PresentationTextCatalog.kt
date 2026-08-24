@@ -202,6 +202,59 @@ object PresentationTextCatalog {
         IncidentSeverity.CRITICAL -> "วิกฤต"
     }
 
+    /**
+     * Single-sourced incident lifecycle/delivery Thai labels (profile-aware Thai UX,
+     * Task 5): the Events history screen and Protection diagnostics must render
+     * identical wording, so display code never derives labels from enum names.
+     */
+    fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String = when (lifecycle) {
+        IncidentLifecycle.OPEN -> "กำลังดำเนินเหตุการณ์"
+        IncidentLifecycle.CLOSED -> "สิ้นสุดแล้ว"
+        IncidentLifecycle.INTERRUPTED -> "ยกระดับเป็นวิกฤต"
+    }
+
+    fun deliveryStateLabel(state: DeliveryState): String = when (state) {
+        DeliveryState.PENDING -> "รอส่ง"
+        DeliveryState.SENT -> "ส่งสำเร็จ"
+        DeliveryState.FAILED -> "ส่งไม่สำเร็จ"
+        DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเงื่อนไขการส่ง"
+    }
+
+    /**
+     * Events history screen terms (profile-aware Thai UX, Task 5). `strings.xml`
+     * mirrors these values for resource-based rendering; host tests pin them here
+     * so resource drift fails the build.
+     */
+    const val EVENTS_LOADING = "กำลังโหลดเหตุการณ์"
+    const val EVENTS_EMPTY_TITLE = "ยังไม่มีเหตุการณ์"
+    const val EVENTS_EMPTY_DETAIL = "เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้"
+    const val EVENTS_ERROR_TITLE = "เกิดข้อผิดพลาดในการโหลดเหตุการณ์"
+    const val EVENTS_RETRY = "ลองใหม่"
+    const val EVENTS_HEADER = "ประวัติเหตุการณ์"
+    const val EVENTS_CLEAR_HISTORY = "ล้างประวัติ"
+    const val EVENTS_CLEAR_CONFIRM_TITLE = "ยืนยันการล้างประวัติ"
+    const val EVENTS_CLEAR_CONFIRM_BODY = "การดำเนินการนี้จะลบประวัติเหตุการณ์ในเครื่องอย่างถาวร"
+    const val EVENTS_CONFIRM_CLEAR = "ยืนยัน"
+    const val EVENTS_CANCEL = "ยกเลิก"
+
+    /** Truthful source label: persisted incidents are real recorded events only. */
+    const val REAL_EVENT_SOURCE = "เหตุการณ์จริง"
+
+    /** Typed row-line formatters; never leak raw enum names or English field prefixes. */
+    fun formatEventSourceLine(): String = "แหล่งข้อมูล: $REAL_EVENT_SOURCE"
+
+    fun formatEventSeverityLine(severity: IncidentSeverity): String =
+        "ความรุนแรง: ${severityLabel(severity)}"
+
+    fun formatEventLifecycleLine(lifecycle: IncidentLifecycle): String =
+        "สถานะเหตุการณ์: ${incidentLifecycleLabel(lifecycle)}"
+
+    fun formatEventDeliveryLine(state: DeliveryState): String =
+        "การแจ้งเตือน: ${deliveryStateLabel(state)}"
+
+    const val EVENT_EVIDENCE_PREFIX = "หลักฐาน: "
+    const val EVENT_TIME_PREFIX = "เวลา: "
+
     fun protectionStateLabel(state: ProtectionState): String = when (state) {
         ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าเริ่มต้น"
         ProtectionState.DISARMED_ONLINE -> "ระบบปิดอยู่"
