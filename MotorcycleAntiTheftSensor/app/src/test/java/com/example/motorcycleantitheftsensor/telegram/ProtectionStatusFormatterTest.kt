@@ -105,7 +105,7 @@ class ProtectionStatusFormatterTest {
         val expectedLines = listOf(
             "🛡️ สถานะระบบป้องกัน",
             "",
-            "สถานะรถ: กำลังป้องกัน",
+            "สถานะระบบ: กำลังป้องกัน",
             "ทำงานมาแล้ว: 24 นาที",
             "[ 🏃 การเคลื่อนไหว ]",
             "ความไวการตรวจจับ: 8/10",
@@ -236,7 +236,8 @@ class ProtectionStatusFormatterTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะรถ: ปลดการป้องกันแล้ว"))
+        assertTrue(output.contains("สถานะระบบ: ปลดการป้องกันแล้ว"))
+        assertFalse("shared status must not use vehicle-only wording", output.contains("สถานะรถ"))
         assertFalse(output.contains("ทำงานมาแล้ว:"))
         assertTrue(output.contains("🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("✅ การสั่น: พร้อมใช้งาน"))
@@ -267,7 +268,7 @@ class ProtectionStatusFormatterTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะรถ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
+        assertTrue(output.contains("สถานะระบบ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
         assertTrue(output.contains("🔎 เซนเซอร์: กำลังเริ่มการทำงาน | พร้อมใช้งาน 5/5"))
     }
 
@@ -374,7 +375,7 @@ class ProtectionStatusFormatterTest {
         val snapshot = ProtectionSnapshot.offline(0L)
         val output = formatter.format(snapshot, 0L, 0L)
 
-        assertTrue(output.contains("สถานะรถ: ออฟไลน์"))
+        assertTrue(output.contains("สถานะระบบ: ออฟไลน์"))
         assertTrue(output.contains("❌ Service: ออฟไลน์"))
         assertTrue(output.contains("❌ Telegram: ขาดการเชื่อมต่อ"))
         assertTrue(output.contains("🔋 แบตเตอรี่: ยังไม่มีข้อมูล"))

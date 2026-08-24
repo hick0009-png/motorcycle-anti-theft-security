@@ -31,7 +31,7 @@ class ProtectionStatusFormatter(
     fun format(projection: ProtectionStatusProjection): String = buildString {
         appendLine("🛡️ สถานะระบบป้องกัน")
         appendLine()
-        appendLine("สถานะรถ: ${projection.protectionState.displayStatusTh}")
+        appendLine("สถานะระบบ: ${projection.protectionState.displayStatusTh}")
         projection.protectionState.armDurationTh?.let {
             appendLine("ทำงานมาแล้ว: $it")
         }

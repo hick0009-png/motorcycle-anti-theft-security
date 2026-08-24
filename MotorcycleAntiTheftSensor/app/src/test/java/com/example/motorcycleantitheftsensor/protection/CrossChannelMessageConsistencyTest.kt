@@ -57,4 +57,103 @@ class CrossChannelMessageConsistencyTest {
         assertEquals("ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม", presentation.recommendedAction)
         assertTrue(telegram.contains("ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม"))
     }
+
+    private fun incident(deliveryState: DeliveryState, type: IncidentType = IncidentType.VIBRATION) =
+        SecurityIncident(
+            id = "INC-CROSS-1",
+            type = type,
+            severity = IncidentSeverity.CRITICAL,
+            lifecycle = IncidentLifecycle.OPEN,
+            evidence = emptyList(),
+            openedAtMs = 1787245200000L,
+            updatedAtMs = 1787245200000L,
+            closedAtMs = null,
+            protectionState = ProtectionState.ALERT_ACTIVE,
+            deliveryState = deliveryState,
+        )
+
+    @Test
+    fun deliverySummaryMatchesSharedCatalogLabelForEveryTypedState() {
+        DeliveryState.entries.forEach { state ->
+            val presentation = IncidentMessagePresentationFactory.create(incident(state))
+            assertEquals(
+                "delivery summary must equal the shared catalog label for $state",
+                PresentationTextCatalog.deliveryStateLabel(state),
+                presentation.deliverySummary,
+            )
+        }
+    }
+
+    @Test
+    fun deliveryIsNeverCalledSuccessfulBeforeRecordedSentState() {
+        listOf(DeliveryState.PENDING, DeliveryState.FAILED, DeliveryState.NOT_ELIGIBLE).forEach { state ->
+            val summary = IncidentMessagePresentationFactory.create(incident(state)).deliverySummary
+            assertFalse("state $state must not read as successful: '$summary'", summary.contains("ส่งสำเร็จ"))
+            assertFalse("state $state must not read as done: '$summary'", summary.contains("แล้ว"))
+        }
+    }
+
+    @Test
+    fun sharedChannelsNeverEchoSecretsOrVehicleOnlyWording() {
+        val telegram = IncidentMessagePresentationFactory.formatTelegramMessage(
+            IncidentMessagePresentationFactory.create(incident(DeliveryState.SENT)),
+        )
+        val sms = IncidentMessagePresentationFactory.formatSmsMessage(
+            IncidentMessagePresentationFactory.create(incident(DeliveryState.SENT)),
+        )
+        val banned = listOf(
+            "token",
+            "chat_id",
+            "chatId",
+            "pairing",
+            "/pair",
+            "/sensitivity",
+            "AES",
+            "secret",
+            "สถานะรถ",
+            "ไฟดับทั้งอาคาร",
+        )
+        listOf(telegram, sms).forEach { message ->
+            banned.forEach { fragment ->
+                assertFalse(
+                    "banned '$fragment' leaked into shared channel message: '$message'",
+                    message.contains(fragment, ignoreCase = true),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun smsContainsNoGpsWordingOrMapLinks() {
+        val sms = IncidentMessagePresentationFactory.formatSmsMessage(
+            IncidentMessagePresentationFactory.create(incident(DeliveryState.SENT)),
+        )
+        listOf("GPS", "พิกัด", "latitude", "longitude", "maps.", "http", "13.7563", "100.5018").forEach { banned ->
+            assertFalse("SMS leaked '$banned'", sms.contains(banned, ignoreCase = true))
+        }
+    }
+
+    @Test
+    fun singleSensorEvidenceNeverClaimsTheftOrForcedEntry() {
+        val telegram = IncidentMessagePresentationFactory.formatTelegramMessage(
+            IncidentMessagePresentationFactory.create(incident(DeliveryState.SENT)),
+        )
+        listOf("ถูกขโมย", "ลักทรัพย์").forEach { claim ->
+            assertFalse(
+                "single-sensor message must not claim theft: '$telegram'",
+                telegram.contains(claim),
+            )
+        }
+    }
+
+    @Test
+    fun powerIncidentSharedCopyNeverClaimsBuildingOutage() {
+        val telegram = IncidentMessagePresentationFactory.formatTelegramMessage(
+            IncidentMessagePresentationFactory.create(incident(DeliveryState.SENT, IncidentType.POWER)),
+        )
+        assertFalse(
+            "power copy must not claim a building outage: '$telegram'",
+            telegram.contains("อาคาร"),
+        )
+    }
 }

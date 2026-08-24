@@ -90,12 +90,12 @@ class UserGuidanceCatalogTest {
         assertEquals("⚠️ รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ", c_PAIRING_INVALID_OR_EXPIRED.telegramTh)
         val c_UNAUTHORIZED_COMMAND = UserGuidanceCatalog.content(GuidanceCode.UNAUTHORIZED_COMMAND, GuidanceDetail.None)
         assertEquals("คำสั่งจากบัญชีที่ไม่ได้รับอนุญาต", c_UNAUTHORIZED_COMMAND.titleTh)
-        assertEquals("ไม่มีการเปลี่ยนสถานะรถ", c_UNAUTHORIZED_COMMAND.bodyTh)
+        assertEquals("ไม่มีการเปลี่ยนสถานะระบบ", c_UNAUTHORIZED_COMMAND.bodyTh)
         assertEquals("🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน", c_UNAUTHORIZED_COMMAND.telegramTh)
         val c_COMMAND_STATUS_SUCCESS = UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS, GuidanceDetail.None)
-        assertEquals("update status card only", c_COMMAND_STATUS_SUCCESS.titleTh)
-        assertEquals("update status card only", c_COMMAND_STATUS_SUCCESS.bodyTh)
-        assertEquals("ℹ️ สถานะรถ: {protectionStatus}", c_COMMAND_STATUS_SUCCESS.telegramTh)
+        assertEquals("อัปเดตสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.titleTh)
+        assertEquals("อัปเดตสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.bodyTh)
+        assertEquals("ℹ️ สถานะระบบ: {protectionStatus}", c_COMMAND_STATUS_SUCCESS.telegramTh)
         val c_COMMAND_ARM_APPLIED = UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_APPLIED, GuidanceDetail.None)
         assertEquals("เปิดการป้องกันแล้ว", c_COMMAND_ARM_APPLIED.titleTh)
         assertEquals("กำลังเปิดการป้องกัน…", c_COMMAND_ARM_APPLIED.bodyTh)
@@ -113,17 +113,24 @@ class UserGuidanceCatalogTest {
         assertEquals("ไม่สามารถปลดการป้องกันได้: ", c_COMMAND_DISARM_REJECTED.bodyTh)
         assertEquals("⚠️ ปลดการป้องกันไม่ได้: ", c_COMMAND_DISARM_REJECTED.telegramTh)
         val c_COMMAND_SENSITIVITY_APPLIED = UserGuidanceCatalog.content(GuidanceCode.COMMAND_SENSITIVITY_APPLIED, GuidanceDetail.None)
-        assertEquals("บันทึกความไวแล้ว", c_COMMAND_SENSITIVITY_APPLIED.titleTh)
-        assertEquals("บันทึกความไวแล้ว", c_COMMAND_SENSITIVITY_APPLIED.bodyTh)
-        assertEquals("✅ ปรับความไวเป็นระดับ 0 แล้ว", c_COMMAND_SENSITIVITY_APPLIED.telegramTh)
+        assertEquals("บันทึกระดับการตรวจจับแล้ว", c_COMMAND_SENSITIVITY_APPLIED.titleTh)
+        assertEquals("บันทึกระดับการตรวจจับแล้ว", c_COMMAND_SENSITIVITY_APPLIED.bodyTh)
+        assertEquals(
+            "✅ บันทึกระดับการตรวจจับ 0/10 แล้ว (ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
+            c_COMMAND_SENSITIVITY_APPLIED.telegramTh,
+        )
         val c_COMMAND_SENSITIVITY_INVALID = UserGuidanceCatalog.content(GuidanceCode.COMMAND_SENSITIVITY_INVALID, GuidanceDetail.None)
-        assertEquals("ระดับความไวไม่ถูกต้อง", c_COMMAND_SENSITIVITY_INVALID.titleTh)
-        assertEquals("ระดับความไวไม่ถูกต้อง", c_COMMAND_SENSITIVITY_INVALID.bodyTh)
-        assertEquals("⚠️ ระดับความไวต้องอยู่ระหว่าง 1 ถึง 10", c_COMMAND_SENSITIVITY_INVALID.telegramTh)
+        assertEquals("ระดับการตรวจจับไม่ถูกต้อง", c_COMMAND_SENSITIVITY_INVALID.titleTh)
+        assertEquals("ระดับการตรวจจับไม่ถูกต้อง", c_COMMAND_SENSITIVITY_INVALID.bodyTh)
+        assertEquals("⚠️ ระดับการตรวจจับต้องอยู่ระหว่าง 1 ถึง 10", c_COMMAND_SENSITIVITY_INVALID.telegramTh)
         val c_COMMAND_HELP = UserGuidanceCatalog.content(GuidanceCode.COMMAND_HELP, GuidanceDetail.None)
         assertEquals("ไม่มี", c_COMMAND_HELP.titleTh)
         assertEquals("ไม่มี", c_COMMAND_HELP.bodyTh)
-        assertEquals("ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10", c_COMMAND_HELP.telegramTh)
+        assertEquals(
+            "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+                "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
+            c_COMMAND_HELP.telegramTh,
+        )
         assertFalse(c_COMMAND_HELP.telegramTh!!.contains("<รหัส>"))
         val c_COMMAND_UNKNOWN = UserGuidanceCatalog.content(GuidanceCode.COMMAND_UNKNOWN, GuidanceDetail.None)
         assertEquals("คำสั่งไม่สำเร็จ", c_COMMAND_UNKNOWN.titleTh)
@@ -139,7 +146,7 @@ class UserGuidanceCatalogTest {
         assertEquals("รวมใน /status", c_SENSOR_UNAVAILABLE.telegramTh)
         val c_SENSOR_PERMISSION_MISSING = UserGuidanceCatalog.content(GuidanceCode.SENSOR_PERMISSION_MISSING, GuidanceDetail.None)
         assertEquals("ต้องอนุญาตสิทธิ์", c_SENSOR_PERMISSION_MISSING.titleTh)
-        assertEquals("เปิดสิทธิ์ Permission เพื่อใช้ Feature", c_SENSOR_PERMISSION_MISSING.bodyTh)
+        assertEquals("เปิดสิทธิ์ที่จำเป็นเพื่อใช้งานฟีเจอร์นี้", c_SENSOR_PERMISSION_MISSING.bodyTh)
         assertNull(c_SENSOR_PERMISSION_MISSING.telegramTh)
         val c_SENSOR_SAMPLE_FAILED = UserGuidanceCatalog.content(GuidanceCode.SENSOR_SAMPLE_FAILED, GuidanceDetail.None)
         assertEquals("อ่านค่าเซนเซอร์ไม่สำเร็จ", c_SENSOR_SAMPLE_FAILED.titleTh)
@@ -201,5 +208,33 @@ class UserGuidanceCatalogTest {
         assertEquals("บันทึกการตั้งค่าไม่สำเร็จ", c_SETTINGS_SAVE_FAILED.titleTh)
         assertEquals("ตรวจสอบข้อมูลแล้วลองใหม่", c_SETTINGS_SAVE_FAILED.bodyTh)
         assertNull(c_SETTINGS_SAVE_FAILED.telegramTh)
+    }
+
+    @Test
+    fun `Verify legacy sensitivity and vehicle-only wording is retired`() {
+        GuidanceCode.values().forEach { code ->
+            val content = UserGuidanceCatalog.content(code, GuidanceDetail.None)
+            val allText = "${content.titleTh} ${content.bodyTh} ${content.telegramTh ?: ""}"
+            assertFalse("Code $code still uses legacy 'ระดับความไว'", allText.contains("ระดับความไว"))
+            assertFalse("Code $code still uses vehicle-only 'สถานะรถ'", allText.contains("สถานะรถ"))
+            assertFalse("Code $code leaks English placeholder copy", allText.contains("update status card only"))
+        }
+    }
+
+    @Test
+    fun `Verify sensitivity command explains Vehicle-detector compatibility scope`() {
+        val applied = UserGuidanceCatalog.content(GuidanceCode.COMMAND_SENSITIVITY_APPLIED, GuidanceDetail.None)
+        val invalid = UserGuidanceCatalog.content(GuidanceCode.COMMAND_SENSITIVITY_INVALID, GuidanceDetail.None)
+        val help = UserGuidanceCatalog.content(GuidanceCode.COMMAND_HELP, GuidanceDetail.None)
+
+        listOf(applied, invalid, help).forEach { content ->
+            val text = "${content.titleTh} ${content.bodyTh} ${content.telegramTh ?: ""}"
+            assertTrue(
+                "sensitivity copy must use 'ระดับการตรวจจับ': $text",
+                text.contains("ระดับการตรวจจับ"),
+            )
+        }
+        assertTrue(applied.telegramTh!!.contains("โหมดยานพาหนะ"))
+        assertTrue(help.telegramTh!!.contains("คำสั่งเดิม"))
     }
 }

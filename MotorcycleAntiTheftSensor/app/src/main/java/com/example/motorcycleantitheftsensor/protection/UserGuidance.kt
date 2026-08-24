@@ -181,16 +181,16 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.UNAUTHORIZED_COMMAND -> GuidanceContent(
                 titleTh = "คำสั่งจากบัญชีที่ไม่ได้รับอนุญาต",
-                bodyTh = "ไม่มีการเปลี่ยนสถานะรถ",
+                bodyTh = "ไม่มีการเปลี่ยนสถานะระบบ",
                 telegramTh = "🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.COMMAND_STATUS_SUCCESS -> GuidanceContent(
-                titleTh = "update status card only",
-                bodyTh = "update status card only",
-                telegramTh = "ℹ️ สถานะรถ: {protectionStatus}",
+                titleTh = "อัปเดตสถานะแล้ว",
+                bodyTh = "อัปเดตสถานะแล้ว",
+                telegramTh = "ℹ️ สถานะระบบ: {protectionStatus}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -228,17 +228,17 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_SENSITIVITY_APPLIED -> GuidanceContent(
-                titleTh = "บันทึกความไวแล้ว",
-                bodyTh = "บันทึกความไวแล้ว",
-                telegramTh = "✅ ปรับความไวเป็นระดับ {level} แล้ว",
+                titleTh = "บันทึกระดับการตรวจจับแล้ว",
+                bodyTh = "บันทึกระดับการตรวจจับแล้ว",
+                telegramTh = "✅ บันทึกระดับการตรวจจับ {level}/10 แล้ว (ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.COMMAND_SENSITIVITY_INVALID -> GuidanceContent(
-                titleTh = "ระดับความไวไม่ถูกต้อง",
-                bodyTh = "ระดับความไวไม่ถูกต้อง",
-                telegramTh = "⚠️ ระดับความไวต้องอยู่ระหว่าง 1 ถึง 10",
+                titleTh = "ระดับการตรวจจับไม่ถูกต้อง",
+                bodyTh = "ระดับการตรวจจับไม่ถูกต้อง",
+                telegramTh = "⚠️ ระดับการตรวจจับต้องอยู่ระหว่าง 1 ถึง 10",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -246,7 +246,8 @@ object UserGuidanceCatalog {
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
                 titleTh = "ไม่มี",
                 bodyTh = "ไม่มี",
-                telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10",
+                telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+                    "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -277,7 +278,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.SENSOR_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ต้องอนุญาตสิทธิ์",
-                bodyTh = "เปิดสิทธิ์ {permissionName} เพื่อใช้ {featureName}",
+                bodyTh = "เปิดสิทธิ์ที่จำเป็นเพื่อใช้งานฟีเจอร์นี้",
                 telegramTh = null,
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
