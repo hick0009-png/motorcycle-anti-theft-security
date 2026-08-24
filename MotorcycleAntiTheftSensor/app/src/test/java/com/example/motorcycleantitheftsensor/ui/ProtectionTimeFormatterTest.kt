@@ -6,14 +6,30 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ProtectionTimeFormatterTest {
+
+    private val bangkok = TimeZone.getTimeZone("Asia/Bangkok")
+
+    /** Thai owners read timestamps in the Buddhist era with Thai month names (spec §6.2). */
     @Test
-    fun epochMillisIsFormattedAsReadableLocalDateAndTime() {
+    fun thaiLocaleRendersReadableBuddhistEraTimestamp() {
         assertEquals(
-            "Jan 1, 1970, 07:00:00",
+            "1 ม.ค. 2513 07:00",
+            formatProtectionTimestamp(
+                epochMillis = 0L,
+                locale = Locale("th", "TH"),
+                timeZone = bangkok,
+            ),
+        )
+    }
+
+    @Test
+    fun explicitLocaleIsHonoredSoInstrumentedTestsCanPinExactOutput() {
+        assertEquals(
+            "1 Jan 1970 07:00",
             formatProtectionTimestamp(
                 epochMillis = 0L,
                 locale = Locale.US,
-                timeZone = TimeZone.getTimeZone("Asia/Bangkok"),
+                timeZone = bangkok,
             ),
         )
     }

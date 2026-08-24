@@ -74,10 +74,24 @@ class ProtectionProfilesUiTest {
             ),
         )
 
-        composeRule.onNodeWithText("Vehicle Guard").assertIsDisplayed()
-        composeRule.onNodeWithText("Entry Guard").assertIsDisplayed()
-        composeRule.onNodeWithText("Power Guard").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Setup required").assertCountEquals(2)
+        composeRule.onNodeWithText("ยานพาหนะ").assertIsDisplayed()
+        composeRule.onNodeWithText("ประตูและทางเข้า").assertIsDisplayed()
+        composeRule.onNodeWithText("ไฟเลี้ยงจุดติดตั้ง").assertIsDisplayed()
+        composeRule.onAllNodesWithText("ต้องตั้งค่าก่อนใช้งาน").assertCountEquals(2)
+    }
+
+    @Test
+    fun vehicleWordingAppearsOnlyWhenVehicleProfileSelected() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                armedProfile = null,
+                setupState = ProfileSetupState.READY,
+            ),
+        )
+
+        composeRule.onNodeWithText("การใช้งานปัจจุบัน: ไฟเลี้ยงจุดติดตั้ง").assertIsDisplayed()
+        composeRule.onAllNodes(hasText("รถ", substring = true)).assertCountEquals(0)
     }
 
     /** Compile-only this slice; executed on device during Task 7 acceptance. */
@@ -96,6 +110,7 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithText("กำลังชาร์จ").assertIsDisplayed()
         composeRule.onNodeWithText("ไฟยืนยัน: ใช้งานไม่ได้").assertIsDisplayed()
+        composeRule.onAllNodes(hasText("ไฟดับทั้งอาคาร", substring = true)).assertCountEquals(0)
     }
 
     @Test
@@ -372,7 +387,7 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
         composeRule.onNodeWithText("ประตูปิด · 0°").assertIsDisplayed()
-        composeRule.onNodeWithText("แจ้งเมื่อเกิน 15°").assertIsDisplayed()
+        composeRule.onNodeWithText("แจ้งเมื่อเกิน 15° จากตำแหน่งปิด").assertIsDisplayed()
         composeRule.onNodeWithText(
             "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",
         ).assertIsDisplayed()

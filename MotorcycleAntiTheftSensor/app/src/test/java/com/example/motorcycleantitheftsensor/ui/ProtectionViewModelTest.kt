@@ -692,12 +692,12 @@ class ProtectionViewModelTest {
 
     @Test
     fun microphoneHealthTextDistinguishesDetectedUnavailableStaleAndFailed() {
-        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
-        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
-        assertEquals("Microphone unavailable", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
-        assertEquals("Microphone data stale", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
-        assertEquals("Microphone failed", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
-        assertEquals("Microphone status unknown", microphoneHealthText(null))
+        assertEquals("ไมโครโฟนพร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
+        assertEquals("ไมโครโฟนพร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
+        assertEquals("ไมโครโฟนไม่พร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
+        assertEquals("ข้อมูลไมโครโฟนล่าช้า", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
+        assertEquals("ไมโครโฟนขัดข้อง", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
+        assertEquals("ยังไม่ทราบสถานะไมโครโฟน", microphoneHealthText(null))
     }
 
     // --- Task 3: Operation Ownership & Self-Test Result Persistence Tests ---

@@ -59,7 +59,7 @@ fun PowerGuardSection(
                 }
                 commissioning.liveLux?.let { lux ->
                     Text(
-                        text = "%.0f lux".format(lux),
+                        text = "%.0f lux · ค่าแสงที่วัดได้ขณะปรับเทียบ".format(lux),
                         style = MaterialTheme.typography.headlineMedium,
                     )
                 }

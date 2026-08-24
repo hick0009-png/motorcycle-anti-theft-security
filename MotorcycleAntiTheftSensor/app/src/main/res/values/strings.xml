@@ -14,4 +14,16 @@
     <string name="action_change_use">เปลี่ยนการใช้งาน</string>
     <string name="action_keep_current_protection">ใช้รูปแบบเดิมต่อ</string>
     <string name="action_stop_protection_and_change_use">หยุดการปกป้องแล้วเปลี่ยน</string>
+
+    <!-- Protection screen outcome-first hero and sections (profile-aware Thai UX, Task 4) -->
+    <string name="action_arm_protection">เปิดระบบป้องกัน</string>
+    <string name="action_disarm_protection">ปิดระบบป้องกัน</string>
+    <string name="action_stop_alarm">ปิดสัญญาณเตือน</string>
+    <string name="protection_arming_countdown">กำลังเปิดระบบ อีก %1$d วินาที</string>
+    <string name="protection_blockers_title">สิ่งที่ยังขาดก่อนป้องกันได้</string>
+    <string name="reduced_coverage_title">การตรวจจับที่ลดลง</string>
+    <string name="degradation_reasons_title">เหตุผลที่ทำงานแบบจำกัด</string>
+    <string name="advanced_disclosure_show">แสดงการวินิจฉัยขั้นสูง</string>
+    <string name="advanced_disclosure_hide">ซ่อนการวินิจฉัยขั้นสูง</string>
+    <string name="runtime_health_title">สถานะระบบ</string>
 </resources>

@@ -353,11 +353,71 @@ internal fun AudioTelemetry.toAudioUiTelemetry(
 }
 
 internal fun microphoneHealthText(health: SensorHealth?): String {
-    if (health == null) return "Microphone status unknown"
+    if (health == null) return "ยังไม่ทราบสถานะไมโครโฟน"
     return when (health.state) {
-        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "Microphone detected"
-        SensorHealthState.UNAVAILABLE -> "Microphone unavailable"
-        SensorHealthState.STALE -> "Microphone data stale"
-        SensorHealthState.FAILED -> "Microphone failed"
+        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "ไมโครโฟนพร้อมใช้งาน"
+        SensorHealthState.UNAVAILABLE -> "ไมโครโฟนไม่พร้อมใช้งาน"
+        SensorHealthState.STALE -> "ข้อมูลไมโครโฟนล่าช้า"
+        SensorHealthState.FAILED -> "ไมโครโฟนขัดข้อง"
     }
+}
+
+/**
+ * Typed Thai presentation labels for the Protection screen diagnostics layer
+ * (profile-aware Thai UX, Task 4). Every mapping is an exhaustive `when` over the
+ * domain enum; display code never calls `.name`, `.lowercase()`, or string replacement.
+ */
+internal fun sensorKindLabel(kind: SensorKind): String = when (kind) {
+    SensorKind.VIBRATION -> "การสั่นสะเทือน"
+    SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+    SensorKind.POWER_THERMAL -> "ไฟและอุณหภูมิ"
+    SensorKind.MICROPHONE -> "ไมโครโฟน"
+    SensorKind.LOCATION -> "ตำแหน่ง"
+}
+
+internal fun sensorHealthStateLabel(state: SensorHealthState): String = when (state) {
+    SensorHealthState.HEALTHY -> "ทำงานปกติ"
+    SensorHealthState.AVAILABLE -> "พร้อมใช้งาน"
+    SensorHealthState.UNAVAILABLE -> "ไม่พร้อมใช้งาน"
+    SensorHealthState.STALE -> "ข้อมูลล่าช้า"
+    SensorHealthState.FAILED -> "ขัดข้อง"
+}
+
+internal fun audioRuntimeStateLabel(state: AudioRuntimeState): String = when (state) {
+    AudioRuntimeState.OFF -> "ปิดอยู่"
+    AudioRuntimeState.STARTING -> "กำลังเริ่มต้น"
+    AudioRuntimeState.CALIBRATING -> "กำลังปรับเทียบ"
+    AudioRuntimeState.LISTENING -> "กำลังฟังเสียง"
+    AudioRuntimeState.CLASSIFYING -> "กำลังวิเคราะห์เสียง"
+    AudioRuntimeState.DEGRADED -> "ทำงานแบบจำกัด"
+    AudioRuntimeState.FAILED -> "ขัดข้อง"
+}
+
+internal fun audioGateStateLabel(state: AudioGateState): String = when (state) {
+    AudioGateState.DISABLED -> "ปิดใช้งาน"
+    AudioGateState.QUIET -> "เสียงเงียบ"
+    AudioGateState.OPEN -> "พบเสียงผิดปกติ"
+}
+
+internal fun audioThreatCategoryLabel(category: com.example.motorcycleantitheftsensor.protection.AudioThreatCategory): String =
+    when (category) {
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.IMPACT -> "แรงกระแทก"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.BREAKING -> "เสียงแตกหัก"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.POWER_TOOL -> "เครื่องมือไฟฟ้า"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.METAL_TAMPER -> "เสียงงัดโลหะ"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.ENGINE_START -> "เครื่องยนต์สตาร์ท"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.ENGINE_RUNNING -> "เครื่องยนต์กำลังทำงาน"
+    }
+
+internal fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String = when (lifecycle) {
+    IncidentLifecycle.OPEN -> "กำลังดำเนินเหตุการณ์"
+    IncidentLifecycle.CLOSED -> "สิ้นสุดแล้ว"
+    IncidentLifecycle.INTERRUPTED -> "ยกระดับเป็นวิกฤต"
+}
+
+internal fun deliveryStateLabel(state: DeliveryState): String = when (state) {
+    DeliveryState.PENDING -> "รอส่ง"
+    DeliveryState.SENT -> "ส่งสำเร็จ"
+    DeliveryState.FAILED -> "ส่งไม่สำเร็จ"
+    DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเงื่อนไขการส่ง"
 }

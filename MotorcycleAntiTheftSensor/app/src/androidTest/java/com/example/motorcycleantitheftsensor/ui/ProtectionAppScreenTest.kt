@@ -26,6 +26,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -95,9 +96,28 @@ class ProtectionAppScreenTest {
     fun protectionHasOneStateCorrectPrimaryAction() {
         compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
 
-        compose.onAllNodes(hasText("Arm protection")).assertCountEquals(1)
-        compose.onAllNodes(hasText("Disarm protection")).assertCountEquals(0)
-        compose.onNodeWithText("Arm protection").assertHeightIsAtLeast(48.dp)
+        compose.onAllNodes(hasText("เปิดระบบป้องกัน")).assertCountEquals(1)
+        compose.onAllNodes(hasText("ปิดระบบป้องกัน")).assertCountEquals(0)
+        compose.onNodeWithText("เปิดระบบป้องกัน").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun heroShowsOutcomeFirstThaiCopyWithoutEnglishFragmentsForEachState() {
+        listOf(
+            ProtectionState.DISARMED_ONLINE to "การป้องกันปิดอยู่",
+            ProtectionState.ARMING to "กำลังเปิดการป้องกัน",
+            ProtectionState.ARMED_HEALTHY to "การป้องกันทำงานปกติ",
+            ProtectionState.ARMED_DEGRADED to "การป้องกันทำงานแบบจำกัด",
+            ProtectionState.ALERT_ACTIVE to "กำลังส่งสัญญาณเตือนภัย",
+            ProtectionState.OFFLINE to "ระบบออฟไลน์",
+        ).forEach { (protectionState, expectedHeroTitle) ->
+            compose.setContent { ProtectionAppScreen(baseState(protectionState), fakeActions()) }
+
+            compose.onNodeWithText(expectedHeroTitle, substring = true).assertExists()
+            compose.onAllNodes(hasText("(Arm)", substring = true)).assertCountEquals(0)
+            compose.onAllNodes(hasText("(Disarm)", substring = true)).assertCountEquals(0)
+            compose.onAllNodes(hasText("Armed in", substring = true)).assertCountEquals(0)
+        }
     }
 
     @Test
@@ -134,7 +154,7 @@ class ProtectionAppScreenTest {
             ).assertHeightIsEqualTo(24.dp)
         }
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Diagnostics"))
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("การวินิจฉัยขั้นสูง"))
         listOf(
             "PROTECTION" to "แท็บปกป้อง",
             "EVENTS" to "แท็บเหตุการณ์",
@@ -172,8 +192,8 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText(
             "ยังไม่ได้ให้สิทธิ์ไมโครโฟน การตรวจจับเสียงผิดปกติจะใช้ไม่ได้",
         ).assertExists()
-        compose.onNodeWithText("Reduced sensor coverage").assertExists()
-        compose.onNodeWithText("Protection blockers").assertDoesNotExist()
+        compose.onNodeWithText("การตรวจจับที่ลดลง").assertExists()
+        compose.onNodeWithText("สิ่งที่ยังขาดก่อนป้องกันได้").assertDoesNotExist()
         compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.runOnIdle {
             assertEquals(ProtectionDestination.SETTINGS, selectedDestination)
@@ -414,9 +434,10 @@ class ProtectionAppScreenTest {
     @Test
     fun disarmedStateShowsLiveSamplesAfterArming() {
         compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
-        compose.onAllNodes(hasText("Live samples begin after arming"))[0].assertHeightIsAtLeast(10.dp)
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("การสั่นสะเทือน"))
+        compose.onAllNodes(hasText("การวัดสดจะเริ่มหลังเปิดระบบ"))[0].assertHeightIsAtLeast(10.dp)
     }
 
     @Test
@@ -433,8 +454,9 @@ class ProtectionAppScreenTest {
             )
         )
         compose.setContent { ProtectionAppScreen(armedState, fakeActions()) }
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Acceleration: 9.8 m/s²"))
         compose.onNodeWithText("Acceleration: 9.8 m/s²").assertExists()
     }
 
@@ -453,6 +475,7 @@ class ProtectionAppScreenTest {
     @Test
     fun protectionUsesReadableLocalTimestampInsteadOfRawEpochMillis() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
+        openAdvancedDiagnostics()
 
         compose.onNodeWithText(formatProtectionTimestamp(TEST_TIMESTAMP_MS)).assertExists()
         compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
@@ -530,9 +553,10 @@ class ProtectionAppScreenTest {
             ),
         )
         showWithLocalNavigation(state)
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Microphone detected"))
-        compose.onNodeWithText("Microphone detected").assertExists()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ไมโครโฟนพร้อมใช้งาน"))
+        compose.onNodeWithText("ไมโครโฟนพร้อมใช้งาน").assertExists()
     }
 
     @Test
@@ -545,9 +569,31 @@ class ProtectionAppScreenTest {
             ),
         )
         showWithLocalNavigation(state)
+        openAdvancedDiagnostics()
 
         compose.onNodeWithTag(com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG).assertExists()
-        compose.onNodeWithText("listening", substring = true, ignoreCase = true).assertExists()
+        compose.onNodeWithText("กำลังฟังเสียง").assertExists()
+        compose.onAllNodes(hasText("listening", substring = true, ignoreCase = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun diagnosticsStayBehindSingleAdvancedDisclosureUntilExpanded() {
+        compose.setContent { ProtectionAppScreen(baseState(ProtectionState.DISARMED_ONLINE), fakeActions()) }
+
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performScrollTo()
+        compose.onNodeWithText("สถานะระบบ").assertDoesNotExist()
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG,
+        ).assertDoesNotExist()
+
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performClick()
+
+        compose.onNodeWithText("สถานะระบบ").assertExists()
     }
 
     @Test
@@ -587,6 +633,15 @@ class ProtectionAppScreenTest {
 
     private fun openSettings() {
         compose.onNodeWithText("ตั้งค่า").performClick()
+    }
+
+    private fun openAdvancedDiagnostics() {
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performScrollTo()
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performClick()
     }
 }
 
