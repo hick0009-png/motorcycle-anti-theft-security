@@ -58,7 +58,7 @@ object PresentationTextCatalog {
                 )
                 SensorCapability.MAGNETIC -> CapabilityPresentation(
                     title = "สนามแม่เหล็กรอบจุดติดตั้ง",
-                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งแวดล้อมรอบตัวรถเปลี่ยน",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งแวดล้อมบริเวณจุดติดตั้งเปลี่ยน",
                     roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
                     isPrimaryControl = false,
                     isGenericSensitivityControl = false,
@@ -158,7 +158,7 @@ object PresentationTextCatalog {
         SensorCapability.MOVEMENT -> "การเคลื่อนไหว"
         SensorCapability.ROTATION -> "การหมุนและเอียง"
         SensorCapability.MAGNETIC -> "สนามแม่เหล็ก"
-        SensorCapability.LIGHT -> "แสงใต้เบาะ"
+        SensorCapability.LIGHT -> "แสงบริเวณจุดติดตั้ง"
         SensorCapability.PROXIMITY -> "ระยะประชิด"
     }
 
@@ -193,7 +193,7 @@ object PresentationTextCatalog {
         IncidentType.TAMPER -> "⚠️ พบการงัดแงะหรือเปิดเบาะ"
         IncidentType.POWER -> "🔌 แหล่งจ่ายไฟถูกตัด"
         IncidentType.THERMAL -> "🌡️ อุณหภูมิผิดปกติ"
-        IncidentType.AUDIO -> "🔊 เสียงผิดปกติรอบตัวรถ"
+        IncidentType.AUDIO -> "🔊 เสียงผิดปกติบริเวณจุดติดตั้ง"
         IncidentType.ENTRY_DOOR -> "🚪 ตรวจพบประตูเปิด"
     }
 
@@ -314,7 +314,7 @@ object PresentationTextCatalog {
             SensorUnit.DEGREES -> "มุมของรถเปลี่ยนประมาณ ${String.format(Locale.US, "%.1f", evidence.baselineDelta)}°"
             SensorUnit.RADIANS_PER_SECOND -> "การหมุนความเร็ว ${String.format(Locale.US, "%.2f", evidence.normalizedValue)} rad/s"
             SensorUnit.MICROTESLA -> "สนามแม่เหล็กรอบรถเปลี่ยนจากค่าตอนเปิดระบบ (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} µT)"
-            SensorUnit.LUX_RATIO -> "แสงใต้เบาะเพิ่มขึ้นจากค่าตอนเปิดระบบ"
+            SensorUnit.LUX_RATIO -> "แสงบริเวณจุดติดตั้งเพิ่มขึ้นจากค่าตอนเปิดระบบ"
             SensorUnit.NORMALIZED_STATE -> "สถานะวัตถุใกล้โทรศัพท์เปลี่ยนจาก ใกล้ เป็น ไกล"
             SensorUnit.TRIGGER -> "เซ็นเซอร์ตรวจพบการเคลื่อนไหวของตัวรถ"
             null -> "ตรวจพบสัญญาณความผิดปกติ"

@@ -1161,7 +1161,7 @@ data class ProtectionStatusProjection(
             sensors.sensors.values.forEach { sensor ->
                 sensor.issueRecommendation?.let { issues.add(it) }
                 if (sensor.isHardwareUnsupported) {
-                    informationalNotices.add("⚠️ ${sensor.kind.name.lowercase().replaceFirstChar { it.uppercase() }}: เครื่องนี้ไม่รองรับฮาร์ดแวร์")
+                    informationalNotices.add("⚠️ ${sensorKindThaiName(sensor.kind)}: เครื่องนี้ไม่รองรับฮาร์ดแวร์")
                 }
             }
 
@@ -1180,6 +1180,15 @@ data class ProtectionStatusProjection(
                 issues = issues,
                 informationalNotices = informationalNotices,
             )
+        }
+
+        /** Thai hardware-kind name so notices never render raw enum identifiers (Task 8). */
+        private fun sensorKindThaiName(kind: SensorKind): String = when (kind) {
+            SensorKind.VIBRATION -> "การสั่นสะเทือน"
+            SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+            SensorKind.POWER_THERMAL -> "ไฟและอุณหภูมิ"
+            SensorKind.MICROPHONE -> "ไมโครโฟน"
+            SensorKind.LOCATION -> "ตำแหน่ง"
         }
     }
 }

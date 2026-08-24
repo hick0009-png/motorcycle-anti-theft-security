@@ -192,7 +192,7 @@ class SensorService : Service(), ServiceEnvironment {
                 )
                 handleInitializedCommand(action, refreshTelegramPolling, "start")
             } else {
-                handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
+                handleInitializedCommand(action, refreshTelegramPolling, commandNameOf(action))
             }
         }
         return if (action == SensorServiceAction.Stop) START_NOT_STICKY else START_STICKY
@@ -208,6 +208,15 @@ class SensorService : Service(), ServiceEnvironment {
         } else {
             controller.handle(action, commandId(commandName))
         }
+    }
+
+    /** Explicit protocol command ids; never derived from enum names (Task 8 contract). */
+    private fun commandNameOf(action: SensorServiceAction): String = when (action) {
+        SensorServiceAction.Arm -> "arm"
+        SensorServiceAction.Disarm -> "disarm"
+        SensorServiceAction.Start -> "start"
+        SensorServiceAction.Stop -> "stop"
+        SensorServiceAction.Ignore -> "ignore"
     }
 
     private suspend fun applyRecovery(

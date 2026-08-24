@@ -215,8 +215,10 @@ class ProtectionAppScreenTest {
         )
         compose.setContent { ProtectionAppScreen(state, fakeActions()) }
 
-        compose.onNodeWithText("Reduced coverage: Microphone").assertExists()
-        compose.onNodeWithText("Blocks protection: Notifications").assertExists()
+        compose.onNodeWithText("⛔ ปิดกั้นการทำงานหลัก").assertExists()
+        compose.onNodeWithText("การแจ้งเตือน").assertExists()
+        compose.onNodeWithText("⚠️ ลดความครอบคลุม").assertExists()
+        compose.onNodeWithText("ไมโครโฟน").assertExists()
     }
 
     @Test
@@ -225,7 +227,7 @@ class ProtectionAppScreenTest {
 
         openSettings()
 
-        compose.onNodeWithText("Token configured").assertExists()
+        compose.onNode(hasText("ตั้งค่าแล้ว", substring = true)).assertExists()
         compose.onNodeWithText(TEST_ONLY_TOKEN).assertDoesNotExist()
     }
 
@@ -239,12 +241,12 @@ class ProtectionAppScreenTest {
             )
         }
 
-        val tokenField = hasSetTextAction() and hasText("Bot token")
+        val tokenField = hasSetTextAction() and hasText("เปลี่ยน Bot Token ใหม่")
         compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
         compose.onNode(hasScrollAction()).performScrollToNode(
-            hasText("Replacement encryption key"),
+            hasText("คีย์เข้ารหัส SMS (Encryption Key)"),
         )
-        val smsKeyField = hasSetTextAction() and hasText("Replacement encryption key")
+        val smsKeyField = hasSetTextAction() and hasText("คีย์เข้ารหัส SMS (Encryption Key)")
         compose.onNode(smsKeyField).performTextInput(UNSAVED_SMS_KEY)
 
         restoration.emulateSavedInstanceStateRestore()
@@ -262,9 +264,9 @@ class ProtectionAppScreenTest {
             )
         }
 
-        val tokenField = hasSetTextAction() and hasText("Bot token")
+        val tokenField = hasSetTextAction() and hasText("เปลี่ยน Bot Token ใหม่")
         compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
-        compose.onNodeWithText("Save bot token").performClick()
+        compose.onNodeWithText("บันทึก Bot Token").performClick()
 
         compose.onNode(tokenField).assertIsNotFocused()
     }
@@ -279,7 +281,7 @@ class ProtectionAppScreenTest {
         }
 
         val copy =
-            "SMS fallback is eligible only for real critical incidents after confirmed Telegram failure."
+            "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)"
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(copy))
         compose.onNodeWithText(copy).assertExists()
     }
@@ -355,8 +357,8 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNodeWithText("Loading settings").assertExists()
-        compose.onNodeWithText("Token not configured").assertDoesNotExist()
+        compose.onNodeWithText("กำลังโหลดการตั้งค่า...").assertExists()
+        compose.onNodeWithText("ยังไม่ตั้งค่า ⚠️").assertDoesNotExist()
     }
 
     @Test
@@ -374,7 +376,7 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText("Settings unavailable").assertExists()
-        compose.onNodeWithText("Retry settings").performClick()
+        compose.onNodeWithText("ลองใหม่อีกครั้ง").performClick()
         compose.runOnIdle { assertEquals(1, retrySettingsCalls) }
     }
 
@@ -388,10 +390,12 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Reset pairing"))
-        compose.onNodeWithText("Reset pairing").performClick()
+        compose.onNode(hasScrollAction()).performScrollToNode(
+            hasText("รีเซ็ตการจับคู่เจ้าของ (Reset Pairing)"),
+        )
+        compose.onNodeWithText("รีเซ็ตการจับคู่เจ้าของ (Reset Pairing)").performClick()
         compose.runOnIdle { assertEquals(0, resetPairingCalls) }
-        compose.onNodeWithText("Confirm reset").performClick()
+        compose.onNodeWithText("ยืนยันรีเซ็ต").performClick()
         compose.runOnIdle { assertEquals(1, resetPairingCalls) }
     }
 
@@ -550,7 +554,7 @@ class ProtectionAppScreenTest {
         }
 
         val slider = hasTestTag("sensitivity_slider") and
-            hasContentDescription("Protection sensitivity, 5 out of 10")
+            hasContentDescription("ระดับการตรวจจับ 5 เต็ม 10")
         compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("sensitivity_slider"))
         val sliderNode = compose.onNode(slider)
         val semanticsNode = sliderNode.fetchSemanticsNode()
@@ -642,10 +646,10 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(configuredSettingsState())
         openSettings()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Audio Threat Detection"))
-        compose.onNodeWithText("Audio Threat Detection").assertExists()
-        compose.onNodeWithText("Audio Runtime").assertExists()
-        compose.onNodeWithText("Last Sample Age").assertExists()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("การวิเคราะห์เสียงคุกคาม"))
+        compose.onNodeWithText("การวิเคราะห์เสียงคุกคาม").assertExists()
+        compose.onNodeWithText("สถานะ Audio Runtime").assertExists()
+        compose.onNodeWithText("โมเดลจำแนกเสียง (YamNet)").assertExists()
         compose.onAllNodes(hasText("Test Microphone", substring = true)).assertCountEquals(0)
         compose.onAllNodes(hasText("Last Self-Test", substring = true)).assertCountEquals(0)
     }

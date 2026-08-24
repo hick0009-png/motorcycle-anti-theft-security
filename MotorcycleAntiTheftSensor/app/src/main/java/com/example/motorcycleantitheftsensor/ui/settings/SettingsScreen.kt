@@ -80,8 +80,12 @@ import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
+import com.example.motorcycleantitheftsensor.ui.audioGateStateLabel
+import com.example.motorcycleantitheftsensor.ui.audioRuntimeStateLabel
+import com.example.motorcycleantitheftsensor.ui.audioThreatCategoryLabel
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionName
 import com.example.motorcycleantitheftsensor.ui.microphoneHealthText
+import com.example.motorcycleantitheftsensor.protection.ProtectionValueFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -1057,11 +1061,11 @@ fun SettingsScreen(
                 )
                 DiagnosticRow(
                     "เบื้องหลัง Service",
-                    if (state.protection.serviceRunning) "กำลังทำงาน (Running) 🟢" else "หยุดทำงาน (Stopped) 🔴",
+                    if (state.protection.serviceRunning) "กำลังทำงาน 🟢" else "หยุดทำงาน 🔴",
                 )
                 DiagnosticRow(
                     "การเชื่อมต่อ Telegram",
-                    if (state.protection.telegramReachable) "เชื่อมต่อได้ (Reachable) 🟢" else "ไม่สามารถติดต่อได้ ⚠️",
+                    if (state.protection.telegramReachable) "เชื่อมต่อได้ 🟢" else "ไม่สามารถติดต่อได้ ⚠️",
                 )
                 DiagnosticRow(
                     "เปลี่ยนสถานะล่าสุดเมื่อ",
@@ -1084,15 +1088,15 @@ fun SettingsScreen(
                 )
                 DiagnosticRow(
                     "สถานะ Audio Runtime",
-                    audio.state.name.lowercase().replace('_', ' '),
+                    audioRuntimeStateLabel(audio.state),
                 )
                 DiagnosticRow(
                     "ประตูสัญญาณ (Energy Gate)",
-                    audio.gateState.name.lowercase(),
+                    audioGateStateLabel(audio.gateState),
                 )
                 DiagnosticRow(
                     "โมเดลจำแนกเสียง (YamNet)",
-                    if (audio.modelReady) "พร้อมทำงาน (Ready) 🟢" else "ยังไม่พร้อม (Not ready) ⚠️",
+                    if (audio.modelReady) "พร้อมทำงาน 🟢" else "ยังไม่พร้อม ⚠️",
                 )
                 DiagnosticRow(
                     "ระดับความดังเสียง (dBFS)",
@@ -1107,8 +1111,8 @@ fun SettingsScreen(
                 DiagnosticRow(
                     "ความหน่วงการจำแนก AI",
                     if (audio.lastInferenceMs != null && audio.averageInferenceMs != null) {
-                        "${audio.lastInferenceMs}ms (เฉลี่ย ${audio.averageInferenceMs}ms)"
-                    } else "N/A",
+                        "${ProtectionValueFormatter.duration(audio.lastInferenceMs)} (เฉลี่ย ${ProtectionValueFormatter.duration(audio.averageInferenceMs)})"
+                    } else "ไม่มีข้อมูล",
                 )
                 DiagnosticRow(
                     "เฟรมที่ตกหล่น / รีสตาร์ต",
@@ -1117,7 +1121,7 @@ fun SettingsScreen(
                 audio.currentCandidate?.let { candidate ->
                     DiagnosticRow(
                         "เสียงคุกคามที่ตรวจพบล่าสุด",
-                        "${candidate.category.name.lowercase().replace('_', ' ')} (${(candidate.confidence * 100).toInt()}%)",
+                        "${audioThreatCategoryLabel(candidate.category)} (${(candidate.confidence * 100).toInt()}%)",
                     )
                     audio.candidateExpiresInSeconds?.let { expires ->
                         DiagnosticRow(

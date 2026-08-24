@@ -1,17 +1,30 @@
 package com.example.motorcycleantitheftsensor.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -392,4 +405,91 @@ class ProtectionProfilesUiTest {
             "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",
         ).assertIsDisplayed()
     }
+
+    // ------------------------------------------------------------------
+    // Task 8: whole-app language, accessibility, and responsive-layout
+    // contracts. Assertions stay semantic and structural (no pixel locks).
+    // ------------------------------------------------------------------
+
+    private fun pickerProfileState() = ProtectionProfileUiState(
+        selectedProfile = null,
+        showPicker = true,
+    )
+
+    @Test
+    fun profilePickerLabelsStayDiscoverableAt200PercentFontScale() {
+        composeRule.setContent {
+            val current = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(current.density, fontScale = 2f),
+            ) {
+                ProtectionAppScreen(pickerUiState(), settingsActions())
+            }
+        }
+
+        listOf("ยานพาหนะ", "ประตูและทางเข้า", "ไฟเลี้ยงจุดติดตั้ง").forEach { name ->
+            composeRule.onNodeWithText(name).assertIsDisplayed()
+        }
+        // Long Thai promises must wrap naturally instead of being truncated away.
+        composeRule.onNodeWithText(
+            "แจ้งเตือนเมื่อประตูที่ติดตั้งโทรศัพท์ไว้เปิดเกินมุมที่กำหนด",
+            substring = true,
+        ).assertExists()
+    }
+
+    @Test
+    fun entryQuickChoicesKeepMinimumTargetsInNarrowViewport() {
+        composeRule.setContent {
+            Box(modifier = Modifier.width(320.dp)) {
+                ProtectionAppScreen(
+                    settingsUiState(ProtectionProfile.ENTRY, entryAngleDegrees = 15),
+                    settingsActions(),
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("5°").performScrollTo()
+        val density = InstrumentationRegistry.getInstrumentation()
+            .targetContext.resources.displayMetrics.density
+        listOf("5°", "15°", "30°").forEach { choice ->
+            val bounds = composeRule.onNodeWithText(choice).fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "$choice must keep a ~48 dp target, was ${bounds.height / density} dp",
+                bounds.height / density >= 47f,
+            )
+        }
+    }
+
+    @Test
+    fun shellKeepsThreeDestinationsInLandscapeLikeViewport() {
+        composeRule.setContent {
+            Box(modifier = Modifier.fillMaxSize().height(360.dp)) {
+                ProtectionAppScreen(pickerUiState(), settingsActions())
+            }
+        }
+
+        composeRule.onAllNodes(hasTestTag("primary_destination")).assertCountEquals(3)
+        composeRule.onNodeWithTag("primary_navigation").assertIsDisplayed()
+        composeRule.onNodeWithText("ยานพาหนะ").assertExists()
+    }
+
+    private fun pickerUiState() = ProtectionUiState.from(
+        snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+            state = ProtectionState.DISARMED_ONLINE,
+            serviceRunning = true,
+            telegramPolling = true,
+            telegramReachable = true,
+        ),
+        incidents = emptyList(),
+        settings = ProtectionSettingsSummary(
+            tokenConfigured = true,
+            pairedOwnerCount = 1,
+            pairingCode = null,
+            sensitivity = 5,
+            smsFallbackConfigured = false,
+            missingPermissions = emptySet(),
+        ),
+        nowMs = 1_000L,
+        profile = pickerProfileState(),
+    )
 }

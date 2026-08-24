@@ -111,7 +111,7 @@ class PresentationTextCatalogTest {
         assertEquals("⚠️ พบการงัดแงะหรือเปิดเบาะ", PresentationTextCatalog.incidentTitle(IncidentType.TAMPER))
         assertEquals("🔌 แหล่งจ่ายไฟถูกตัด", PresentationTextCatalog.incidentTitle(IncidentType.POWER))
         assertEquals("🌡️ อุณหภูมิผิดปกติ", PresentationTextCatalog.incidentTitle(IncidentType.THERMAL))
-        assertEquals("🔊 เสียงผิดปกติรอบตัวรถ", PresentationTextCatalog.incidentTitle(IncidentType.AUDIO))
+        assertEquals("🔊 เสียงผิดปกติบริเวณจุดติดตั้ง", PresentationTextCatalog.incidentTitle(IncidentType.AUDIO))
         assertEquals("🚪 ตรวจพบประตูเปิด", PresentationTextCatalog.incidentTitle(IncidentType.ENTRY_DOOR))
     }
 

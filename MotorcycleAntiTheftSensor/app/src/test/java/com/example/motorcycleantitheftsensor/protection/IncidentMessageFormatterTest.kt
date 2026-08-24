@@ -45,7 +45,7 @@ class IncidentMessageFormatterTest {
 
         assertTrue(message.contains(expectedBase))
         assertTrue(message.contains("รายละเอียด:"))
-        assertTrue(message.contains("แสงสว่างลอดเข้าใต้เบาะ (ambient_lux): ตรวจพบความสว่างเปลี่ยนไป Δ 15.20"))
+        assertTrue(message.contains("แสงบริเวณจุดติดตั้ง (ambient_lux): ตรวจพบความสว่างเปลี่ยนไป Δ 15.20"))
         assertTrue(message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป (accelerometer): ตรวจพบการเอียง/สั่น Δ 2.50"))
         assertTrue(message.contains("🔋 แบตเตอรี่: 82% (31.5°C)"))
     }

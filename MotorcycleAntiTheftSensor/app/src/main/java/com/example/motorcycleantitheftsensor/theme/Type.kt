@@ -14,7 +14,10 @@ val Typography =
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
-        lineHeight = 24.sp,
+        // Thai combining marks (vowels/tone marks above and below the base
+        // glyph) need a taller line box than Latin text; 26sp keeps them from
+        // clipping at 200% font scale (profile-aware Thai UX spec §10).
+        lineHeight = 26.sp,
         letterSpacing = 0.5.sp,
       )
     /* Other default text styles to override

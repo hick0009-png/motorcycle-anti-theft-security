@@ -49,7 +49,7 @@ class IncidentMessageFormatter(
                         details.add("• เสียง: ${threat.category.thaiLabel()} (ความมั่นใจ $confPercent%, +${"%.1f".format(Locale.US, threat.loudnessDeltaDb)} dB, ${threat.occurrenceCount} ครั้ง)$coherentStr")
                     } else {
                         val kindName = when (ev.kind) {
-                            SensorKind.LIGHT -> "แสงสว่างลอดเข้าใต้เบาะ"
+                            SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
                             SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
@@ -129,7 +129,7 @@ class IncidentMessageFormatter(
                         details.add("• เสียง: ${threat.category.thaiLabel()} (ความมั่นใจ $confPercent%, +${"%.1f".format(Locale.US, threat.loudnessDeltaDb)} dB, ${threat.occurrenceCount} ครั้ง)")
                     } else {
                         val kindName = when (ev.kind) {
-                            SensorKind.LIGHT -> "แสงสว่างลอดเข้าใต้เบาะ"
+                            SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
                             SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
@@ -168,7 +168,7 @@ class IncidentMessageFormatter(
     fun formatProgress(incident: SecurityIncident): String {
         val latestEvidence = incident.evidence.maxByOrNull { it.wallClockMs }
         val latestDescription = latestEvidence?.let { evidence ->
-            val source = evidence.diagnostic ?: evidence.kind.name.lowercase()
+            val source = evidence.diagnostic ?: evidence.kind.thaiName()
             "ตรวจพบล่าสุด: $source"
         } ?: "กำลังติดตามหลักฐานเพิ่มเติม"
         return "⚠️ เหตุการณ์ยังดำเนินอยู่\n" +
@@ -292,6 +292,15 @@ fun AudioThreatCategory.thaiLabel(): String = when (this) {
     AudioThreatCategory.BREAKING -> "เสียงกระจก/พลาสติกแตก"
     AudioThreatCategory.POWER_TOOL -> "เสียงเครื่องมือช่าง/หินเจียร์"
     AudioThreatCategory.METAL_TAMPER -> "เสียงงัดแงะโลหะ"
-    AudioThreatCategory.ENGINE_START -> "เสียงสตาร์ทเครื่องยนต์"
+    AudioThreatCategory.ENGINE_START -> "เสียงเครื่องยนต์กำลังสตาร์ท"
     AudioThreatCategory.ENGINE_RUNNING -> "เสียงเครื่องยนต์ทำงาน"
+}
+
+/** Thai fallback name for evidence kinds without a diagnostic string (Task 8). */
+private fun SensorKind.thaiName(): String = when (this) {
+    SensorKind.VIBRATION -> "การสั่นสะเทือน"
+    SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+    SensorKind.POWER_THERMAL -> "ไฟและอุณหภูมิ"
+    SensorKind.MICROPHONE -> "ไมโครโฟน"
+    SensorKind.LOCATION -> "ตำแหน่ง"
 }
