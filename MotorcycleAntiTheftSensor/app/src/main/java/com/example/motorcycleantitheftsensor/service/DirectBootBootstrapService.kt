@@ -16,6 +16,8 @@ import android.os.Looper
 import android.os.UserManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.motorcycleantitheftsensor.R
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import kotlin.math.sqrt
 
 /**
@@ -110,12 +112,12 @@ class DirectBootBootstrapService : Service(), SensorEventListener {
 
     private fun notification(movementDetected: Boolean) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.ic_lock_lock)
-        .setContentTitle("Motorcycle Guard")
+        .setContentTitle(getString(R.string.notification_title))
         .setContentText(
             if (movementDetected) {
-                "Movement detected while device is locked. Unlock to resume full protection."
+                PresentationTextCatalog.DIRECT_BOOT_MOVEMENT_BODY
             } else {
-                "Protection recovery is waiting for device unlock."
+                PresentationTextCatalog.DIRECT_BOOT_WAITING_BODY
             },
         )
         .setOngoing(true)
@@ -128,7 +130,7 @@ class DirectBootBootstrapService : Service(), SensorEventListener {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Motorcycle Guard locked boot",
+            getString(R.string.notification_channel_direct_boot),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             setShowBadge(false)

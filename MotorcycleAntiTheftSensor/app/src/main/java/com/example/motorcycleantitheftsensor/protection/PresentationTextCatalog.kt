@@ -255,6 +255,47 @@ object PresentationTextCatalog {
     const val EVENT_EVIDENCE_PREFIX = "หลักฐาน: "
     const val EVENT_TIME_PREFIX = "เวลา: "
 
+    /**
+     * Notification presentation (profile-aware Thai UX, Task 6). The title and channel
+     * names are installation-neutral; resources mirror these values while host tests pin
+     * them so wording cannot drift back to legacy brand or raw state enums.
+     */
+    const val NOTIFICATION_TITLE = "ระบบป้องกัน"
+    const val FOREGROUND_CHANNEL_NAME = "สถานะการป้องกัน"
+    const val DIRECT_BOOT_CHANNEL_NAME = "การกู้คืนหลังบูต"
+
+    /**
+     * Pre-unlock recovery facts only: these bodies never read or reveal Telegram/SMS/
+     * TOTP/pairing/encrypted-incident data and never claim protection already resumed —
+     * resumption is announced only after the coordinator confirms it post-unlock.
+     */
+    const val DIRECT_BOOT_WAITING_BODY = "การกู้คืนการป้องกันรอการปลดล็อกอุปกรณ์"
+    const val DIRECT_BOOT_MOVEMENT_BODY = "ตรวจพบการขยับขณะอุปกรณ์ล็อกอยู่ ปลดล็อกเพื่อใช้การป้องกันเต็มรูปแบบ"
+
+    /**
+     * Foreground notification body built only from the authoritative [state] plus a
+     * caller-supplied [detail] (blockers / arming seconds / degradation reasons /
+     * incident id). Shared state labels keep wording identical to the app UI.
+     */
+    fun foregroundNotificationBody(state: ProtectionState, detail: String = ""): String {
+        val suffix = if (detail.isBlank()) "" else ": $detail"
+        return when (state) {
+            ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าก่อนใช้งาน$suffix"
+            ProtectionState.DISARMED_ONLINE -> "ระบบปิดอยู่ — ควบคุมจากระยะไกลได้"
+            ProtectionState.ARMING ->
+                if (detail.isBlank()) {
+                    "กำลังเปิดระบบและปรับเทียบ"
+                } else {
+                    "กำลังเปิดระบบและปรับเทียบ อีก $detail วินาที"
+                }
+            ProtectionState.ARMED_HEALTHY -> protectionStateLabel(ProtectionState.ARMED_HEALTHY)
+            ProtectionState.ARMED_DEGRADED -> "การป้องกันทำงานแบบจำกัด$suffix"
+            ProtectionState.ALERT_ACTIVE ->
+                if (detail.isBlank()) "พบเหตุการณ์ผิดปกติ" else "พบเหตุการณ์ผิดปกติ: $detail"
+            ProtectionState.OFFLINE -> "บริการป้องกันออฟไลน์"
+        }
+    }
+
     fun protectionStateLabel(state: ProtectionState): String = when (state) {
         ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าเริ่มต้น"
         ProtectionState.DISARMED_ONLINE -> "ระบบปิดอยู่"

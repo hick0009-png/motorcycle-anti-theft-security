@@ -39,4 +39,9 @@
     <string name="events_clear_confirm_body">การดำเนินการนี้จะลบประวัติเหตุการณ์ในเครื่องอย่างถาวร</string>
     <string name="events_clear_confirm_action">ยืนยัน</string>
     <string name="events_cancel_action">ยกเลิก</string>
+
+    <!-- Notification presentation (profile-aware Thai UX, Task 6; mirrors PresentationTextCatalog) -->
+    <string name="notification_title">ระบบป้องกัน</string>
+    <string name="notification_channel_protection">สถานะการป้องกัน</string>
+    <string name="notification_channel_direct_boot">การกู้คืนหลังบูต</string>
 </resources>
