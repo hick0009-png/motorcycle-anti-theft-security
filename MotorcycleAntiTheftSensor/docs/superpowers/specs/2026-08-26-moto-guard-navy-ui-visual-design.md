@@ -1,103 +1,103 @@
-# Moto Guard Navy UI visual design
+# สเปกดีไซน์หน้าตา Moto Guard โทนน้ำเงิน
 
-**Status:** Owner-approved visual direction; implementation pending task-by-task execution
+**สถานะ:** เจ้าของอนุมัติทิศทางหน้าตาแล้ว; รอทำตาม task ย่อย
 
-**Date:** 2026-08-26
+**วันที่:** 2026-08-26
 
-**Scope:** Presentation-only refresh of the reachable Android Compose application.
+**ขอบเขต:** ปรับเฉพาะการแสดงผลของแอป Android Compose ในเส้นทางที่ใช้งานจริง
 
-**Builds on:** `2026-08-23-profile-aware-thai-ux-terminology-design.md` and its implementation plan. That approved terminology, profile, security, and accessibility contract remains authoritative. This addendum defines the visual system selected from the Moto Guard mockups.
+**เอกสารที่ต่อยอดจาก:** `2026-08-23-profile-aware-thai-ux-terminology-design.md` และแผนงานที่เกี่ยวข้อง เอกสารเดิมยังเป็นข้อกำหนดหลักเรื่องคำภาษาไทย, โปรไฟล์, ความปลอดภัย และการเข้าถึง ส่วนเอกสารนี้กำหนดหน้าตาตามภาพ Moto Guard ที่เลือกไว้
 
-## 1. Goal
+## 1. เป้าหมาย
 
-Present Moto Guard as a calm, trustworthy protection application: deep navy creates authority, white cards make information easy to scan, and green is reserved for a readable confirmed healthy/protected state. The result must not look like an e-commerce, social, or generic dashboard application.
+ทำให้ Moto Guard ดูสงบ น่าเชื่อถือ และอ่านสถานะได้ง่าย: สีน้ำเงินเข้มสื่อถึงความมั่นคง การ์ดสีขาวช่วยจัดข้อมูลให้อ่านง่าย และสีเขียวใช้เฉพาะสถานะที่ระบบยืนยันแล้วว่าปกติหรือกำลังปกป้องอยู่ หน้าตาต้องไม่ให้ความรู้สึกเหมือนแอปช้อปปิ้ง โซเชียล หรือแดชบอร์ดทั่วไป
 
-This is a visual and information-hierarchy change only. `ProtectionCoordinator`, `ProtectionViewModel`, `ProtectionUiState`, gateways, persistence, authorization, encryption, incident logic, delivery policy, and profile policy remain unchanged.
+งานนี้เปลี่ยนเฉพาะหน้าตาและลำดับข้อมูลเท่านั้น `ProtectionCoordinator`, `ProtectionViewModel`, `ProtectionUiState`, gateway, การเก็บข้อมูล, การยืนยันสิทธิ์, การเข้ารหัส, ตรรกะเหตุการณ์, นโยบายส่งแจ้งเตือน และนโยบายโปรไฟล์ ต้องทำงานเหมือนเดิม
 
-## 2. Visual system
+## 2. ระบบสีและองค์ประกอบภาพ
 
-| Token | Value | Purpose |
+| Token | ค่า | ใช้สำหรับ |
 |---|---:|---|
-| `brandNavy` | `#16324F` | header, selected navigation, primary action |
-| `brandNavyRaised` | `#245B85` | restrained header tonal variation only |
-| `canvas` | `#F8FAFC` | application background |
-| `surface` | `#FFFFFF` | cards, dialogs, bottom navigation |
-| `ink` | `#1C2530` | primary text and destructive-neutral controls |
-| `mutedInk` | `#667085` | supporting text |
-| `healthy` | `#168A63` | confirmed healthy/protected state, always with text/icon |
-| `warning` | accessible amber derived from existing settings token | action-needed state, always with text/icon |
-| `critical` | existing accessible error red | confirmed critical/error state only |
+| `brandNavy` | `#16324F` | หัวหน้า, แท็บที่เลือก, ปุ่มหลัก |
+| `brandNavyRaised` | `#245B85` | ไล่โทนบนหัวหน้าอย่างพอดีเท่านั้น |
+| `canvas` | `#F8FAFC` | พื้นหลังแอป |
+| `surface` | `#FFFFFF` | การ์ด, กล่องยืนยัน, แถบนำทางล่าง |
+| `ink` | `#1C2530` | ข้อความหลักและปุ่มที่ไม่ใช่สถานะเตือน |
+| `mutedInk` | `#667085` | ข้อความประกอบ |
+| `healthy` | `#168A63` | สถานะที่ยืนยันแล้วว่าปกติ/ปกป้องอยู่ ต้องมีข้อความหรือไอคอนร่วมเสมอ |
+| `warning` | สีส้มอำพันที่เข้าถึงได้จาก token เดิม | สถานะที่ต้องตรวจสอบ ต้องมีข้อความหรือไอคอนร่วมเสมอ |
+| `critical` | สีแดง error ที่เข้าถึงได้จาก token เดิม | เฉพาะข้อผิดพลาดหรือเหตุร้ายแรงที่ยืนยันแล้ว |
 
-The only decorative tonal treatment is the top navy header. Cards have modest elevation, a single rounded-corner scale, and 4/8 dp spacing. Use one rounded outline vector-icon family. Do not use emoji, pictogram text, mixed icon weights, shopping/finance metaphors, or brand marks from the reference image.
+ใช้การไล่โทนเฉพาะในหัวหน้าสีน้ำเงิน การ์ดมีเงาบาง ๆ ใช้มุมโค้งขนาดเดียวกัน และเว้นระยะตามจังหวะ 4/8 dp ใช้ไอคอนเวกเตอร์เส้นโค้งมนจากตระกูลเดียวกัน ห้ามใช้อิโมจิ ตัวอักษรแทนรูปภาพ ไอคอนหลายรูปแบบปนกัน ภาษาภาพแบบช้อปปิ้ง/การเงิน หรือโลโก้จากภาพอ้างอิง
 
-## 3. Shell and navigation
+## 3. โครงหลักและการนำทาง
 
-The production route remains `Navigation.kt -> ProtectionAppScreen` with exactly three bottom destinations:
+เส้นทางจริงยังเป็น `Navigation.kt -> ProtectionAppScreen` และมีแท็บล่างเพียง 3 แท็บ:
 
 1. `ปกป้อง`
 2. `เหตุการณ์`
 3. `ตั้งค่า`
 
-The selected destination uses navy plus the existing selected semantics; it must not be communicated by color alone. The navigation remains a fixed safe-area-aware bar and all targets remain at least 48 dp. No legacy `DashboardScreen` or `ui/main/MainScreen` work is permitted.
+แท็บที่เลือกใช้สีน้ำเงินร่วมกับ semantics ของสถานะที่มีอยู่แล้ว ห้ามสื่อการเลือกด้วยสีอย่างเดียว แถบนำทางต้องคงอยู่เหนือ safe area และทุกจุดกดต้องไม่น้อยกว่า 48 dp ห้ามแก้หรือรื้อฟื้น `DashboardScreen` และ `ui/main/MainScreen` ที่เป็นหน้าทางเก่า
 
-## 4. Screen design
+## 4. การออกแบบแต่ละหน้าจอ
 
 ### 4.1 ปกป้อง
 
-Use a compact navy header and a primary white status card. The first information is the authoritative outcome and next action, not diagnostics:
+ใช้หัวหน้าสีน้ำเงินแบบกระชับและการ์ดสถานะหลักสีขาว ข้อมูลอันดับแรกต้องเป็นผลลัพธ์จากสถานะจริงและการกระทำถัดไป ไม่ใช่ข้อมูลวินิจฉัย:
 
-- confirmed healthy/protected: readable healthy label plus a short explanation;
-- not armed/setup required: the real blocker and the existing real action;
-- warning/degraded/incident: state title, evidence already supplied by the read model, and the existing next action;
-- only one primary arm/disarm action per state.
+- ปกติ/กำลังปกป้อง: แสดงชื่อสถานะที่อ่านง่ายพร้อมคำอธิบายสั้น
+- ยังไม่ได้เปิดหรือยังตั้งค่าไม่ครบ: แสดงเงื่อนไขที่ขวางอยู่จริงและปุ่มเดิมที่ใช้แก้ได้
+- คำเตือน/ทำงานลดลง/มีเหตุการณ์: แสดงชื่อสถานะ หลักฐานจาก read model ที่มีอยู่แล้ว และการกระทำถัดไปที่มีอยู่จริง
+- ในแต่ละสถานะมีปุ่มหลักสำหรับเปิดหรือหยุดปกป้องเพียงหนึ่งปุ่ม
 
-Profile selection, Entry commissioning, and Power commissioning retain their existing actions and state. Profile promises wrap naturally. Entry continues to show calibrated closed-position angle choices; Power continues to show charging and witness-light independently. Do not invent a generic slider, a site-wide outage, or a theft/forced-entry conclusion.
+การเลือกโปรไฟล์ การตั้งค่า Entry และการตั้งค่า Power ต้องใช้ action และ state เดิม คำสัญญาของโปรไฟล์ต้องตัดบรรทัดได้ตามธรรมชาติ Entry ยังคงแสดงตัวเลือกมุมจากตำแหน่งปิดที่ปรับเทียบแล้ว Power ยังคงแสดงการชาร์จกับไฟยืนยันแยกกัน ห้ามสร้าง slider กลางที่ไม่มีความหมาย ห้ามอ้างไฟดับทั้งสถานที่ หรือสรุปว่าเป็นการขโมย/งัดแงะจากข้อมูลที่ไม่มี
 
-Runtime, sensor, battery, and delivery internals stay behind the existing advanced disclosure. The UI may restyle the disclosure but never infer health from its text.
+รายละเอียด runtime, เซ็นเซอร์, แบตเตอรี่ และการส่งแจ้งเตือนต้องอยู่หลังการเปิดดูข้อมูลขั้นสูงเหมือนเดิม ปรับหน้าตาได้ แต่ห้ามเดาสุขภาพระบบจากข้อความเหล่านั้น
 
 ### 4.2 เหตุการณ์
 
-Use a navy title header and a vertical list of readable event cards/timeline. Each item renders the existing event title, timestamp, severity, lifecycle, and delivery facts through the presentation catalog. Loading, error/retry, empty, populated, and clear-history confirmation states are mandatory.
+ใช้หัวหน้าสีน้ำเงินที่มีชื่อหน้า และรายการการ์ด/ไทม์ไลน์ที่อ่านง่าย เหตุการณ์แต่ละรายการต้องใช้ชื่อเหตุการณ์ เวลา ระดับความรุนแรง วงจรเหตุการณ์ และข้อเท็จจริงการส่งแจ้งเตือนที่มีอยู่ใน presentation catalog เดิม ต้องรองรับสถานะกำลังโหลด, ผิดพลาดและลองใหม่, ไม่มีเหตุการณ์, มีเหตุการณ์ และกล่องยืนยันล้างประวัติ
 
-The mockup's filter chips are not in scope unless an authoritative filter action and data model are introduced in a separately approved change. The redesign must not add inert controls or fabricate a profile field on persisted incidents.
+ชิปตัวกรองในภาพตัวอย่างยังไม่อยู่ในขอบเขต จนกว่าจะมี action และ data model ที่เป็นความจริงและได้รับอนุมัติแยกต่างหาก ห้ามใส่ปุ่มที่กดไม่ได้ หรือแต่งฟิลด์โปรไฟล์ให้เหตุการณ์ที่บันทึกไว้
 
 ### 4.3 ตั้งค่า
 
-Settings remains a real editable surface, not a fake overview. Group existing controls into visually clear cards in this order:
+หน้าตั้งค่าต้องเป็นหน้าที่แก้ค่าได้จริง ไม่ใช่หน้า overview ปลอม จัด control เดิมเป็นการ์ดที่อ่านง่ายตามลำดับนี้:
 
-1. current profile and profile-specific detection setup;
-2. event delivery and notification settings;
-3. continuity: required permissions and battery/OEM keep-alive guidance;
-4. advanced diagnostics and sensor configuration behind the existing disclosure.
+1. โปรไฟล์ปัจจุบันและการตั้งค่าตรวจจับเฉพาะโปรไฟล์
+2. การส่งเหตุการณ์และการแจ้งเตือน
+3. ความต่อเนื่องของระบบ: สิทธิ์ที่จำเป็น และคำแนะนำแบตเตอรี่/OEM keep-alive
+4. การวินิจฉัยขั้นสูงและการตั้งค่า sensor หลัง disclosure เดิม
 
-No setting row gains a chevron, toggle, or button unless it already has a real action. Telegram pairing-code reveal remains initially masked and continues to set `FLAG_SECURE`; token and SMS-key fields remain password-transformed and are cleared after saving; pairing reset retains its confirmation. Direct Boot remains invisible local-only behavior: no remote services, keys, chat IDs, or encrypted incident data are added to the pre-unlock UI.
+ห้ามเพิ่ม chevron, toggle หรือปุ่มในแถวการตั้งค่า หากไม่ได้เชื่อมกับ action จริงอยู่แล้ว การเปิดดู pairing code ของ Telegram ต้องเริ่มต้นแบบปิดบังและยังใช้ `FLAG_SECURE`; ช่อง token และ SMS key ต้องยังเป็น password-transformed และล้างหลังบันทึก การรีเซ็ต pairing ต้องยังขอการยืนยัน Direct Boot ต้องเป็นพฤติกรรม local-only ที่มองไม่เห็น: ห้ามเพิ่ม remote service, key, chat ID หรือข้อมูลเหตุการณ์เข้ารหัสลงใน UI ก่อนปลดล็อก
 
-## 5. Content and accessibility
+## 5. เนื้อหาและการเข้าถึง
 
-All normal copy is outcome-first Thai. Do not expose raw enums, diagnostic identifiers, unexplained units, secrets, or invented capability claims. Technical sensor names and units appear only in advanced diagnostics when the existing presentation model supplies them.
+ข้อความปกติต้องเป็นภาษาไทยแบบบอกผลลัพธ์ก่อน ห้ามแสดง enum ดิบ รหัสวินิจฉัย หน่วยที่ไม่อธิบาย ความลับ หรือการอ้างความสามารถที่ไม่มีจริง ชื่อเซ็นเซอร์เชิงเทคนิคและหน่วยแสดงได้เฉพาะในการวินิจฉัยขั้นสูง เมื่อ presentation model เดิมมีข้อมูลนั้น
 
-Every interactive element needs a Thai accessible name, role, current state, and useful hint. Preserve the single live-region precedence. Support 200% font scale, small width, portrait, landscape, and wrapping/vertical stacking rather than truncating Thai text. Color never carries status alone.
+ทุกส่วนที่กดได้ต้องมีชื่อภาษาไทยสำหรับ accessibility, role, สถานะปัจจุบัน และคำแนะนำที่มีประโยชน์ รักษาลำดับ live region เดิม รองรับ font scale 200%, หน้าจอแคบ, แนวตั้ง, แนวนอน และให้ข้อความไทยตัดบรรทัดหรือเรียงแนวตั้งแทนการตัดทิ้ง สีห้ามเป็นตัวบอกสถานะเพียงอย่างเดียว
 
-## 6. Execution slices
+## 6. งานย่อยที่จะทำ
 
-Work is intentionally split so it can stop at a clean review checkpoint:
+แบ่งงานเพื่อให้หยุดที่จุดตรวจได้โดยไม่เสียงาน:
 
-1. baseline and shared navy visual tokens plus root shell/navigation;
-2. protection presentation refresh;
-3. events presentation refresh, including all existing state variants;
-4. settings profile/setup visual refresh;
-5. settings delivery/security visual refresh;
-6. settings continuity/advanced diagnostic visual refresh;
-7. contract, accessibility, build, and device-acceptance gates.
+1. ตรวจ baseline และสร้าง token น้ำเงินร่วม รวมถึง shell/แถบนำทางล่าง
+2. ปรับหน้าปกป้อง
+3. ปรับหน้าเหตุการณ์ รวมทุกสถานะที่มีอยู่
+4. ปรับหน้าตั้งค่าส่วนโปรไฟล์/การตั้งค่าเริ่มต้น
+5. ปรับหน้าตั้งค่าส่วนส่งแจ้งเตือน/ความปลอดภัย
+6. ปรับหน้าตั้งค่าส่วนความต่อเนื่อง/การวินิจฉัยขั้นสูง
+7. ตรวจ contract, accessibility, build และ device acceptance
 
-Each slice must add or update focused tests first, retain stable state ownership and security behavior, run one Gradle invocation at a time using `--no-daemon --max-workers=1`, and stop after its verification checkpoint. Slices that share `SettingsScreen.kt` execute sequentially, never in parallel.
+ทุก task ต้องเพิ่มหรือแก้ focused test ก่อน รักษาเจ้าของ state และพฤติกรรมความปลอดภัยเดิม รัน Gradle ได้ทีละคำสั่งโดยใช้ `--no-daemon --max-workers=1` และหยุดหลังจุดตรวจของ task นั้น งานที่แก้ `SettingsScreen.kt` ต้องทำตามลำดับ ห้ามทำขนานกัน
 
-## 7. Acceptance
+## 7. เกณฑ์รับงาน
 
-Acceptance requires the three reachable screens to follow this design, no user-facing emoji in the reachable route, navigation/controls to remain accessible, all existing security-sensitive behavior to remain intact, focused tests plus full host/Android-test compilation/APK build to pass, and a fresh device review before visual or device-accessibility claims are made.
+รับงานเมื่อทั้ง 3 หน้าจอในเส้นทางจริงเป็นไปตามดีไซน์นี้ ไม่มีอิโมจิที่ผู้ใช้เห็นในเส้นทางนั้น การนำทางและ control ยังเข้าถึงได้ พฤติกรรมความปลอดภัยที่มีอยู่ยังเหมือนเดิม focused tests รวมถึง full host tests, Android-test compilation และ APK build ผ่าน และมีการตรวจอุปกรณ์ใหม่ก่อนอ้างว่าได้ผลด้านภาพหรือ accessibility บนอุปกรณ์จริง
 
-## 8. Explicit non-goals
+## 8. สิ่งที่ไม่ทำ
 
-- No new product feature, dependency, navigation destination, fake filter, or redesign of disconnected legacy screens.
-- No protection algorithm, sensor threshold, incident, authorization, encryption, Telegram, SMS, GPS, or Direct Boot behavior change.
-- No claim that a sensor or one signal proves theft, forced entry, or site-wide power failure.
+- ไม่เพิ่มฟีเจอร์ dependency แท็บนำทาง filter ปลอม หรือออกแบบหน้าทางเก่าใหม่
+- ไม่เปลี่ยนอัลกอริทึมป้องกัน threshold เซ็นเซอร์ เหตุการณ์ การยืนยันสิทธิ์ การเข้ารหัส Telegram, SMS, GPS หรือ Direct Boot
+- ไม่อ้างว่าเซ็นเซอร์หรือสัญญาณเพียงตัวเดียวพิสูจน์การขโมย การงัดแงะ หรือไฟดับทั้งสถานที่
