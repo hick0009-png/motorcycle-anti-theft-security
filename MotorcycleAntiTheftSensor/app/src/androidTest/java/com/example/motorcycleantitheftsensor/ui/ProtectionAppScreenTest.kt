@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
@@ -63,13 +64,13 @@ class ProtectionAppScreenTest {
     }
 
     @Test
-    fun selectedPrimaryDestinationRendersWithMonochromePixels() {
+    fun selectedPrimaryDestinationRendersWithNavyAndWhitePixels() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
 
         val pixels = compose.onAllNodes(hasTestTag("primary_destination"))[0]
             .captureToImage()
             .toPixelMap()
-        var hasNearBlackPixel = false
+        var hasNavyPixel = false
         var hasNearWhitePixel = false
 
         for (y in 0 until pixels.height) {
@@ -77,18 +78,12 @@ class ProtectionAppScreenTest {
                 val color = pixels[x, y]
                 if (color.alpha < OPAQUE_ALPHA) continue
 
-                val minimumChannel = minOf(color.red, color.green, color.blue)
-                val maximumChannel = maxOf(color.red, color.green, color.blue)
-                assertTrue(
-                    "Non-monochrome pixel at ($x, $y): $color",
-                    maximumChannel - minimumChannel <= CHANNEL_TOLERANCE,
-                )
-                hasNearBlackPixel = hasNearBlackPixel || maximumChannel <= NEAR_BLACK
-                hasNearWhitePixel = hasNearWhitePixel || minimumChannel >= NEAR_WHITE
+                hasNavyPixel = hasNavyPixel || isCloseToNavy(color)
+                hasNearWhitePixel = hasNearWhitePixel || isNearWhite(color)
             }
         }
 
-        assertTrue("Selected destination must render a black surface", hasNearBlackPixel)
+        assertTrue("Selected destination must render a navy surface", hasNavyPixel)
         assertTrue("Selected destination must render a white indicator/content", hasNearWhitePixel)
     }
 
@@ -779,6 +774,16 @@ private const val UNSAVED_TOKEN = "123456:UNSAVED_TEST_TOKEN"
 private const val UNSAVED_SMS_KEY = "UNSAVED_SMS_KEY"
 private const val TEST_TIMESTAMP_MS = 1_725_000_000_000L
 private const val OPAQUE_ALPHA = 0.95f
-private const val CHANNEL_TOLERANCE = 0.02f
-private const val NEAR_BLACK = 0.10f
 private const val NEAR_WHITE = 0.90f
+private const val NAVY_RED = 0.086f
+private const val NAVY_GREEN = 0.196f
+private const val NAVY_BLUE = 0.310f
+private const val NAVY_CHANNEL_TOLERANCE = 0.06f
+
+private fun isCloseToNavy(color: Color): Boolean =
+    kotlin.math.abs(color.red - NAVY_RED) <= NAVY_CHANNEL_TOLERANCE &&
+        kotlin.math.abs(color.green - NAVY_GREEN) <= NAVY_CHANNEL_TOLERANCE &&
+        kotlin.math.abs(color.blue - NAVY_BLUE) <= NAVY_CHANNEL_TOLERANCE
+
+private fun isNearWhite(color: Color): Boolean =
+    color.red >= NEAR_WHITE && color.green >= NEAR_WHITE && color.blue >= NEAR_WHITE
