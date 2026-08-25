@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -428,13 +429,20 @@ class ProtectionProfilesUiTest {
         }
 
         listOf("ยานพาหนะ", "ประตูและทางเข้า", "ไฟเลี้ยงจุดติดตั้ง").forEach { name ->
+            composeRule.onNodeWithTag("ui.protection.LIST")
+                .performScrollToNode(hasText(name))
             composeRule.onNodeWithText(name).assertIsDisplayed()
         }
         // Long Thai promises must wrap naturally instead of being truncated away.
+        val entryPromise = hasText(
+            "แจ้งเตือนเมื่อประตูที่ติดตั้งโทรศัพท์ไว้เปิดเกินมุมที่กำหนด",
+            substring = true,
+        )
+        composeRule.onNodeWithTag("ui.protection.LIST").performScrollToNode(entryPromise)
         composeRule.onNodeWithText(
             "แจ้งเตือนเมื่อประตูที่ติดตั้งโทรศัพท์ไว้เปิดเกินมุมที่กำหนด",
             substring = true,
-        ).assertExists()
+        ).assertIsDisplayed()
     }
 
     @Test

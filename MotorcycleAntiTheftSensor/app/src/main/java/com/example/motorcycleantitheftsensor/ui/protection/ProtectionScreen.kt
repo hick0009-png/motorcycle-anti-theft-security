@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -88,46 +90,94 @@ fun ProtectionScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .testTag("ui.protection.LIST")
             .padding(contentPadding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val stateGuidance = UserGuidanceCatalog.content(protection.state.toGuidanceCode())
 
-        item(key = "protection-state") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stateGuidance.titleTh,
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    text = stateGuidance.bodyTh,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                state.armingSecondsRemaining?.let { seconds ->
-                    Text(
-                        text = stringResource(R.string.protection_arming_countdown, seconds),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-                Button(
-                    onClick = if (disarmAction) actions.disarm else actions.arm,
-                    enabled = actionEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
+        item(key = "moto-guard-header") {
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        text = when (protection.state) {
-                            ProtectionState.ALERT_ACTIVE -> stringResource(R.string.action_stop_alarm)
-                            ProtectionState.ARMING,
-                            ProtectionState.ARMED_HEALTHY,
-                            ProtectionState.ARMED_DEGRADED,
-                            -> stringResource(R.string.action_disarm_protection)
-                            else -> stringResource(R.string.action_arm_protection)
-                        },
+                        text = "Moto Guard",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.semantics { heading() },
                     )
+                    Text(
+                        text = "ศูนย์ควบคุมการปกป้อง",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            }
+        }
+
+        item(key = "protection-state") {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "สถานะการปกป้อง",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        text = stateGuidance.titleTh,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        text = stateGuidance.bodyTh,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    state.armingSecondsRemaining?.let { seconds ->
+                        Text(
+                            text = stringResource(R.string.protection_arming_countdown, seconds),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    Button(
+                        onClick = if (disarmAction) actions.disarm else actions.arm,
+                        enabled = actionEnabled,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Text(
+                            text = when (protection.state) {
+                                ProtectionState.ALERT_ACTIVE -> stringResource(R.string.action_stop_alarm)
+                                ProtectionState.ARMING,
+                                ProtectionState.ARMED_HEALTHY,
+                                ProtectionState.ARMED_DEGRADED,
+                                -> stringResource(R.string.action_disarm_protection)
+                                else -> stringResource(R.string.action_arm_protection)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -447,7 +497,8 @@ private fun ProfilePickerSection(
             modifier = Modifier.semantics { heading() },
         )
         ProtectionProfile.entries.forEach { profile ->
-            val label = PresentationTextCatalog.profile(profile).name
+            val profilePresentation = PresentationTextCatalog.profile(profile)
+            val label = profilePresentation.name
             Surface(
                 onClick = { onProfileSelected(profile) },
                 shape = MaterialTheme.shapes.medium,
@@ -465,6 +516,11 @@ private fun ProfilePickerSection(
                     Text(
                         text = if (profile == selectedProfile) "$label (ปัจจุบัน)" else label,
                         style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = profilePresentation.promise,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (profile != ProtectionProfile.VEHICLE) {
                         Text(

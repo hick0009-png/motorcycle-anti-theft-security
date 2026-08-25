@@ -97,6 +97,16 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun protectionStartsWithMotoGuardHeaderAndOutcomeCard() {
+        compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
+
+        compose.onNodeWithText("Moto Guard").assertIsDisplayed()
+        compose.onNodeWithText("สถานะการปกป้อง").assertIsDisplayed()
+        compose.onNodeWithText("การป้องกันปิดอยู่").assertIsDisplayed()
+        compose.onAllNodes(hasText("เปิดระบบป้องกัน")).assertCountEquals(1)
+    }
+
+    @Test
     fun heroShowsOutcomeFirstThaiCopyWithoutEnglishFragmentsForEachState() {
         listOf(
             ProtectionState.DISARMED_ONLINE to "การป้องกันปิดอยู่",
