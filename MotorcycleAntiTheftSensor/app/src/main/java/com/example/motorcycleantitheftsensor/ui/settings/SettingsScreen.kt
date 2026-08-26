@@ -174,6 +174,7 @@ fun SettingsScreen(
 
     if (settingsPage == SettingsPage.OVERVIEW) {
         SettingsOverview(
+            state = state,
             contentPadding = contentPadding,
             modifier = modifier,
             openPage = { settingsPage = it },
@@ -1381,6 +1382,7 @@ private fun SettingsPageHeader(
 
 @Composable
 private fun SettingsOverview(
+    state: ProtectionUiState,
     contentPadding: PaddingValues,
     modifier: Modifier,
     openPage: (SettingsPage) -> Unit,
@@ -1411,6 +1413,13 @@ private fun SettingsOverview(
             }
         }
 
+        item(key = "remote-control-readiness") {
+            RemoteControlReadinessCard(
+                state = state,
+                openPage = openPage,
+            )
+        }
+
         SettingsPage.entries
             .filter { it != SettingsPage.OVERVIEW }
             .forEach { page ->
@@ -1418,6 +1427,71 @@ private fun SettingsOverview(
                     SettingsOverviewCard(page = page, onClick = { openPage(page) })
                 }
             }
+    }
+}
+
+@Composable
+private fun RemoteControlReadinessCard(
+    state: ProtectionUiState,
+    openPage: (SettingsPage) -> Unit,
+) {
+    val tokenConfigured = state.settings.tokenConfigured
+    val pairedOwnerCount = state.settings.pairedOwnerCount
+    val permissionsReady = state.protection.permissionBlockers.isEmpty()
+    val action = when {
+        !tokenConfigured || pairedOwnerCount == 0 -> "ตั้งค่า Telegram" to SettingsPage.DELIVERY_SECURITY
+        !permissionsReady -> "ตรวจสอบสิทธิ์" to SettingsPage.CONTINUITY
+        else -> null
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("remote_control_readiness"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "ความพร้อมการควบคุมผ่าน Telegram",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                modifier = Modifier.semantics { heading() },
+            )
+            Column(modifier = Modifier.testTag("readiness_bot")) {
+                DiagnosticRow("Bot", if (tokenConfigured) "ตั้งค่าแล้ว" else "ยังไม่ได้ตั้งค่า")
+            }
+            Column(modifier = Modifier.testTag("readiness_pairing")) {
+                DiagnosticRow(
+                    "Owner",
+                    if (pairedOwnerCount > 0) "จับคู่แล้ว ($pairedOwnerCount เครื่อง)" else "ยังไม่ได้จับคู่",
+                )
+            }
+            Column(modifier = Modifier.testTag("readiness_permissions")) {
+                DiagnosticRow(
+                    "Permissions",
+                    if (permissionsReady) "พร้อมใช้งาน" else "ต้องตรวจสอบสิทธิ์",
+                )
+            }
+            action?.let { (label, destination) ->
+                Button(
+                    onClick = { openPage(destination) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("readiness_primary_action"),
+                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                ) {
+                    Text(label, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 

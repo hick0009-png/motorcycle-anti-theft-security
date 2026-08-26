@@ -708,6 +708,59 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun remoteReadinessChecklistShowsTelegramSetupFirstAndOpensDeliverySecurity() {
+        showWithLocalNavigation(baseState(ProtectionState.ARMED_HEALTHY))
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithTag("remote_control_readiness").assertExists()
+        compose.onNodeWithTag("readiness_bot").assertExists()
+        compose.onNodeWithTag("readiness_pairing").assertExists()
+        compose.onNodeWithTag("readiness_permissions").assertExists()
+        compose.onNodeWithText("ยังไม่ได้ตั้งค่า").assertExists()
+        compose.onNodeWithText("ยังไม่ได้จับคู่").assertExists()
+        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
+        compose.onNodeWithText("ตั้งค่า Telegram").performClick()
+        compose.onNodeWithTag("ui.settings.DELIVERY_SECURITY_HEADER").assertExists()
+    }
+
+    @Test
+    fun remoteReadinessChecklistRoutesPermissionRemediationToContinuity() {
+        val readyRemoteState = configuredSettingsState().copy(
+            protection = configuredSettingsState().protection.copy(
+                permissionBlockers = setOf("notification"),
+            ),
+        )
+        showWithLocalNavigation(readyRemoteState)
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
+        compose.onNodeWithTag("ui.settings.CONTINUITY_HEADER").assertExists()
+    }
+
+    @Test
+    fun remoteReadinessChecklistShowsReadyStateWithoutPrimaryAction() {
+        val readyRemoteState = configuredSettingsState().copy(
+            protection = configuredSettingsState().protection.copy(permissionBlockers = emptySet()),
+        )
+        showWithLocalNavigation(readyRemoteState)
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithText("ตั้งค่าแล้ว").assertExists()
+        compose.onNodeWithText("จับคู่แล้ว (1 เครื่อง)").assertExists()
+        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
+        compose.onAllNodes(hasTestTag("readiness_primary_action")).assertCountEquals(0)
+    }
+
+    @Test
     fun settingsCategoryPagesOpenAndReturnToOverview() {
         showWithLocalNavigation(configuredSettingsState())
         openSettingsOverview()
