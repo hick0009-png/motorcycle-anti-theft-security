@@ -673,6 +673,30 @@ class ProtectionAppScreenTest {
         compose.onAllNodes(hasText("Last Self-Test", substring = true)).assertCountEquals(0)
     }
 
+    @Test
+    fun settingsCategoryPagesOpenAndReturnToOverview() {
+        showWithLocalNavigation(configuredSettingsState())
+        openSettingsOverview()
+
+        listOf(
+            "การปกป้อง",
+            "การแจ้งเตือนและความปลอดภัย",
+            "ความต่อเนื่องของระบบ",
+            "การวินิจฉัยขั้นสูง",
+        ).forEach { category ->
+            compose.onNodeWithText(category).performClick()
+            compose.onNodeWithText(category).assertExists()
+            compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
+        }
+
+        compose.onNodeWithText("การปกป้อง").performClick()
+        compose.waitForIdle()
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.onNodeWithText("การแจ้งเตือนและความปลอดภัย").assertExists()
+    }
+
     private fun showWithLocalNavigation(
         initialState: ProtectionUiState,
         initialActions: ProtectionAppActions = fakeActions(),
@@ -696,6 +720,11 @@ class ProtectionAppScreenTest {
     }
 
     private fun openSettings() {
+        openSettingsOverview()
+        compose.onNodeWithText("การปกป้อง").performClick()
+    }
+
+    private fun openSettingsOverview() {
         compose.onNodeWithText("ตั้งค่า").performClick()
     }
 

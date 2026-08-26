@@ -1,5 +1,7 @@
 package com.example.motorcycleantitheftsensor.ui.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -103,6 +105,20 @@ private val StatusAmber = Color(0xFFB45309)   // warning text (4.7:1)
 private val StatusRed = Color(0xFFB91C1C)     // error text / destructive fill
 private val ProgressCyan = Color(0xFF0891B2)  // decorative progress only
 
+private enum class SettingsPage(
+    val title: String,
+    val summary: String,
+) {
+    OVERVIEW("ตั้งค่า", "จัดการการปกป้อง การแจ้งเตือน และการทำงานของแอป"),
+    PROTECTION("การปกป้อง", "ปรับการตรวจจับให้เหมาะกับการใช้งานของคุณ"),
+    DELIVERY_SECURITY(
+        "การแจ้งเตือนและความปลอดภัย",
+        "กำหนดช่องทางแจ้งเตือนและสิทธิที่จำเป็น",
+    ),
+    CONTINUITY("ความต่อเนื่องของระบบ", "ดูแลให้การปกป้องทำงานต่อเนื่อง"),
+    ADVANCED("การวินิจฉัยขั้นสูง", "ตรวจดูรายละเอียดเชิงเทคนิคเมื่อจำเป็น"),
+}
+
 @Composable
 fun SettingsScreen(
     state: ProtectionUiState,
@@ -118,6 +134,7 @@ fun SettingsScreen(
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
     var advancedDiagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
+    var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.OVERVIEW) }
 
     val activeOp = state.activeSettingsOperation
     val savingBotToken = activeOp == SettingsOperation.REPLACE_BOT_TOKEN
@@ -151,10 +168,34 @@ fun SettingsScreen(
         return
     }
 
+    BackHandler(enabled = settingsPage != SettingsPage.OVERVIEW) {
+        settingsPage = SettingsPage.OVERVIEW
+    }
+
+    if (settingsPage == SettingsPage.OVERVIEW) {
+        SettingsOverview(
+            contentPadding = contentPadding,
+            modifier = modifier,
+            openPage = { settingsPage = it },
+        )
+        return
+    }
+
+    if (settingsPage != SettingsPage.PROTECTION) {
+        SettingsCategoryPage(
+            page = settingsPage,
+            contentPadding = contentPadding,
+            modifier = modifier,
+            returnToOverview = { settingsPage = SettingsPage.OVERVIEW },
+        )
+        return
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(contentPadding),
+            .padding(contentPadding)
+            .testTag("ui.settings.LIST"),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -172,8 +213,14 @@ fun SettingsScreen(
 
         item(key = "settings-header") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = { settingsPage = SettingsPage.OVERVIEW },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("กลับไปหน้าตั้งค่า")
+                }
                 Text(
-                    text = "การตั้งค่าระบบความปลอดภัย",
+                    text = SettingsPage.PROTECTION.title,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -181,7 +228,7 @@ fun SettingsScreen(
                     modifier = Modifier.semantics { heading() },
                 )
                 Text(
-                    text = "ปรับแต่งการตรวจจับ การแจ้งเตือน และการปกป้องอุปกรณ์",
+                    text = SettingsPage.PROTECTION.summary,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1301,6 +1348,129 @@ private fun AccessibleSensitivitySlider(
                     }
                 },
         )
+    }
+}
+
+@Composable
+private fun SettingsOverview(
+    contentPadding: PaddingValues,
+    modifier: Modifier,
+    openPage: (SettingsPage) -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .testTag("ui.settings.LIST"),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item(key = "settings-overview-header") {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = SettingsPage.OVERVIEW.title,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    text = SettingsPage.OVERVIEW.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        SettingsPage.entries
+            .filter { it != SettingsPage.OVERVIEW }
+            .forEach { page ->
+                item(key = "settings-page-${page.name}") {
+                    SettingsOverviewCard(page = page, onClick = { openPage(page) })
+                }
+            }
+    }
+}
+
+@Composable
+private fun SettingsOverviewCard(
+    page: SettingsPage,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = page.title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                text = page.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "เปิดการตั้งค่า",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = ActionBlue,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryPage(
+    page: SettingsPage,
+    contentPadding: PaddingValues,
+    modifier: Modifier,
+    returnToOverview: () -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .testTag("ui.settings.LIST"),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item(key = "settings-page-header-${page.name}") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = returnToOverview,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("กลับไปหน้าตั้งค่า")
+                }
+                Text(
+                    text = page.title,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    text = page.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
