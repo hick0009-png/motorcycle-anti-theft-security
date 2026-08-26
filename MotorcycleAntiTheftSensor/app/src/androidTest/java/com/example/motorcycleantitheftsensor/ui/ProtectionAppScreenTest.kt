@@ -16,6 +16,7 @@ import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollAction
@@ -709,7 +710,12 @@ class ProtectionAppScreenTest {
 
     @Test
     fun remoteReadinessChecklistShowsTelegramSetupFirstAndOpensDeliverySecurity() {
-        showWithLocalNavigation(baseState(ProtectionState.ARMED_HEALTHY))
+        val unreadyRemoteState = baseState(ProtectionState.ARMED_HEALTHY).copy(
+            protection = baseState(ProtectionState.ARMED_HEALTHY).protection.copy(
+                permissionBlockers = setOf("notification"),
+            ),
+        )
+        showWithLocalNavigation(unreadyRemoteState)
         openSettingsOverview()
 
         compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
@@ -719,9 +725,11 @@ class ProtectionAppScreenTest {
         compose.onNodeWithTag("readiness_bot").assertExists()
         compose.onNodeWithTag("readiness_pairing").assertExists()
         compose.onNodeWithTag("readiness_permissions").assertExists()
+        compose.onNode(hasText("เจ้าของ") and hasAnyAncestor(hasTestTag("readiness_pairing"))).assertExists()
+        compose.onNode(hasText("สิทธิ์") and hasAnyAncestor(hasTestTag("readiness_permissions"))).assertExists()
         compose.onNodeWithText("ยังไม่ได้ตั้งค่า").assertExists()
         compose.onNodeWithText("ยังไม่ได้จับคู่").assertExists()
-        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
+        compose.onNodeWithText("ต้องตรวจสอบสิทธิ์").assertExists()
         compose.onNodeWithText("ตั้งค่า Telegram").performClick()
         compose.onNodeWithTag("ui.settings.DELIVERY_SECURITY_HEADER").assertExists()
     }

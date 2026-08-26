@@ -1469,13 +1469,13 @@ private fun RemoteControlReadinessCard(
             }
             Column(modifier = Modifier.testTag("readiness_pairing")) {
                 DiagnosticRow(
-                    "Owner",
+                    "เจ้าของ",
                     if (pairedOwnerCount > 0) "จับคู่แล้ว ($pairedOwnerCount เครื่อง)" else "ยังไม่ได้จับคู่",
                 )
             }
             Column(modifier = Modifier.testTag("readiness_permissions")) {
                 DiagnosticRow(
-                    "Permissions",
+                    "สิทธิ์",
                     if (permissionsReady) "พร้อมใช้งาน" else "ต้องตรวจสอบสิทธิ์",
                 )
             }
