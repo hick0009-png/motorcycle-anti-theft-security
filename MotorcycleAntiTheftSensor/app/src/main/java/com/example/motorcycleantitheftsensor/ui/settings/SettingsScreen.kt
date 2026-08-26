@@ -212,26 +212,12 @@ fun SettingsScreen(
         }
 
         item(key = "settings-header") {
+            SettingsProtectionHeader(
+                returnToOverview = { settingsPage = SettingsPage.OVERVIEW },
+            )
+        }
+        item(key = "settings-status") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(
-                    onClick = { settingsPage = SettingsPage.OVERVIEW },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("กลับไปหน้าตั้งค่า")
-                }
-                Text(
-                    text = SettingsPage.PROTECTION.title,
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    text = SettingsPage.PROTECTION.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (state.settingsLoading) {
                     Text(
                         "กำลังรีเฟรชการตั้งค่า...",
@@ -1348,6 +1334,45 @@ private fun AccessibleSensitivitySlider(
                     }
                 },
         )
+    }
+}
+
+@Composable
+private fun SettingsProtectionHeader(
+    returnToOverview: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("ui.settings.PROTECTION_HEADER"),
+        color = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TextButton(
+                onClick = returnToOverview,
+                modifier = Modifier.heightIn(min = 48.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+            ) {
+                Text("กลับไปหน้าตั้งค่า")
+            }
+            Text(
+                text = SettingsPage.PROTECTION.title,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                ),
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                text = SettingsPage.PROTECTION.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.84f),
+            )
+        }
     }
 }
 
