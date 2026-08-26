@@ -109,6 +109,7 @@ they are not a manual visual, TalkBack, or live-transport acceptance.
 | Protection Settings header and Power signals | `ProtectionProfilesUiTest#protectionSettingsUsesNavyHeaderAndKeepsPowerSignalsReachable` | PASS |
 | Delivery and continuity pages | `ProtectionAppScreenTest#deliveryAndContinuityPagesKeepTheirExistingControlsReachable` | PASS |
 | Advanced page and progressive disclosure | `ProtectionAppScreenTest#advancedControlsRequireTheAdvancedPageAndItsDisclosure` | PASS |
+| Full Protection UI regression suite | `ProtectionAppScreenTest` on Huawei INE-LX2 | 38/38 PASS (0 failures, 0 errors) |
 | Host/build gate | `testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug` | BUILD SUCCESSFUL |
 
 The reachable `SettingsScreen` source was checked for the former user-facing emoji set;
@@ -120,8 +121,7 @@ acceptance items.
 
 Production Thai UX wording, profile-awareness, Events rendering, and 200% reflow are
 **accepted on the connected Huawei** based on fresh screenshots and passing host gates.
-The instrumented suites need a follow-up harness slice (LazyColumn scroll strategy +
-EMUI touch injection) before they can gate device runs; the failures observed are
-test-environment defects, evidenced by the same surfaces passing in the manual
-walkthrough. TalkBack, live Telegram/SMS delivery, Direct Boot window, and a second
-small-width device remain open manual items and are NOT claimed here.
+The fresh Moto Guard Settings regression run also passes all 38
+`ProtectionAppScreenTest` cases on that device. TalkBack, live Telegram/SMS delivery,
+the Direct Boot window, and a second small-width device remain open manual items and
+are NOT claimed here.

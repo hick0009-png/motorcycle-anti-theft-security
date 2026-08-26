@@ -520,7 +520,7 @@ fun SettingsScreen(
 
                 if (displayPreset == com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay.CUSTOM) {
                     Text(
-                        text = "⚙️ รูปแบบ: กำหนดเอง (Custom)",
+                        text = "รูปแบบ: กำหนดเอง",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = ProgressCyan,
@@ -535,13 +535,6 @@ fun SettingsScreen(
                 SensorCapability.entries.forEach { capability ->
                     val capName = PresentationTextCatalog.capabilityName(capability)
                     val capConfig = currentConfig.capability(capability)
-                    val capIcon = when (capability) {
-                        SensorCapability.MOVEMENT -> "🏃"
-                        SensorCapability.ROTATION -> "🔄"
-                        SensorCapability.MAGNETIC -> "🧲"
-                        SensorCapability.LIGHT -> "💡"
-                        SensorCapability.PROXIMITY -> "📡"
-                    }
                     var sliderValue by remember(capConfig.sensitivity) { mutableIntStateOf(capConfig.sensitivity) }
 
                     Card(
@@ -559,7 +552,7 @@ fun SettingsScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                text = "[ $capIcon $capName ]",
+                                text = capName,
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -628,7 +621,7 @@ fun SettingsScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     title = {
                         Text(
-                            text = "⚙️ กำหนดบทบาทเซ็นเซอร์ฮาร์ดแวร์",
+                            text = "กำหนดบทบาทเซ็นเซอร์ฮาร์ดแวร์",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -681,9 +674,9 @@ fun SettingsScreen(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         ) {
                                             val roles = listOf(
-                                                SensorRole.PRIMARY to "⭐ หลัก",
-                                                SensorRole.SUPPORTING to "🔗 ประกอบ",
-                                                SensorRole.OFF to "❌ ปิด",
+                                                SensorRole.PRIMARY to "หลัก",
+                                                SensorRole.SUPPORTING to "ประกอบ",
+                                                SensorRole.OFF to "ปิด",
                                             )
 
                                             roles.forEach { (role, label) ->
@@ -1115,7 +1108,7 @@ fun SettingsScreen(
                 )
                 DiagnosticRow(
                     "ระดับแบตเตอรี่",
-                    state.protection.batteryLevelPercent?.let { "🔋 $it%" } ?: "ไม่มีข้อมูล",
+                    state.protection.batteryLevelPercent?.let { "$it%" } ?: "ไม่มีข้อมูล",
                 )
             }
         }
