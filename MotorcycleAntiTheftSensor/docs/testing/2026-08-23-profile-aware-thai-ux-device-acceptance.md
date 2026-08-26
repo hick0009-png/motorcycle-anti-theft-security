@@ -110,12 +110,17 @@ they are not a manual visual, TalkBack, or live-transport acceptance.
 | Delivery and continuity pages | `ProtectionAppScreenTest#deliveryAndContinuityPagesKeepTheirExistingControlsReachable` | PASS |
 | Advanced page and progressive disclosure | `ProtectionAppScreenTest#advancedControlsRequireTheAdvancedPageAndItsDisclosure` | PASS |
 | Full Protection UI regression suite | `ProtectionAppScreenTest` on Huawei INE-LX2 | 38/38 PASS (0 failures, 0 errors) |
+| Fresh Settings navigation on Debug APK | Opened all four Settings groups and returned with Android Back on Huawei INE-LX2 | PASS |
 | Host/build gate | `testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug` | BUILD SUCCESSFUL |
 
 The reachable `SettingsScreen` source was checked for the former user-facing emoji set;
 no matches remained. Manual screenshots of the new Settings flow, TalkBack, live
 Telegram/SMS delivery, Direct Boot behavior, and a second narrow device remain open
 acceptance items.
+
+The fresh navigation check opened only the Debug APK and its Settings pages. It did not
+arm protection, modify a setting, reveal credentials, inject an incident, or send a
+message.
 
 ## 8. Verdict
 
