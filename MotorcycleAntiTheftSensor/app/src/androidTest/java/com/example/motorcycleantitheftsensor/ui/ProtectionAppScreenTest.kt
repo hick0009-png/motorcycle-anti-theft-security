@@ -779,12 +779,12 @@ class ProtectionAppScreenTest {
             "ความต่อเนื่องของระบบ" to "ui.settings.CONTINUITY_HEADER",
             "การวินิจฉัยขั้นสูง" to "ui.settings.ADVANCED_HEADER",
         ).forEach { (category, headerTag) ->
-            compose.onNodeWithText(category).performClick()
+            openSettingsPage(category)
             compose.onNodeWithTag(headerTag).assertExists()
             compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
         }
 
-        compose.onNodeWithText("การปกป้อง").performClick()
+        openSettingsPage("การปกป้อง")
         compose.waitForIdle()
         compose.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
@@ -804,7 +804,7 @@ class ProtectionAppScreenTest {
         )
         openSettingsOverview()
 
-        compose.onNodeWithText("การแจ้งเตือนและความปลอดภัย").performClick()
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
         compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
             hasText("Telegram Bot", substring = true),
         )
@@ -815,7 +815,7 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText("บันทึกการตั้งค่า SMS").assertExists()
 
         compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
-        compose.onNodeWithText("ความต่อเนื่องของระบบ").performClick()
+        openSettingsPage("ความต่อเนื่องของระบบ")
         compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
             hasText("สิทธิการเข้าถึงของระบบ", substring = true),
         )
@@ -831,7 +831,7 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(configuredSettingsState())
         openSettingsOverview()
 
-        compose.onNodeWithText("การวินิจฉัยขั้นสูง").performClick()
+        openSettingsPage("การวินิจฉัยขั้นสูง")
         compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
             hasText("แสดงการวินิจฉัยขั้นสูง"),
         )
@@ -878,6 +878,9 @@ class ProtectionAppScreenTest {
     }
 
     private fun openSettingsPage(pageTitle: String) {
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText(pageTitle),
+        )
         compose.onNodeWithText(pageTitle).performClick()
     }
 
