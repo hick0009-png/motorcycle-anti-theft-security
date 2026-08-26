@@ -181,7 +181,7 @@ fun SettingsScreen(
         return
     }
 
-    if (settingsPage != SettingsPage.PROTECTION) {
+    if (settingsPage == SettingsPage.ADVANCED) {
         SettingsCategoryPage(
             page = settingsPage,
             contentPadding = contentPadding,
@@ -212,7 +212,8 @@ fun SettingsScreen(
         }
 
         item(key = "settings-header") {
-            SettingsProtectionHeader(
+            SettingsPageHeader(
+                page = settingsPage,
                 returnToOverview = { settingsPage = SettingsPage.OVERVIEW },
             )
         }
@@ -245,6 +246,7 @@ fun SettingsScreen(
             }
         }
 
+        if (settingsPage == SettingsPage.PROTECTION) {
         item(key = "section-current-use") {
             Text(
                 text = "การใช้งานปัจจุบัน",
@@ -404,6 +406,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (settingsPage == SettingsPage.DELIVERY_SECURITY) {
         item(key = "section-alert-channels") {
             Text(
                 text = "การแจ้งเตือน",
@@ -412,6 +417,9 @@ fun SettingsScreen(
             )
         }
 
+        }
+
+        if (settingsPage == SettingsPage.ADVANCED) {
         item(key = "section-advanced-diagnostics") {
             Text(
                 text = "การวินิจฉัยขั้นสูง",
@@ -792,11 +800,16 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        }
+
+        if (settingsPage == SettingsPage.DELIVERY_SECURITY) {
         item(key = "telegram-settings") {
-            SettingsCard(title = "🤖 Telegram Bot ควบคุมระยะไกล") {
+            SettingsCard(title = "Telegram Bot ควบคุมระยะไกล") {
                 DiagnosticRow(
                     "สถานะ Bot Token",
-                    if (state.settings.tokenConfigured) "ตั้งค่าแล้ว 🟢" else "ยังไม่ตั้งค่า ⚠️",
+                    if (state.settings.tokenConfigured) "ตั้งค่าแล้ว" else "ยังไม่ตั้งค่า",
                 )
                 if (state.settings.pairedOwnerCount > 0) {
                     DiagnosticRow("จำนวนเครื่องเจ้าของที่ผูก", "${state.settings.pairedOwnerCount} เครื่อง")
@@ -821,7 +834,7 @@ fun SettingsScreen(
                         TextButton(
                             onClick = { isPairingCodeRevealed = !isPairingCodeRevealed },
                         ) {
-                            Text(if (isPairingCodeRevealed) "👁️ ซ่อน" else "👁️ แสดง")
+                            Text(if (isPairingCodeRevealed) "ซ่อน" else "แสดง")
                         }
                     }
                 }
@@ -894,10 +907,10 @@ fun SettingsScreen(
         }
 
         item(key = "sms-settings") {
-            SettingsCard(title = "📨 SMS ฉุกเฉินสำรอง (SMS Fallback)") {
+            SettingsCard(title = "SMS ฉุกเฉินสำรอง (SMS Fallback)") {
                 DiagnosticRow(
                     "สถานะ SMS Fallback",
-                    if (state.settings.smsFallbackConfigured) "พร้อมใช้งาน 🟢" else "ยังไม่ได้ตั้งค่า ⚠️",
+                    if (state.settings.smsFallbackConfigured) "พร้อมใช้งาน" else "ยังไม่ได้ตั้งค่า",
                 )
                 Text(
                     text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)",
@@ -971,6 +984,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (settingsPage == SettingsPage.CONTINUITY) {
         item(key = "section-continuity") {
             Text(
                 text = "ความต่อเนื่องของระบบ",
@@ -980,9 +996,9 @@ fun SettingsScreen(
         }
 
         item(key = "permissions") {
-            SettingsCard(title = "🔑 สิทธิการเข้าถึงของระบบ (Permissions)") {
+            SettingsCard(title = "สิทธิการเข้าถึงของระบบ (Permissions)") {
                 if (state.settings.missingPermissions.isEmpty()) {
-                    DiagnosticRow("สถานะสิทธิ", "ได้รับสิทธิที่จำเป็นครบถ้วนแล้ว 🟢")
+                    DiagnosticRow("สถานะสิทธิ", "ได้รับสิทธิที่จำเป็นครบถ้วนแล้ว")
                 } else {
                     Text(
                         "ฟีเจอร์บางส่วนต้องการสิทธิการเข้าถึงเพิ่มเติมเพื่อให้ครอบคลุมการทำงาน:",
@@ -995,9 +1011,9 @@ fun SettingsScreen(
                             blocker == permission || blocker == shortName
                         }
                         val severity = if (blocksProtection) {
-                            "⛔ ปิดกั้นการทำงานหลัก"
+                            "ปิดกั้นการทำงานหลัก"
                         } else {
-                            "⚠️ ลดความครอบคลุม"
+                            "ลดความครอบคลุม"
                         }
                         DiagnosticRow(severity, friendlyPermissionName(permission))
                     }
@@ -1035,7 +1051,7 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsCard(title = "⚡ การทำงานเบื้องหลังตลอด 24 ชม. (Keep-Alive)") {
+            SettingsCard(title = "การทำงานเบื้องหลังตลอด 24 ชม. (Keep-Alive)") {
                 Text(
                     text = "ป้องกันไม่ให้ระบบ Android หรือตัวประหยัดพลังงาน (Huawei PowerGenie, Xiaomi ฯลฯ) ปิดแอปเมื่อจอดับ",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1043,7 +1059,7 @@ fun SettingsScreen(
                 )
                 DiagnosticRow(
                     "โหมดประหยัดแบตเตอรี่",
-                    if (keepAliveStatus.isBatteryOptimizedIgnored) "ยกเว้นแล้ว (ปลอดภัย) 🟢" else "ยังไม่ยกเว้น (อาจโดนฆ่า) ⚠️",
+                    if (keepAliveStatus.isBatteryOptimizedIgnored) "ยกเว้นแล้ว" else "ยังไม่ยกเว้น",
                 )
                 Button(
                     onClick = {
@@ -1060,7 +1076,7 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text(
-                        if (keepAliveStatus.isBatteryOptimizedIgnored) "ได้รับการยกเว้นแล้ว 🟢" else "ขอยกเว้นการประหยัดแบตเตอรี่",
+                        if (keepAliveStatus.isBatteryOptimizedIgnored) "ได้รับการยกเว้นแล้ว" else "ขอยกเว้นการประหยัดแบตเตอรี่",
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -1086,6 +1102,9 @@ fun SettingsScreen(
             }
         }
 
+        }
+
+        if (settingsPage == SettingsPage.ADVANCED) {
         item(key = "diagnostics") {
             SettingsCard(title = "📊 สถานะการทำงานของระบบ (Diagnostics)") {
                 DiagnosticRow(
@@ -1338,13 +1357,14 @@ private fun AccessibleSensitivitySlider(
 }
 
 @Composable
-private fun SettingsProtectionHeader(
+private fun SettingsPageHeader(
+    page: SettingsPage,
     returnToOverview: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("ui.settings.PROTECTION_HEADER"),
+            .testTag("ui.settings.${page.name}_HEADER"),
         color = MaterialTheme.colorScheme.primary,
         shape = RoundedCornerShape(20.dp),
     ) {
@@ -1360,7 +1380,7 @@ private fun SettingsProtectionHeader(
                 Text("กลับไปหน้าตั้งค่า")
             }
             Text(
-                text = SettingsPage.PROTECTION.title,
+                text = page.title,
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -1368,7 +1388,7 @@ private fun SettingsProtectionHeader(
                 modifier = Modifier.semantics { heading() },
             )
             Text(
-                text = SettingsPage.PROTECTION.summary,
+                text = page.summary,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.84f),
             )
@@ -1407,6 +1427,7 @@ private fun SettingsOverview(
                 )
             }
         }
+
         SettingsPage.entries
             .filter { it != SettingsPage.OVERVIEW }
             .forEach { page ->

@@ -697,6 +697,40 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText("การแจ้งเตือนและความปลอดภัย").assertExists()
     }
 
+    @Test
+    fun deliveryAndContinuityPagesKeepTheirExistingControlsReachable() {
+        val state = configuredSettingsState()
+        showWithLocalNavigation(
+            state.copy(
+                settings = state.settings.copy(
+                    missingPermissions = setOf("android.permission.POST_NOTIFICATIONS"),
+                ),
+            ),
+        )
+        openSettingsOverview()
+
+        compose.onNodeWithText("การแจ้งเตือนและความปลอดภัย").performClick()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("Telegram Bot", substring = true),
+        )
+        compose.onNodeWithText("เปลี่ยน Bot Token ใหม่").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("SMS Fallback", substring = true),
+        )
+        compose.onNodeWithText("บันทึกการตั้งค่า SMS").assertExists()
+
+        compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
+        compose.onNodeWithText("ความต่อเนื่องของระบบ").performClick()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("สิทธิการเข้าถึงของระบบ", substring = true),
+        )
+        compose.onNodeWithText("ขอสิทธิการเข้าถึงที่ขาด").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("Keep-Alive", substring = true),
+        )
+        compose.onNodeWithText("Keep-Alive", substring = true).assertExists()
+    }
+
     private fun showWithLocalNavigation(
         initialState: ProtectionUiState,
         initialActions: ProtectionAppActions = fakeActions(),
