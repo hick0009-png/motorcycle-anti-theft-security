@@ -309,6 +309,20 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun populatedEventsShowTimelineHeadingWithoutEmojiTitles() {
+        compose.setContent {
+            ProtectionAppScreen(
+                historyState().copy(destination = ProtectionDestination.EVENTS),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("เหตุการณ์ล่าสุด").assertIsDisplayed()
+        compose.onNodeWithText("รถอาจถูกเคลื่อนย้าย").assertIsDisplayed()
+        compose.onAllNodes(hasText("🚨", substring = true)).assertCountEquals(0)
+    }
+
+    @Test
     fun degradedStateIsReadableWithoutColor() {
         compose.setContent {
             ProtectionAppScreen(degradedState("VIBRATION not healthy"), fakeActions())
@@ -484,7 +498,7 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNodeWithText("🚨 รถอาจถูกเคลื่อนย้าย").assertExists()
+        compose.onNodeWithText("รถอาจถูกเคลื่อนย้าย").assertExists()
         compose.onNodeWithText("แหล่งข้อมูล: เหตุการณ์จริง").assertExists()
         compose.onNodeWithText("ความรุนแรง: เตือนภัย").assertExists()
         compose.onNodeWithText("สถานะเหตุการณ์: สิ้นสุดแล้ว").assertExists()

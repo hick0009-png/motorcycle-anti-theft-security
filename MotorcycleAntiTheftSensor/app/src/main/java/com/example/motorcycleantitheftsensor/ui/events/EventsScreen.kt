@@ -16,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,11 +77,28 @@ fun EventsScreen(
         ) {
             item(key = "events-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.events_history_header),
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.semantics { heading() },
-                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = "เหตุการณ์ล่าสุด",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            Text(
+                                text = "ตรวจสอบเหตุการณ์และการแจ้งเตือน",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = { confirmClear = true },
                         enabled = !state.eventsOperationInFlight,
@@ -139,7 +157,7 @@ private fun EventRow(event: ProtectionEventRow) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = PresentationTextCatalog.incidentTitle(event.type),
+                text = timelineIncidentTitle(event),
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(PresentationTextCatalog.formatEventSourceLine())
@@ -151,6 +169,10 @@ private fun EventRow(event: ProtectionEventRow) {
         }
     }
 }
+
+private fun timelineIncidentTitle(event: ProtectionEventRow): String =
+    PresentationTextCatalog.incidentTitle(event.type)
+        .replace(Regex("^[^\\p{L}\\p{N}]+"), "")
 
 @Composable
 private fun EventError(
