@@ -97,7 +97,26 @@ PASS). Recorded as a limitation.
 | — | — | Telegram/SMS live delivery | NOT EXERCISED (formatting pinned by host tests) |
 | — | — | Second small-width device/emulator | NOT AVAILABLE this session |
 
-## 7. Verdict
+## 7. Moto Guard Settings navigation (2026-08-26)
+
+Focused instrumentation ran on the connected Huawei after the Moto Guard navy Settings
+refresh. These checks exercise the real Compose hierarchy and the existing callbacks;
+they are not a manual visual, TalkBack, or live-transport acceptance.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Settings overview and system back | `ProtectionAppScreenTest#settingsCategoryPagesOpenAndReturnToOverview` | PASS |
+| Protection Settings header and Power signals | `ProtectionProfilesUiTest#protectionSettingsUsesNavyHeaderAndKeepsPowerSignalsReachable` | PASS |
+| Delivery and continuity pages | `ProtectionAppScreenTest#deliveryAndContinuityPagesKeepTheirExistingControlsReachable` | PASS |
+| Advanced page and progressive disclosure | `ProtectionAppScreenTest#advancedControlsRequireTheAdvancedPageAndItsDisclosure` | PASS |
+| Host/build gate | `testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug` | BUILD SUCCESSFUL |
+
+The reachable `SettingsScreen` source was checked for the former user-facing emoji set;
+no matches remained. Manual screenshots of the new Settings flow, TalkBack, live
+Telegram/SMS delivery, Direct Boot behavior, and a second narrow device remain open
+acceptance items.
+
+## 8. Verdict
 
 Production Thai UX wording, profile-awareness, Events rendering, and 200% reflow are
 **accepted on the connected Huawei** based on fresh screenshots and passing host gates.

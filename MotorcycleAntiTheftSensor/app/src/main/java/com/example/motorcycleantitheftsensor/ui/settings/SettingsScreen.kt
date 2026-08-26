@@ -181,16 +181,6 @@ fun SettingsScreen(
         return
     }
 
-    if (settingsPage == SettingsPage.ADVANCED) {
-        SettingsCategoryPage(
-            page = settingsPage,
-            contentPadding = contentPadding,
-            modifier = modifier,
-            returnToOverview = { settingsPage = SettingsPage.OVERVIEW },
-        )
-        return
-    }
-
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -776,7 +766,7 @@ fun SettingsScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     title = {
                         Text(
-                            text = "⚠️ คำเตือน: ไม่มีเซ็นเซอร์หลัก",
+                            text = "คำเตือน: ไม่มีเซ็นเซอร์หลัก",
                             color = StatusRed,
                             fontWeight = FontWeight.Bold,
                         )
@@ -1106,18 +1096,18 @@ fun SettingsScreen(
 
         if (settingsPage == SettingsPage.ADVANCED) {
         item(key = "diagnostics") {
-            SettingsCard(title = "📊 สถานะการทำงานของระบบ (Diagnostics)") {
+            SettingsCard(title = "สถานะการทำงานของระบบ (Diagnostics)") {
                 DiagnosticRow(
                     "สถานะการป้องกัน",
                     PresentationTextCatalog.protectionStateLabel(state.protection.state),
                 )
                 DiagnosticRow(
                     "เบื้องหลัง Service",
-                    if (state.protection.serviceRunning) "กำลังทำงาน 🟢" else "หยุดทำงาน 🔴",
+                    if (state.protection.serviceRunning) "กำลังทำงาน" else "หยุดทำงาน",
                 )
                 DiagnosticRow(
                     "การเชื่อมต่อ Telegram",
-                    if (state.protection.telegramReachable) "เชื่อมต่อได้ 🟢" else "ไม่สามารถติดต่อได้ ⚠️",
+                    if (state.protection.telegramReachable) "เชื่อมต่อได้" else "ไม่สามารถติดต่อได้",
                 )
                 DiagnosticRow(
                     "เปลี่ยนสถานะล่าสุดเมื่อ",
@@ -1148,7 +1138,7 @@ fun SettingsScreen(
                 )
                 DiagnosticRow(
                     "โมเดลจำแนกเสียง (YamNet)",
-                    if (audio.modelReady) "พร้อมทำงาน 🟢" else "ยังไม่พร้อม ⚠️",
+                    if (audio.modelReady) "พร้อมทำงาน" else "ยังไม่พร้อม",
                 )
                 DiagnosticRow(
                     "ระดับความดังเสียง (dBFS)",

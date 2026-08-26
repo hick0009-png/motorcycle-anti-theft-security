@@ -731,6 +731,26 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText("Keep-Alive", substring = true).assertExists()
     }
 
+    @Test
+    fun advancedControlsRequireTheAdvancedPageAndItsDisclosure() {
+        showWithLocalNavigation(configuredSettingsState())
+        openSettingsOverview()
+
+        compose.onNodeWithText("การวินิจฉัยขั้นสูง").performClick()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("แสดงการวินิจฉัยขั้นสูง"),
+        )
+        compose.onNodeWithText("แสดงการวินิจฉัยขั้นสูง").performClick()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("รูปแบบการทำงาน (Preset):"),
+        )
+        compose.onNodeWithText("รูปแบบการทำงาน (Preset):").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("สถานะการทำงานของระบบ", substring = true),
+        )
+        compose.onNodeWithText("สถานะการทำงานของระบบ", substring = true).assertExists()
+    }
+
     private fun showWithLocalNavigation(
         initialState: ProtectionUiState,
         initialActions: ProtectionAppActions = fakeActions(),
