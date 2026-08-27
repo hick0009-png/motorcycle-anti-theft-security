@@ -19,6 +19,7 @@
 | `f193acd` | Document completion of Antigravity tasks 3 and 4 | Record the first complete verification/checkpoint before final review. |
 | `0c62c05` | Use actionable permissions for remote readiness | Derive the permission row/action from `settings.missingPermissions` so Continuity always has a real remediation path. |
 | `c24c80d` | Clarify command guidance copy | Replace placeholder/shared command copy with profile-neutral Thai while preserving Telegram-specific replies. |
+| `37920b6` | Record command guidance verification | Commit the TDD, host-build, APK-install, and launch evidence for the approved command copy. |
 
 ## What changed
 
@@ -146,6 +147,36 @@ The full connected instrumentation suite was not rerun for this catalog-only cop
 change. Its prior 54/59 result and five known `ProtectionProfilesUiTest` fixture/
 viewport failures remain the latest full-device-suite evidence.
 
+### Closeout verification and project-local cleanup (2026-08-27)
+
+Before cleanup, the committed tree at `37920b6` passed a fresh host gate:
+
+```text
+:app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleDebug
+=> BUILD SUCCESSFUL in 21s
+=> unit XML totals: 864 tests, 0 failures, 0 errors, 0 skipped
+=> APK SHA-256: 891FD33635263E2EE3066E1FEA768F2098C7CA6CB8176B0B1EC273FDEB19391B
+```
+
+After capturing that evidence, cleanup removed only ignored, regenerable project-local
+outputs from both the dirty root checkout and this active worktree:
+
+- `MotorcycleAntiTheftSensor/app/build`
+- `MotorcycleAntiTheftSensor/.gradle`
+- `MotorcycleAntiTheftSensor/build`
+- `MotorcycleAntiTheftSensor/.kotlin`
+
+The eight resolved directories were all under `D:\security`, were not reparse points,
+and represented 537,711,214 inventoried bytes (about 512.8 MiB). Post-cleanup checks
+found zero remaining targets and 87,625,093,120 bytes available on `D:`.
+
+Cleanup preserved all source, Git metadata/history, Android SDK files, installed app
+data, global Gradle/Android Studio caches, seven modified root-checkout source/test
+files, five root audit artifacts, and all 16 worktree UI-audit PNGs. The local APK and
+test reports were removed with `app/build`; they are reproducible with the resume build
+command, and removing them did not uninstall or alter the app already installed on the
+Huawei.
+
 ## Phase 4 checklist coverage
 
 - Bottom navigation Thai labels and exactly three primary destinations: covered by the full device class.
@@ -164,8 +195,8 @@ This is automated/device-fixture evidence, not fresh TalkBack, live Telegram/SMS
 - Used explicit Thai status text instead of the stale plan's check/warning text pictograms.
 - Routed remediation only to existing internal Settings pages.
 - Corrected the stale plan/brief field after final review: `protection.permissionBlockers` contains non-permission blockers, so the permission row and Continuity action use `settings.missingPermissions` instead.
-- Preserved the root checkout at `D:\security` untouched. Its six modified UI files are an older overlapping implementation and must not be merged or discarded without an owner-directed reconciliation decision.
-- Implementation HEAD `c24c80d` is 34 commits ahead of `feature/motorcycle-guard-protection`; committing this checkpoint update makes the branch 35 commits ahead. The root branch has no unique commits, but its uncommitted overlapping WIP still prevents a safe fast-forward in place.
+- Preserved the root checkout source WIP untouched. Its seven modified source/test files are an older overlapping implementation and must not be merged or discarded without an owner-directed reconciliation decision; only ignored build/cache outputs were removed there.
+- Checkpoint HEAD `37920b6` is 35 commits ahead of `feature/motorcycle-guard-protection`; committing this cleanup checkpoint makes the branch 36 commits ahead. The root branch has no unique commits, but its seven modified files overlap this branch and still prevent a safe fast-forward in place.
 
 ## Exact resume commands
 
