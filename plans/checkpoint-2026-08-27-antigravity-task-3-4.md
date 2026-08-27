@@ -82,6 +82,40 @@ The earlier `No compose hierarchies found` result was traced to the Huawei being
 
 The Android SDK XML v4/v3 compatibility warning remains non-fatal and predates this slice.
 
+### Fresh full rerun after APK installation (2026-08-27)
+
+The completed branch was rebuilt and tested again on the connected Huawei after the
+owner requested a fresh run:
+
+```text
+Host: testDebugUnitTest + compileDebugAndroidTestKotlin + assembleDebug
+=> BUILD SUCCESSFUL in 19s; unit XML remains 864 tests, 0 failures, 0 errors
+
+Device: connectedDebugAndroidTest (all instrumentation classes)
+=> 59 tests, 54 passed, 5 failed, 0 errors, 0 skipped
+```
+
+All five failures are in `ProtectionProfilesUiTest` and reproduce its previously
+recorded long-list/fixture mismatch:
+
+- `vehicleSettingsShowFiveSectionsAndMovementControlWithoutOldSensitivityLabel`
+- `powerSettingsShowIndependentChargingAndWitnessRows`
+- `entryGuardSetupSectionShowsCompassQuickChoicesAndStartsCommissioning`
+- `entrySettingsShowAngleOutcomeQuickChoicesAndNoMagneticControl`
+- `advancedTechnicalControlsStayHiddenUntilDisclosureExpanded`
+
+The failing methods use `settingsUiState`, whose default destination remains
+`PROTECTION`, and/or direct `performScrollTo` / `assertIsDisplayed` against content
+outside the current viewport. The correctly routed comparison test
+`protectionSettingsUsesNavyHeaderAndKeepsPowerSignalsReachable` opens the Protection
+Settings page and scrolls through `ui.settings.LIST`; it passed in the same 59-test run.
+No production or test source was changed during this rerun.
+
+After instrumentation, `app-debug.apk` was reinstalled successfully. A launch smoke
+test resolved and opened `com.example.motorcycleantitheftsensor/.MainActivity`, confirmed
+it as the resumed activity, observed the Moto Guard Thai hierarchy, and found no
+`AndroidRuntime` fatal exception in the cleared launch log.
+
 ## Phase 4 checklist coverage
 
 - Bottom navigation Thai labels and exactly three primary destinations: covered by the full device class.
