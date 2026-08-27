@@ -4,7 +4,7 @@
 
 - Worktree: `D:\security\.worktrees\continuity-recovery-tdd\MotorcycleAntiTheftSensor`
 - Branch: `codex/continuity-recovery-tdd`
-- Current implementation HEAD after final review fix: `0c62c05 Use actionable permissions for remote readiness`
+- Current implementation HEAD: `c24c80d Clarify command guidance copy`
 - External plan: `C:\Users\ASUS\.gemini\antigravity\brain\4372dedc-96bf-4641-982e-b8079e7b7040\implementation_plan.md`
 - Scope completed here: Phase 3 Task 3A, confirmation of Task 3B, and Phase 4 automated/device verification.
 - Tracked working tree was clean before adding this checkpoint. Preserve the 16 pre-existing untracked UI-audit PNGs.
@@ -18,6 +18,7 @@
 | `04c485c` | Stabilize settings page navigation tests | Scroll the existing top-level Settings list before category clicks after the new card increased overview height. |
 | `f193acd` | Document completion of Antigravity tasks 3 and 4 | Record the first complete verification/checkpoint before final review. |
 | `0c62c05` | Use actionable permissions for remote readiness | Derive the permission row/action from `settings.missingPermissions` so Continuity always has a real remediation path. |
+| `c24c80d` | Clarify command guidance copy | Replace placeholder/shared command copy with profile-neutral Thai while preserving Telegram-specific replies. |
 
 ## What changed
 
@@ -116,6 +117,35 @@ test resolved and opened `com.example.motorcycleantitheftsensor/.MainActivity`, 
 it as the resumed activity, observed the Moto Guard Thai hierarchy, and found no
 `AndroidRuntime` fatal exception in the cleared launch log.
 
+### Approved command-guidance copy follow-up (2026-08-27)
+
+The owner approved a bounded copy correction in the shared guidance catalog:
+
+- `COMMAND_STATUS_SUCCESS`: `สถานะระบบ` / `อัปเดตข้อมูลสถานะแล้ว`
+- `COMMAND_HELP`: `คำสั่งที่ใช้ได้` / `ดูรายการคำสั่งใน Telegram`
+- `COMMAND_UNKNOWN`: kept title `คำสั่งไม่สำเร็จ`; changed body to `ไม่รู้จักคำสั่งนี้`
+
+Only `titleTh` / `bodyTh` changed. All three `telegramTh` values remain unchanged, so
+Telegram `/help` and unknown-command replies retain their channel-specific detail while
+the shared app copy stays profile-neutral.
+
+TDD and current-build evidence:
+
+```text
+RED: UserGuidanceCatalogTest failed at line 96
+     expected "สถานะระบบ", actual "อัปเดตสถานะแล้ว"
+GREEN: focused UserGuidanceCatalogTest => 4 tests, 0 failures
+Host gate: testDebugUnitTest + compileDebugAndroidTestKotlin + assembleDebug
+=> BUILD SUCCESSFUL in 37s; 864 tests, 0 failures, 0 errors, 0 skipped
+APK SHA-256: 891FD33635263E2EE3066E1FEA768F2098C7CA6CB8176B0B1EC273FDEB19391B
+Huawei INE-LX2 install -r => Success
+Launch => MainActivity RESUMED; no AndroidRuntime error in the cleared launch log
+```
+
+The full connected instrumentation suite was not rerun for this catalog-only copy
+change. Its prior 54/59 result and five known `ProtectionProfilesUiTest` fixture/
+viewport failures remain the latest full-device-suite evidence.
+
 ## Phase 4 checklist coverage
 
 - Bottom navigation Thai labels and exactly three primary destinations: covered by the full device class.
@@ -135,7 +165,7 @@ This is automated/device-fixture evidence, not fresh TalkBack, live Telegram/SMS
 - Routed remediation only to existing internal Settings pages.
 - Corrected the stale plan/brief field after final review: `protection.permissionBlockers` contains non-permission blockers, so the permission row and Continuity action use `settings.missingPermissions` instead.
 - Preserved the root checkout at `D:\security` untouched. Its six modified UI files are an older overlapping implementation and must not be merged or discarded without an owner-directed reconciliation decision.
-- Final-fix HEAD `0c62c05` is 31 commits ahead of `feature/motorcycle-guard-protection`; committing this checkpoint update makes the branch 32 commits ahead. The root branch has no unique commits, but its uncommitted overlapping WIP still prevents a safe fast-forward in place.
+- Implementation HEAD `c24c80d` is 34 commits ahead of `feature/motorcycle-guard-protection`; committing this checkpoint update makes the branch 35 commits ahead. The root branch has no unique commits, but its uncommitted overlapping WIP still prevents a safe fast-forward in place.
 
 ## Exact resume commands
 
