@@ -4,7 +4,7 @@
 
 - Worktree: `D:\security\.worktrees\continuity-recovery-tdd\MotorcycleAntiTheftSensor`
 - Branch: `codex/continuity-recovery-tdd`
-- Implementation HEAD before this checkpoint commit: `04c485c Stabilize settings page navigation tests`
+- Current implementation HEAD after final review fix: `0c62c05 Use actionable permissions for remote readiness`
 - External plan: `C:\Users\ASUS\.gemini\antigravity\brain\4372dedc-96bf-4641-982e-b8079e7b7040\implementation_plan.md`
 - Scope completed here: Phase 3 Task 3A, confirmation of Task 3B, and Phase 4 automated/device verification.
 - Tracked working tree was clean before adding this checkpoint. Preserve the 16 pre-existing untracked UI-audit PNGs.
@@ -16,6 +16,8 @@
 | `e5215f5` | Add remote readiness checklist | Add the Settings overview readiness projection, remediation routing, stable semantics tags, and three device tests. |
 | `9a2a503` | Localize remote readiness labels | Make controller-visible labels fully Thai and strengthen Telegram-action precedence coverage. |
 | `04c485c` | Stabilize settings page navigation tests | Scroll the existing top-level Settings list before category clicks after the new card increased overview height. |
+| `f193acd` | Document completion of Antigravity tasks 3 and 4 | Record the first complete verification/checkpoint before final review. |
+| `0c62c05` | Use actionable permissions for remote readiness | Derive the permission row/action from `settings.missingPermissions` so Continuity always has a real remediation path. |
 
 ## What changed
 
@@ -30,6 +32,7 @@
   - Missing token or owner pairing → `ตั้งค่า Telegram` → existing `DELIVERY_SECURITY` page.
   - Otherwise, a permission blocker → `ตรวจสอบสิทธิ์` → existing `CONTINUITY` page.
   - Fully ready → no primary action.
+- Permission readiness uses `settings.missingPermissions`, the same source rendered by the Continuity page. Non-permission protection/runtime blockers are not mislabeled as permission problems.
 - Kept all owner-facing labels Thai; no emoji/text pictograms, new destination, secret rendering, coordinator mutation, Direct Boot change, or dependency.
 
 ### Task 3B — advanced diagnostics
@@ -70,6 +73,8 @@ Combined Task 3A + Task 3B gate                => 6/6 passed in 51s
 First full ProtectionAppScreenTest             => 37/41 passed; 4 offscreen-click failures
 Former failures after test-helper repair       => 4/4 passed
 Final full ProtectionAppScreenTest             => 41/41 passed in 1m42s
+Final permission-truth-path readiness rerun    => 3/3 passed, 0 failures
+Post-fix host/build gate                       => exit 0
 git diff --check                               => clean
 ```
 
@@ -94,8 +99,9 @@ This is automated/device-fixture evidence, not fresh TalkBack, live Telegram/SMS
 - Adapted the stale plan's readiness concept to one non-page card plus the existing four Settings pages.
 - Used explicit Thai status text instead of the stale plan's check/warning text pictograms.
 - Routed remediation only to existing internal Settings pages.
+- Corrected the stale plan/brief field after final review: `protection.permissionBlockers` contains non-permission blockers, so the permission row and Continuity action use `settings.missingPermissions` instead.
 - Preserved the root checkout at `D:\security` untouched. Its six modified UI files are an older overlapping implementation and must not be merged or discarded without an owner-directed reconciliation decision.
-- Implementation HEAD `04c485c` is 29 commits ahead of `feature/motorcycle-guard-protection`; committing this checkpoint makes the branch 30 commits ahead. The root branch has no unique commits, but its uncommitted overlapping WIP still prevents a safe fast-forward in place.
+- Final-fix HEAD `0c62c05` is 31 commits ahead of `feature/motorcycle-guard-protection`; committing this checkpoint update makes the branch 32 commits ahead. The root branch has no unique commits, but its uncommitted overlapping WIP still prevents a safe fast-forward in place.
 
 ## Exact resume commands
 
