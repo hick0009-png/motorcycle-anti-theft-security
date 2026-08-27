@@ -188,8 +188,8 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_STATUS_SUCCESS -> GuidanceContent(
-                titleTh = "อัปเดตสถานะแล้ว",
-                bodyTh = "อัปเดตสถานะแล้ว",
+                titleTh = "สถานะระบบ",
+                bodyTh = "อัปเดตข้อมูลสถานะแล้ว",
                 telegramTh = "ℹ️ สถานะระบบ: {protectionStatus}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -244,8 +244,8 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
-                titleTh = "ไม่มี",
-                bodyTh = "ไม่มี",
+                titleTh = "คำสั่งที่ใช้ได้",
+                bodyTh = "ดูรายการคำสั่งใน Telegram",
                 telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
                     "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
@@ -254,7 +254,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.COMMAND_UNKNOWN -> GuidanceContent(
                 titleTh = "คำสั่งไม่สำเร็จ",
-                bodyTh = "ไม่มี",
+                bodyTh = "ไม่รู้จักคำสั่งนี้",
                 telegramTh = "ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,

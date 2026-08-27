@@ -93,8 +93,8 @@ class UserGuidanceCatalogTest {
         assertEquals("ไม่มีการเปลี่ยนสถานะระบบ", c_UNAUTHORIZED_COMMAND.bodyTh)
         assertEquals("🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน", c_UNAUTHORIZED_COMMAND.telegramTh)
         val c_COMMAND_STATUS_SUCCESS = UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS, GuidanceDetail.None)
-        assertEquals("อัปเดตสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.titleTh)
-        assertEquals("อัปเดตสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.bodyTh)
+        assertEquals("สถานะระบบ", c_COMMAND_STATUS_SUCCESS.titleTh)
+        assertEquals("อัปเดตข้อมูลสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.bodyTh)
         assertEquals("ℹ️ สถานะระบบ: {protectionStatus}", c_COMMAND_STATUS_SUCCESS.telegramTh)
         val c_COMMAND_ARM_APPLIED = UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_APPLIED, GuidanceDetail.None)
         assertEquals("เปิดการป้องกันแล้ว", c_COMMAND_ARM_APPLIED.titleTh)
@@ -124,8 +124,8 @@ class UserGuidanceCatalogTest {
         assertEquals("ระดับการตรวจจับไม่ถูกต้อง", c_COMMAND_SENSITIVITY_INVALID.bodyTh)
         assertEquals("⚠️ ระดับการตรวจจับต้องอยู่ระหว่าง 1 ถึง 10", c_COMMAND_SENSITIVITY_INVALID.telegramTh)
         val c_COMMAND_HELP = UserGuidanceCatalog.content(GuidanceCode.COMMAND_HELP, GuidanceDetail.None)
-        assertEquals("ไม่มี", c_COMMAND_HELP.titleTh)
-        assertEquals("ไม่มี", c_COMMAND_HELP.bodyTh)
+        assertEquals("คำสั่งที่ใช้ได้", c_COMMAND_HELP.titleTh)
+        assertEquals("ดูรายการคำสั่งใน Telegram", c_COMMAND_HELP.bodyTh)
         assertEquals(
             "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
                 "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
@@ -134,7 +134,7 @@ class UserGuidanceCatalogTest {
         assertFalse(c_COMMAND_HELP.telegramTh!!.contains("<รหัส>"))
         val c_COMMAND_UNKNOWN = UserGuidanceCatalog.content(GuidanceCode.COMMAND_UNKNOWN, GuidanceDetail.None)
         assertEquals("คำสั่งไม่สำเร็จ", c_COMMAND_UNKNOWN.titleTh)
-        assertEquals("ไม่มี", c_COMMAND_UNKNOWN.bodyTh)
+        assertEquals("ไม่รู้จักคำสั่งนี้", c_COMMAND_UNKNOWN.bodyTh)
         assertEquals("ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้", c_COMMAND_UNKNOWN.telegramTh)
         val c_SENSOR_HEALTHY = UserGuidanceCatalog.content(GuidanceCode.SENSOR_HEALTHY, GuidanceDetail.None)
         assertEquals("เซนเซอร์พร้อมใช้งาน", c_SENSOR_HEALTHY.titleTh)
