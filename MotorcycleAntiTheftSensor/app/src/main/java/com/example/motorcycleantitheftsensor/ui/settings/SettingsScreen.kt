@@ -1437,7 +1437,7 @@ private fun RemoteControlReadinessCard(
 ) {
     val tokenConfigured = state.settings.tokenConfigured
     val pairedOwnerCount = state.settings.pairedOwnerCount
-    val permissionsReady = state.protection.permissionBlockers.isEmpty()
+    val permissionsReady = state.settings.missingPermissions.isEmpty()
     val action = when {
         !tokenConfigured || pairedOwnerCount == 0 -> "ตั้งค่า Telegram" to SettingsPage.DELIVERY_SECURITY
         !permissionsReady -> "ตรวจสอบสิทธิ์" to SettingsPage.CONTINUITY

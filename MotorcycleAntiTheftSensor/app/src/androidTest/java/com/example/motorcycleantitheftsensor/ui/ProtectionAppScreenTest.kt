@@ -729,7 +729,7 @@ class ProtectionAppScreenTest {
         compose.onNode(hasText("สิทธิ์") and hasAnyAncestor(hasTestTag("readiness_permissions"))).assertExists()
         compose.onNodeWithText("ยังไม่ได้ตั้งค่า").assertExists()
         compose.onNodeWithText("ยังไม่ได้จับคู่").assertExists()
-        compose.onNodeWithText("ต้องตรวจสอบสิทธิ์").assertExists()
+        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
         compose.onNodeWithText("ตั้งค่า Telegram").performClick()
         compose.onNodeWithTag("ui.settings.DELIVERY_SECURITY_HEADER").assertExists()
     }
@@ -737,8 +737,8 @@ class ProtectionAppScreenTest {
     @Test
     fun remoteReadinessChecklistRoutesPermissionRemediationToContinuity() {
         val readyRemoteState = configuredSettingsState().copy(
-            protection = configuredSettingsState().protection.copy(
-                permissionBlockers = setOf("notification"),
+            settings = configuredSettingsState().settings.copy(
+                missingPermissions = setOf("android.permission.POST_NOTIFICATIONS"),
             ),
         )
         showWithLocalNavigation(readyRemoteState)
@@ -749,12 +749,15 @@ class ProtectionAppScreenTest {
         )
         compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.onNodeWithTag("ui.settings.CONTINUITY_HEADER").assertExists()
+        compose.onNodeWithText("ขอสิทธิการเข้าถึงที่ขาด").assertExists()
     }
 
     @Test
     fun remoteReadinessChecklistShowsReadyStateWithoutPrimaryAction() {
         val readyRemoteState = configuredSettingsState().copy(
-            protection = configuredSettingsState().protection.copy(permissionBlockers = emptySet()),
+            protection = configuredSettingsState().protection.copy(
+                permissionBlockers = setOf("runtime sensor unavailable"),
+            ),
         )
         showWithLocalNavigation(readyRemoteState)
         openSettingsOverview()
