@@ -109,6 +109,14 @@ interface AndroidDetectorSet {
 
     /** Live witness-light samples while a commissioning stream is active. */
     fun powerWitnessSamples(): Flow<PowerWitnessSample> = emptyFlow()
+
+    /** Starts live charging-status updates while Power Guard is selected and disarmed. */
+    fun startPowerStatusMonitoring() {
+    }
+
+    /** Releases the Power Guard status receiver during service shutdown. */
+    fun stopPowerStatusMonitoring() {
+    }
 }
 
 data class IncidentObservationBatch(
@@ -207,6 +215,14 @@ class AndroidProtectionRuntime(
 
     override fun powerWitnessSamples(): Flow<PowerWitnessSample> =
         detectors.powerWitnessSamples()
+
+    override fun startPowerStatusMonitoring() {
+        detectors.startPowerStatusMonitoring()
+    }
+
+    override fun stopPowerStatusMonitoring() {
+        detectors.stopPowerStatusMonitoring()
+    }
 
 
     private fun handleObservation(observation: SensorObservation) {
@@ -674,7 +690,6 @@ class PlatformAndroidDetectorSet(
                     ),
                 ),
             )
-            powerThermal.stopMonitoring()
             audio.stopListening()
             powerLightListener?.let { listener ->
                 try {
@@ -782,6 +797,14 @@ class PlatformAndroidDetectorSet(
     }
 
     override fun powerWitnessSamples(): Flow<PowerWitnessSample> = powerSampleFlow
+
+    override fun startPowerStatusMonitoring() {
+        powerThermal.startMonitoring()
+    }
+
+    override fun stopPowerStatusMonitoring() {
+        powerThermal.stopMonitoring()
+    }
 
     /**
      * Dedicated ambient-light listener feeding the commissioning flow and the armed-session

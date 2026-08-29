@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คู่มือการใช้งานระบบความปลอดภัยและตรวจจับการโจรกรรมรถจักรยานยนต์ (Motorcycle Anti-Theft Sensor v2.5)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 15mm 15mm 18mm 15mm;
+            @bottom-center {
+                content: "ระบบตรวจจับการโจรกรรมรถจักรยานยนต์อัจฉริยะ • Motorcycle Anti-Theft Sensor v2.5";
+                font-family: 'Sarabun', sans-serif;
+                font-size: 8pt;
+                color: #888888;
+            }
+            @bottom-right {
+                content: "หน้า " counter(page);
+                font-family: 'Sarabun', sans-serif;
+                font-size: 8pt;
+                color: #555555;
+                font-weight: bold;
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        body {
+            font-family: 'Sarabun', sans-serif;
+            font-size: 10.5pt;
+            line-height: 1.6;
+            color: #1e293b;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            color: #0f172a;
+            margin-top: 1.2em;
+            margin-bottom: 0.5em;
+            line-height: 1.3;
+        }
+
+        h1 {
+            font-size: 20pt;
+            color: #0f2c59;
+            border-bottom: 2.5px solid #0284c7;
+            padding-bottom: 8px;
+            margin-top: 0;
+        }
+
+        h2 {
+            font-size: 14pt;
+            color: #0369a1;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 5px;
+            margin-top: 1.5em;
+        }
+
+        h3 {
+            font-size: 12pt;
+            color: #1e293b;
+            margin-top: 1.2em;
+        }
+
+        h4 {
+            font-size: 11pt;
+            color: #334155;
+        }
+
+        p, li {
+            color: #334155;
+            text-align: justify;
+        }
+
+        ul, ol {
+            padding-left: 22px;
+            margin-top: 6px;
+            margin-bottom: 10px;
+        }
+
+        li {
+            margin-bottom: 4px;
+        }
+
+        .page-break {
+            page-break-before: always;
+            break-before: page;
+        }
+
+        .avoid-break {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
+        /* Cover Page */
+        .cover-page {
+            height: 100vh;
+            min-height: 250mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-after: always;
+            break-after: page;
+            padding: 40px 10px;
+        }
+
+        .cover-header {
+            border-left: 6px solid #0284c7;
+            padding-left: 20px;
+        }
+
+        .cover-title {
+            font-family: 'Prompt', sans-serif;
+            font-size: 26pt;
+            font-weight: 700;
+            color: #0f2c59;
+            line-height: 1.2;
+            margin: 0 0 10px 0;
+        }
+
+        .cover-subtitle {
+            font-family: 'Prompt', sans-serif;
+            font-size: 14pt;
+            font-weight: 400;
+            color: #475569;
+            margin: 0;
+        }
+
+        .cover-badge {
+            display: inline-block;
+            background-color: #e0f2fe;
+            color: #0369a1;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 10pt;
+            font-weight: 600;
+            margin-top: 15px;
+            border: 1px solid #bae6fd;
+        }
+
+        .cover-features {
+            background-color: #f8fafc;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            padding: 24px;
+            margin: 40px 0;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .feature-icon {
+            background: #0284c7;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11pt;
+            flex-shrink: 0;
+        }
+
+        .cover-footer {
+            border-top: 1px solid #e2e8f0;
+            padding-top: 15px;
+            font-size: 9.5pt;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Callout Boxes */
+        .callout {
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 14px 0;
+            border-left: 4px solid #0284c7;
+            background-color: #f0f9ff;
+            font-size: 10pt;
+        }
+
+        .callout-title {
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #0369a1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .callout-warning {
+            border-left-color: #f59e0b;
+            background-color: #fffbeb;
+        }
+        .callout-warning .callout-title { color: #b45309; }
+
+        .callout-danger {
+            border-left-color: #ef4444;
+            background-color: #fef2f2;
+        }
+        .callout-danger .callout-title { color: #b91c1c; }
+
+        .callout-success {
+            border-left-color: #10b981;
+            background-color: #ecfdf5;
+        }
+        .callout-success .callout-title { color: #047857; }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 14px 0;
+            font-size: 9.5pt;
+        }
+
+        th, td {
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f1f5f9;
+            color: #0f172a;
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            font-size: 9.5pt;
+        }
+
+        tr:nth-child(even) td {
+            background-color: #f8fafc;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 8.5pt;
+            font-weight: 600;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+        .badge-blue { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+        .badge-green { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .badge-amber { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .badge-red { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+        .badge-gray { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+
+        /* Code and Terminal */
+        code {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            background-color: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9pt;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+        }
+
+        .terminal-box {
+            background-color: #0f172a;
+            color: #f8fafc;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9pt;
+            margin: 12px 0;
+            line-height: 1.5;
+        }
+        .terminal-cmd { color: #38bdf8; font-weight: bold; }
+        .terminal-comment { color: #94a3b8; font-style: italic; }
+
+        /* UI Mockups & Cards */
+        .ui-card {
+            border: 1.5px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 16px;
+            margin: 12px 0;
+            background: #ffffff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .ui-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+        }
+
+        .ui-title {
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            font-size: 11pt;
+            color: #0f172a;
+        }
+
+        /* Step numbers */
+        .step-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .step-item {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 16px;
+            align-items: flex-start;
+        }
+
+        .step-num {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background-color: #0284c7;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            font-size: 9.5pt;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-title {
+            font-family: 'Prompt', sans-serif;
+            font-weight: 600;
+            font-size: 10.5pt;
+            color: #0f172a;
+            margin-bottom: 3px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ========================================== -->
+<!-- 1. COVER PAGE -->
+<!-- ========================================== -->
+<div class="cover-page">
+    <div>
+        <div class="cover-header">
+            <h1 class="cover-title">คู่มือการใช้งานระบบความปลอดภัยและตรวจจับการโจรกรรมรถจักรยานยนต์</h1>
+            <p class="cover-subtitle">Motorcycle Anti-Theft Sensor v2.5 — Complete User & Technical Manual</p>
+            <div class="cover-badge">คู่มือฉบับสมบูรณ์ • ภาษาไทย • ทุกเมนูและการตั้งค่า</div>
+        </div>
+
+        <div class="cover-features">
+            <h3 style="margin-top: 0; margin-bottom: 15px; color: #0f2c59;">จุดเด่นและขีดความสามารถของระบบ</h3>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <div class="feature-icon">🔒</div>
+                    <div>
+                        <strong>ระบบความปลอดภัยระดับ Hardware Keystore</strong>
+                        <p style="margin: 2px 0 0 0; font-size: 9pt;">เข้ารหัสข้อมูลด้วย AES-256-GCM / SIV กุญแจฝังในฮาร์ดแวร์ ป้องกันการถอดรหัส</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🤖</div>
+                    <div>
+                        <strong>สั่งงานและแจ้งเตือนผ่าน Telegram Bot</strong>
+                        <p style="margin: 2px 0 0 0; font-size: 9pt;">แจ้งเตือนทันทีเมื่อเกิดเหตุ ตรวจสอบสถานะรถ สั่งเปิด-ปิดระบบจากระยะไกล</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">📡</div>
+                    <div>
+                        <strong>3 โปรไฟล์การป้องกันอัจฉริยะ (Guard Profiles)</strong>
+                        <p style="margin: 2px 0 0 0; font-size: 9pt;">Standard Guard, Entry Guard (เข็มทิศองศาประตู), Power Guard (ตัดสายไฟ/แสงดับ)</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🚨</div>
+                    <div>
+                        <strong>ระบบสำรองฉุกเฉิน SMS เข้ารหัสลับ</strong>
+                        <p style="margin: 2px 0 0 0; font-size: 9pt;">ส่งพิกัดและสัญญาณเตือนผ่าน SMS AES-256 เมื่อไม่มีอินเทอร์เน็ต</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="cover-footer">
+        <div><strong>เวอร์ชันแอป:</strong> v2.5 Production Ready (Build 813 Tests Passed)</div>
+        <div><strong>จัดทำโดย:</strong> ฝ่ายวิศวกรรมความปลอดภัยระบบอัตโนมัติ</div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 2. TABLE OF CONTENTS & OVERVIEW -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>สารบัญ (Table of Contents)</h1>
+
+<table style="margin-top: 20px;">
+    <thead>
+        <tr>
+            <th style="width: 15%;">หมวดหมู่</th>
+            <th style="width: 75%;">หัวข้อ</th>
+            <th style="width: 10%; text-align: center;">ส่วนที่</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>ภาพรวม</strong></td>
+            <td>สถาปัตยกรรมและหลักการทำงานของระบบ (System Architecture)</td>
+            <td style="text-align: center;">1</td>
+        </tr>
+        <tr>
+            <td><strong>เริ่มต้นใช้งาน</strong></td>
+            <td>การติดตั้งและตั้งค่าเริ่มต้นครั้งแรก (Initial Setup & Checklist)</td>
+            <td style="text-align: center;">2</td>
+        </tr>
+        <tr>
+            <td><strong>เมนูที่ 1</strong></td>
+            <td><strong>หน้า "ป้องกัน" (Protection Screen)</strong>: สถานะหลัก, การเปิด-ปิดระบบ, 3 โปรไฟล์การป้องกัน, การปรับเทียบเซนเซอร์ และมาตรวัดระบบสด</td>
+            <td style="text-align: center;">3</td>
+        </tr>
+        <tr>
+            <td><strong>เมนูที่ 2</strong></td>
+            <td><strong>หน้า "เหตุการณ์" (Security Events Log)</strong>: ประวัติเหตุการณ์เตือนภัย, ระดับความรุนแรง, สถานะการส่งข้อมูล และระบบ Anti-Spam</td>
+            <td style="text-align: center;">4</td>
+        </tr>
+        <tr>
+            <td><strong>เมนูที่ 3</strong></td>
+            <td><strong>หน้า "ตั้งค่า" (Settings Screen — เจาะลึกทุกเมนู)</strong>: Telegram Bot, รหัสจับคู่, SMS ฉุกเฉิน, ความไวเซนเซอร์, สิทธิ์แอป และการจูน Sensor Fusion</td>
+            <td style="text-align: center;">5</td>
+        </tr>
+        <tr>
+            <td><strong>คำสั่งระยะไกล</strong></td>
+            <td>การสั่งงานผ่าน Telegram Bot (`/status`, `/arm`, `/disarm`, `/pair`, `/decode`)</td>
+            <td style="text-align: center;">6</td>
+        </tr>
+        <tr>
+            <td><strong>ความปลอดภัย</strong></td>
+            <td>ระบบ Anti-Tamper, FRP Lock, Kiosk Mode และการทำงาน 24/7</td>
+            <td style="text-align: center;">7</td>
+        </tr>
+        <tr>
+            <td><strong>แก้ไขปัญหา</strong></td>
+            <td>คำถามที่พบบ่อยและแนวทางแก้ไขข้อผิดพลาด (Troubleshooting & FAQ)</td>
+            <td style="text-align: center;">8</td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>1. สถาปัตยกรรมและหลักการทำงานของระบบ (System Architecture)</h2>
+<p>
+    แอปพลิเคชัน <strong>Motorcycle Anti-Theft Sensor</strong> ได้รับการออกแบบขึ้นเพื่อเปลี่ยนสมาร์ตโฟน Android ที่ติดตั้งซ่อนไว้ในรถจักรยานยนต์ ให้กลายเป็นกล่องสมองกลความปลอดภัยอัจฉริยะ (Intelligent Anti-Theft Unit) ที่ทำงานตลอด 24 ชั่วโมง โดยผสานเซนเซอร์หลากหลายชนิด (Multi-Sensor Fusion) ร่วมกับอัลกอริทึมปัญญาประดิษฐ์ตรวจจับเสียงภัยคุกคาม (Audio Neural Network) และส่งแจ้งเตือนตรงไปยัง Telegram ของเจ้าของรถ
+</p>
+
+<div class="callout callout-success avoid-break">
+    <div class="callout-title">🛡️ หลักการออกแบบความปลอดภัยสูงสุด (Security-First Standard)</div>
+    <ul>
+        <li><strong>ความลับของข้อมูล (Confidentiality):</strong> ข้อมูลสำคัญ (Bot Token, Pairing Code, พิกัด GPS) ถูกเข้ารหัสด้วย Hardware Keystore AES-256 ไม่มีการเก็บข้อความแบบ Plaintext บนหน่วยความจำของเครื่อง</li>
+        <li><strong>การป้องกันการปลอมแปลง (Integrity & Pinning):</strong> เชื่อมต่อกับ Telegram ผ่าน Certificate Pinning (TLS 1.2/1.3) ป้องกันการดักจับข้อมูลบนเครือข่ายมือถือ</li>
+        <li><strong>ความต่อเนื่องของการทำงาน (24/7 Continuity):</strong> รันบน Foreground Service พิเศษ พร้อม Watchdog ป้องกันระบบถูกปิด และรองรับ Direct Boot ทำงานได้ทันทีแม้เครื่องเพิ่งรีสตาร์ตและยังไม่ได้ปลดล็อกหน้าจอ</li>
+    </ul>
+</div>
+
+<!-- ========================================== -->
+<!-- 3. INITIAL SETUP -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h2>2. การเตรียมความพร้อมและติดตั้งครั้งแรก (Initial Setup)</h2>
+
+<p>เพื่อให้ระบบทำงานได้อย่างสมบูรณ์แบบโดยไม่ถูกระบบปฏิบัติการ Android ปิดการทำงานในพื้นหลัง ให้ปฏิบัติตาม 4 ขั้นตอนดังต่อไปนี้:</p>
+
+<ul class="step-list">
+    <li class="step-item">
+        <div class="step-num">1</div>
+        <div class="step-content">
+            <div class="step-title">ติดตั้งสมาร์ตโฟนในตำแหน่งที่เหมาะสมบนตัวรถ</div>
+            <p>ยึดโทรศัพท์ให้แน่นหนาในช่องใต้เบาะรถ (ECU Compartment) หรือจุดซ่อนที่ปลอดภัย โดยให้เซนเซอร์แสง (Light Sensor) อยู่ในมุมที่สามารถตรวจจับแสงเมื่อมีการเปิดเบาะหรือถอดชิ้นส่วนรถ</p>
+        </div>
+    </li>
+    <li class="step-item">
+        <div class="step-num">2</div>
+        <div class="step-content">
+            <div class="step-title">อนุญาตสิทธิ์การทำงานที่จำเป็น (Required Permissions)</div>
+            <p>เมื่อเปิดแอปครั้งแรก ให้กดอนุญาตสิทธิ์ให้ครบถ้วนในหน้า <strong>ตั้งค่า &gt; ความพร้อมของระบบ</strong>:</p>
+            <ul>
+                <li><strong>การแจ้งเตือน (Notifications):</strong> สำหรับแสดงสถานะ Foreground Service ถาวร</li>
+                <li><strong>ตำแหน่ง (Location / GPS):</strong> สำหรับบันทึกพิกัดรถขณะจอดและส่งตำแหน่งเมื่อถูกโจรกรรม</li>
+                <li><strong>ไมโครโฟน (Microphone):</strong> สำหรับระบบประมวลผลเสียงตัดเหล็กหรือเสียงกระแทก (YAMNet)</li>
+                <li><strong>SMS:</strong> สำหรับส่งสัญญาณเตือนภัยฉุกเฉินเมื่อไม่มีสัญญาณอินเทอร์เน็ต</li>
+            </ul>
+        </div>
+    </li>
+    <li class="step-item">
+        <div class="step-num">3</div>
+        <div class="step-content">
+            <div class="step-title">ยกเว้นการประหยัดพลังงาน (Disable Battery Optimization)</div>
+            <p>เข้าไปที่การตั้งค่าของมือถือ ปรับให้แอปนี้ <strong>"ไม่จำกัดการใช้แบตเตอรี่ (Unrestricted / Ignore Battery Optimizations)"</strong> และเปิด <strong>"เริ่มทำงานอัตโนมัติ (Autostart)"</strong> ในตัวจัดการโทรศัพท์ (เช่น Huawei System Manager, Xiaomi Security, Oppo/Vivo SafeCenter)</p>
+        </div>
+    </li>
+    <li class="step-item">
+        <div class="step-num">4</div>
+        <div class="step-content">
+            <div class="step-title">สร้าง Telegram Bot และจับคู่กับแอป</div>
+            <p>สร้างบอทผ่าน <code>@BotFather</code> ใน Telegram นำ Token มาใส่ในแอป และใช้รหัส 6 หลักจับคู่กับบัญชีของท่าน (ดูรายละเอียดในหมวดที่ 5.1)</p>
+        </div>
+    </li>
+</ul>
+
+<!-- ========================================== -->
+<!-- 4. MENU 1: PROTECTION SCREEN -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>3. เมนูที่ 1: หน้า "ป้องกัน" (Protection Screen)</h1>
+
+<p>หน้า <strong>"ป้องกัน"</strong> คือหน้าจอหลัก (Dashboard) ที่แสดงสถานะความปลอดภัยของรถแบบเรียลไทม์ และเป็นจุดศูนย์กลางในการเปิดหรือปิดระบบป้องกัน</p>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">🛡️ ภาพรวมหน้าป้องกัน (Protection Screen Layout)</span>
+        <span class="badge badge-green">ระบบออนไลน์</span>
+    </div>
+    <table style="margin: 0;">
+        <tr>
+            <td style="width: 30%; background: #f8fafc;"><strong>การ์ดสถานะหลัก</strong></td>
+            <td>แสดงสถานะการป้องกันใหญ่ชัดเจน (เปิดอยู่ / กำลังเปิด / ปิดอยู่ / แจ้งเตือน) พร้อมคำแนะนำ</td>
+        </tr>
+        <tr>
+            <td style="background: #f8fafc;"><strong>ปุ่มเปิด/ปิดระบบ</strong></td>
+            <td>ปุ่มขนาดใหญ่ชัดเจน: <code>เปิดการป้องกัน (ARM)</code> หรือ <code>ปลดการป้องกัน (DISARM)</code></td>
+        </tr>
+        <tr>
+            <td style="background: #f8fafc;"><strong>แถบเลือกโปรไฟล์</strong></td>
+            <td>สลับการทำงานระหว่าง: <strong>Standard Guard</strong>, <strong>Entry Guard</strong>, <strong>Power Guard</strong></td>
+        </tr>
+        <tr>
+            <td style="background: #f8fafc;"><strong>รายละเอียดระบบ</strong></td>
+            <td>แถบข้อมูลที่พับเก็บได้ แสดงสถานะเซนเซอร์ แบตเตอรี่ อุณหภูมิ และระดับเสียงรอบข้าง</td>
+        </tr>
+    </table>
+</div>
+
+<h3>3.1 สถานะของระบบป้องกัน (System Protection States)</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 25%;">สถานะที่แสดง</th>
+            <th style="width: 15%;">สีประจำสถานะ</th>
+            <th style="width: 60%;">ความหมายและการทำงาน</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>การป้องกันเปิดอยู่ (ARMED)</strong></td>
+            <td><span class="badge badge-green">สีเขียว</span></td>
+            <td>ระบบกำลังเฝ้าระวังภัยคุกคามเต็มรูปแบบ เซนเซอร์ทุกตัวพร้อมทำงาน หากตรวจพบสิ่งผิดปกติจะส่งสัญญาณเตือนภัยทันที</td>
+        </tr>
+        <tr>
+            <td><strong>กำลังเปิดการป้องกัน (ARMING)</strong></td>
+            <td><span class="badge badge-amber">สีส้ม</span></td>
+            <td>อยู่ในช่วงหน่วงเวลานับถอยหลัง <strong>10 วินาที</strong> เพื่อให้ผู้ใช้มีเวลาเก็บของใต้เบาะ ปิดล็อครถ และเดินออกจากตัวรถ เซนเซอร์จะปรับเทียบค่าศูนย์ (Zero Baseline Calibration)</td>
+        </tr>
+        <tr>
+            <td><strong>การป้องกันปิดอยู่ (DISARMED)</strong></td>
+            <td><span class="badge badge-gray">สีเทา/ดำ</span></td>
+            <td>ระบบหยุดการเฝ้าระวังชั่วคราว เหมาะสำหรับการขับขี่หรือซ่อมบำรุงรถ บอท Telegram ยังคงออนไลน์พร้อมรับคำสั่งเปิดระบบได้ตลอดเวลา</td>
+        </tr>
+        <tr>
+            <td><strong>กำลังส่งสัญญาณเตือนภัย (ALERT ACTIVE)</strong></td>
+            <td><span class="badge badge-red">สีแดงกะพริบ</span></td>
+            <td>ตรวจพบภัยคุกคามรุนแรง (เช่น การงัดเบาะ, การยกรถ, เสียงตัดกุญแจ) ระบบกำลังส่งพิกัดและข้อความฉุกเฉินไปยัง Telegram และ SMS</td>
+        </tr>
+        <tr>
+            <td><strong>การป้องกันจำกัด (DEGRADED)</strong></td>
+            <td><span class="badge badge-amber">สีเหลืองอำพัน</span></td>
+            <td>ระบบเปิดอยู่แต่มีเซนเซอร์บางตัวขัดข้อง (เช่น ไมโครโฟนไม่ได้รับสิทธิ์ หรือไม่มีสัญญาณ GPS) ระบบจะยังคงเฝ้าระวังด้วยเซนเซอร์ตัวอื่นที่เหลืออยู่</td>
+        </tr>
+        <tr>
+            <td><strong>ระบบออฟไลน์ (OFFLINE)</strong></td>
+            <td><span class="badge badge-red">สีแดงเข้ม</span></td>
+            <td>Foreground Service หยุดทำงาน หรือไม่มีการเชื่อมต่อเครือข่าย ให้เปิดหน้าแอปเพื่อกู้คืนระบบ</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h3>3.2 โปรไฟล์การป้องกัน 3 รูปแบบ (Protection Profiles)</h3>
+
+<p>ผู้ใช้สามารถเลือกโปรไฟล์การป้องกันที่เหมาะสมกับลักษณะการจอดรถและอุปกรณ์ที่ติดตั้ง:</p>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">1. Standard Guard (การป้องกันมาตรฐาน)</span>
+        <span class="badge badge-blue">ค่าเริ่มต้นที่แนะนำ</span>
+    </div>
+    <p>
+        <strong>เหมาะสำหรับ:</strong> การจอดรถทั่วไปในที่สาธารณะ ลานจอดรถ หรือริมถนน<br>
+        <strong>การทำงาน:</strong> รวมข้อมูลจาก <strong>เซนเซอร์วัดแรงสั่นสะเทือน (Accelerometer)</strong>, <strong>ไมโครโฟนตรวจจับเสียงภัยคุกคาม (Audio Neural Classifier)</strong>, <strong>เซนเซอร์แสง (Light Sensor)</strong> และ <strong>การเคลื่อนที่ของพิกัด GPS</strong> เข้าด้วยกัน โดยใช้ระบบ Dynamic Threshold ป้องกันการแจ้งเตือนผิดพลาดจากลมพัดหรือรถใหญ่ขับผ่าน
+    </p>
+</div>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">2. Entry Guard (เข็มทิศองศาเปิดประตู/เปิดเบาะ)</span>
+        <span class="badge badge-amber">ระบบตรวจจับองศาหมุน</span>
+    </div>
+    <p>
+        <strong>เหมาะสำหรับ:</strong> รถที่มีกล่องเก็บของท้ายรถ ประตูโรงจอดรถ หรือฝาครอบเบาะที่เปิดแบบบานพับ<br>
+        <strong>การทำงาน:</strong> ใช้เซนเซอร์วัดสนามแม่เหล็กและ Gyroscope คำนวณองศาการเปิดแบบ 3 มิติ (Angle Displacement) ตรวจจับเมื่อบานพับถูกเปิดเกินมุมที่ตั้งค่าไว้ (เช่น 15° ถึง 45°)<br>
+        <strong>ขั้นตอนการปรับเทียบ (Entry Commissioning):</strong>
+        <ol style="margin-top: 4px;">
+            <li>เลือกมุมองศาตรวจจับที่ต้องการ (แนะนำ 15° - 30°) และกดยืนยัน</li>
+            <li>ทำ <strong>Cycle 1</strong>: เปิดเบาะ/ประตูให้สุด แล้วปิดกลับสนิท 1 ครั้ง</li>
+            <li>ทำ <strong>Cycle 2</strong>: เปิดเบาะ/ประตูให้สุด แล้วปิดกลับสนิทอีก 1 ครั้ง</li>
+            <li>เมื่อขึ้นสถานะ <code>COMMISSIONED</code> โปรไฟล์จะพร้อมใช้งานทันที</li>
+        </ol>
+    </p>
+</div>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">3. Power Guard (ตรวจจับสายชาร์จและพยานแสง)</span>
+        <span class="badge badge-red">ระบบเฝ้าระวังไฟดับ</span>
+    </div>
+    <p>
+        <strong>เหมาะสำหรับ:</strong> รถจักรยานยนต์ไฟฟ้า (EV Bike) ที่เสียบสายชาร์จทิ้งไว้ หรือรถที่จอดในโรงรถที่มีหลอดไฟส่องสว่าง<br>
+        <strong>การทำงาน:</strong> ทำงานร่วมกันแบบ Dual-Witness ระหว่าง <strong>สถานะการเสียบสายชาร์จ (Charging Status)</strong> และ <strong>แสงสว่างจากหลอดไฟพยาน (Witness Lux)</strong> ป้องกันการแจ้งเตือนเท็จ หากสายไฟหลุดแต่ไฟห้องยังติดอยู่จะแจ้งเตือนแค่ระดับ Warning แต่หากสายชาร์จหลุดพร้อมกับไฟห้องดับพร้อมกัน จะยกระดับเป็น <strong>CRITICAL ALARM ทันที</strong><br>
+        <strong>ขั้นตอนการปรับเทียบ (Power Commissioning):</strong>
+        <ol style="margin-top: 4px;">
+            <li><strong>Dark Window:</strong> ดับไฟห้องหรือปิดม่านเพื่อบันทึกค่าความมืด (Baseline Dark)</li>
+            <li><strong>Lit Window:</strong> เปิดไฟห้องและเสียบสายชาร์จ เพื่อบันทึกค่าความสว่างขณะชาร์จปกติ</li>
+        </ol>
+    </p>
+</div>
+
+<!-- ========================================== -->
+<!-- 5. MENU 2: EVENTS SCREEN -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>4. เมนูที่ 2: หน้า "เหตุการณ์" (Security Events Log)</h1>
+
+<p>หน้า <strong>"เหตุการณ์"</strong> เก็บรวบรวมประวัติความเคลื่อนไหวและเหตุการณ์ด้านความปลอดภัยที่ระบบตรวจพบอย่างละเอียด ช่วยให้เจ้าของรถตรวจสอบย้อนหลังได้ว่าเกิดอะไรขึ้น เมื่อไร และระบบได้ดำเนินการอย่างไร</p>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">📋 ตัวอย่างการแสดงผลการ์ดเหตุการณ์</span>
+        <span class="badge badge-red">CRITICAL</span>
+    </div>
+    <div style="font-size: 10pt; line-height: 1.5;">
+        <div style="font-weight: 600; color: #0f172a;">🚨 ตรวจพบการสั่นสะเทือนรุนแรงร่วมกับเสียงตัดเหล็ก</div>
+        <div style="color: #64748b; font-size: 9pt; margin: 3px 0;">27 ส.ค. 2026, 20:15:32 • แหล่งข้อมูล: Accelerometer + Audio YAMNet</div>
+        <div style="margin-top: 6px; padding: 6px 10px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+            <strong>สถานะการจัดส่ง:</strong> <span class="badge badge-green">ส่ง Telegram สำเร็จ</span> | 
+            <strong>วงจรเหตุการณ์:</strong> <span class="badge badge-gray">สิ้นสุดแล้ว (CLOSED)</span>
+        </div>
+    </div>
+</div>
+
+<h3>4.1 การจำแนกระดับความรุนแรง (Incident Severity)</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 20%;">ระดับความรุนแรง</th>
+            <th style="width: 20%;">ประเภทเหตุการณ์</th>
+            <th style="width: 60%;">การตอบสนองของระบบ</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><span class="badge badge-blue">INFO</span> (ข้อมูล)</td>
+            <td>การเปิด-ปิดระบบ, การเปลี่ยนค่าความไว, เซนเซอร์พร้อมทำงาน</td>
+            <td>บันทึกลงประวัติเหตุการณ์ และส่งสรุปสถานะเมื่อผู้ใช้ร้องขอ</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-amber">WARNING</span> (เตือนภัย)</td>
+            <td>แรงสั่นสะเทือนเบาๆ 1 ครั้ง, สายชาร์จหลุด (แต่ไฟห้องยังติด), สัญญาณเน็ตสะดุด</td>
+            <td>ส่งข้อความเตือนสีเหลืองไปยัง Telegram เพื่อให้ผู้ใช้ทราบความผิดปกติเบื้องต้น</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-red">CRITICAL</span> (วิกฤต)</td>
+            <td>แรงสั่นต่อเนื่อง, เสียงตัดเหล็ก, เปิดเบาะ, รถถูกเคลื่อนย้ายพิกัด, ไฟดับพร้อมสายชาร์จหลุด</td>
+            <td>ส่งการแจ้งเตือนด่วนระดับสูงสุดพร้อมพิกัด GPS ส่งซ้ำทาง SMS ฉุกเฉินทันทีหากติดต่อ Telegram ไม่ได้</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>4.2 วงจรชีวิตของเหตุการณ์และระบบ Anti-Spam (Incident Lifecycle)</h3>
+<p>
+    ระบบใช้กลไก <strong>Correlation Window 30 วินาที</strong> เพื่อรวบรวมหลักฐานอย่างต่อเนื่อง โดยจะไม่ส่งข้อความสแปมเข้า Telegram ทุกวินาที:
+</p>
+<ul>
+    <li><strong>OPEN (เปิดเหตุการณ์):</strong> เมื่อเริ่มตรวจพบสิ่งผิดปกติ ข้อความแรกจะถูกส่งเตือนเจ้าของรถทันที</li>
+    <li><strong>INTERRUPTED / UPDATED (บันทึกหลักฐานเพิ่ม):</strong> หากมีการขยับรถหรือมีเสียงเกิดขึ้นต่อเนื่องใน 30 วินาที ระบบจะรวมหลักฐานเข้ากับเหตุการณ์เดิมโดยไม่ส่งข้อความซ้ำซ้อนให้รำคาญ</li>
+    <li><strong>CLOSED (ปิดเหตุการณ์):</strong> เมื่อไม่มีความเคลื่อนไหวใดๆ ติดต่อกันเกิน 30 วินาที ระบบจะสรุปและปิดเหตุการณ์อย่างสมบูรณ์</li>
+</ul>
+
+<div class="callout callout-warning avoid-break">
+    <div class="callout-title">🗑️ การล้างประวัติเหตุการณ์ (Clear History)</div>
+    กดปุ่ม <code>ล้างประวัติเหตุการณ์</code> ที่ด้านบนของหน้าจอเมื่อต้องการลบรายการบันทึกเก่าทั้งหมด ระบบจะแสดงกล่องข้อความยืนยันเพื่อป้องกันการกดผิดพลาด
+</div>
+
+<!-- ========================================== -->
+<!-- 6. MENU 3: SETTINGS SCREEN -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>5. เมนูที่ 3: หน้า "ตั้งค่า" (Settings Screen — เจาะลึกทุกเมนู)</h1>
+
+<p>หน้า <strong>"ตั้งค่า"</strong> เป็นศูนย์กลางในการกำหนดค่าความปลอดภัยและการเชื่อมต่อทั้งหมด แบ่งออกเป็น 5 หมวดหมู่หลักดังนี้:</p>
+
+<h3>5.1 หมวดที่ 1: การเชื่อมต่อ Telegram Bot (Telegram Bot Setup)</h3>
+
+<table style="margin-top: 10px;">
+    <thead>
+        <tr>
+            <th style="width: 30%;">ตัวเลือก / เมนู</th>
+            <th style="width: 70%;">คำอธิบายและขั้นตอนการใช้งาน</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Telegram Bot Token</strong></td>
+            <td>
+                ช่องสำหรับกรอกโทเค็นของบอทที่ได้จาก <code>@BotFather</code> ในแอป Telegram<br>
+                <em>ตัวอย่าง:</em> <code>7123456789:AAFn8xYz...</code><br>
+                เมื่อกรอกแล้วให้กดปุ่ม <code>ทดสอบและเชื่อมต่อ</code> ระบบจะตรวจสอบความถูกต้องผ่าน Certificate Pinning ทันที
+            </td>
+        </tr>
+        <tr>
+            <td><strong>รหัสจับคู่ (Pairing Code)</strong></td>
+            <td>
+                ระบบสร้างรหัสตัวเลข <strong>6 หลัก</strong> (เช่น <code>482910</code>) ที่มีอายุการใช้งาน <strong>10 นาที</strong><br>
+                <strong>วิธีจับคู่:</strong> เปิดแอป Telegram บนมือถือของท่าน เข้าแชตบอท แล้วพิมพ์:
+                <div style="margin: 4px 0;"><code>/pair 482910</code></div>
+                เมื่อจับคู่สำเร็จ บัญชี Telegram ของท่านจะกลายเป็น <strong>Authorized Owner</strong> เพียงผู้เดียวที่สั่งงานรถคันนี้ได้
+            </td>
+        </tr>
+        <tr>
+            <td><strong>ปุ่ม "สร้างรหัสใหม่" &amp; "รีเซ็ตการจับคู่"</strong></td>
+            <td>
+                - <code>สร้างรหัสใหม่</code>: กดเมื่อรหัสเดิมหมดอายุ (เกิน 10 นาที)<br>
+                - <code>รีเซ็ตการจับคู่</code>: กดเพื่อลบสิทธิ์เจ้าของเดิมทั้งหมด เพื่ออนุญาตให้จับคู่กับบัญชี Telegram ใหม่
+            </td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>5.2 หมวดที่ 2: ระบบแจ้งเตือนสำรองฉุกเฉินผ่าน SMS (SMS Emergency Fallback)</h3>
+
+<p>ระบบ SMS Fallback จะทำงานอัตโนมัติเมื่อเกิดเหตุการณ์ระดับ <strong>CRITICAL</strong> แต่ตัวเครื่องไม่มีสัญญาณอินเทอร์เน็ตในการส่ง Telegram</p>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 30%;">ตัวเลือก / เมนู</th>
+            <th style="width: 70%;">คำอธิบายและการกำหนดค่า</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>เบอร์โทรศัพท์ปลายทาง (Destination Number)</strong></td>
+            <td>กรอกเบอร์โทรศัพท์มือถือของเจ้าของรถที่ต้องการให้รับ SMS แจ้งเตือน (เช่น <code>0812345678</code> หรือ <code>+66812345678</code>)</td>
+        </tr>
+        <tr>
+            <td><strong>รหัสผ่านเข้ารหัส SMS (AES Pre-Shared Key)</strong></td>
+            <td>
+                กำหนดรหัสผ่านลับร่วม (Passphrase) สำหรับเข้ารหัสข้อความ SMS ด้วย <strong>AES-256-GCM</strong><br>
+                <em>ข้อความ SMS ที่ส่งออกไปจะไม่มีใครสามารถอ่านได้จนกว่าจะนำรหัสนี้ไปถอดรหัสผ่านบอท Telegram ด้วยคำสั่ง <code>/decode</code></em>
+            </td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h3>5.3 หมวดที่ 3: การตั้งค่าระดับความไวของเซนเซอร์ (Sensor Sensitivity)</h3>
+
+<p>แถบเลื่อน (Slider) สำหรับปรับความไวในการตรวจจับแรงสั่นสะเทือนและการเคลื่อนไหวตั้งแต่ระดับ <strong>1 ถึง 10</strong> (ค่ามาตรฐานคือระดับ 5):</p>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 15%; text-align: center;">ระดับ</th>
+            <th style="width: 35%;">ลักษณะการตอบสนอง</th>
+            <th style="width: 50%;">สภาพแวดล้อมที่เหมาะสม</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td style="text-align: center;"><strong>1 - 3</strong></td>
+            <td><strong>ความไวต่ำ (Low Sensitivity):</strong> ตอบสนองเฉพาะแรงกระแทกหนักๆ เช่น การยกรถ หรือการชนกระแทกแรง</td>
+            <td>จอดริมถนนใหญ่ที่มีรถบรรทุกวิ่งผ่านตลอดเวลา หรือจอดในพื้นที่ก่อสร้างที่มีแรงสะเทือนสูง</td>
+        </tr>
+        <tr>
+            <td style="text-align: center;"><strong>4 - 6</strong></td>
+            <td><strong>ความไวมาตรฐาน (Balanced - ค่าเริ่มต้น 5):</strong> ตรวจจับการขึ้นคร่อมรถ, การขยับแฮนด์, การปลดขาตั้ง</td>
+            <td>การจอดรถทั่วไปในชีวิตประจำวัน ห้างสรรพสินค้า คอนโดมิเนียม</td>
+        </tr>
+        <tr>
+            <td style="text-align: center;"><strong>7 - 10</strong></td>
+            <td><strong>ความไวสูง (High Sensitivity):</strong> ตอบสนองต่อการสัมผัสแผ่วเบา หรือการแตะตัวถังรถ</td>
+            <td>จอดในโรงรถส่วนตัวที่ปิดมิดชิด หรือพื้นที่ควบคุมพิเศษที่ไม่มีลมพัด</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>5.4 หมวดที่ 4: ความพร้อมและสิทธิ์การทำงานของระบบ (Permissions & System Health)</h3>
+
+<div class="ui-card avoid-break">
+    <div class="ui-header">
+        <span class="ui-title">📋 รายการตรวจสอบสิทธิ์ความปลอดภัย (Security Permissions Checklist)</span>
+    </div>
+    <ul style="margin: 0; padding-left: 18px;">
+        <li><strong>สิทธิ์การแจ้งเตือน (POST_NOTIFICATIONS):</strong> เพื่อให้ระบบแสดง Notification ค้างไว้ในแถบสถานะ ป้องกัน Android ปิดแอป</li>
+        <li><strong>สิทธิ์ไมโครโฟน (RECORD_AUDIO):</strong> สำหรับระบบตรวจจับเสียงภัยคุกคามด้วย AI (YAMNet Neural Engine)</li>
+        <li><strong>สิทธิ์ตำแหน่ง GPS (ACCESS_FINE_LOCATION):</strong> สำหรับบันทึกจุดจอด (Parking Anchor) และส่งพิกัดติดตามสด (Live Pursuit)</li>
+        <li><strong>สิทธิ์ SMS (SEND_SMS):</strong> สำหรับระบบแจ้งเตือนสำรองฉุกเฉินเมื่ออินเทอร์เน็ตถูกตัด</li>
+        <li><strong>สิทธิ์ยกเว้นการประหยัดพลังงาน (Battery Optimization):</strong> ป้องกันไม่ให้ CPU หลับลึกจนหยุดอ่านค่าเซนเซอร์</li>
+        <li><strong>สิทธิ์ผู้ดูแลระบบ (Device Admin):</strong> สำหรับเปิดระบบ Anti-Tamper ป้องกันการถอนการติดตั้งแอปโดยไม่ได้รับอนุญาต</li>
+    </ul>
+</div>
+
+<h3>5.5 หมวดที่ 5: การตั้งค่าเซนเซอร์ขั้นสูง (Advanced Sensor Fusion & Presets)</h3>
+
+<p>สำหรับช่างเทคนิคหรือผู้ใช้ขั้นสูง สามารถเลือกค่ากำหนดล่วงหน้า (Sensor Preset) ได้ 3 โหมด:</p>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 30%;">Sensor Preset</th>
+            <th style="width: 70%;">การกำหนดค่าน้ำหนักเซนเซอร์ (Weight Matrix)</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>1. จอดริมถนน / ลมแรง (High Wind / Street)</strong></td>
+            <td>ลดค่าน้ำหนักของ Accelerometer และเซนเซอร์เสียงลง 40% และเพิ่มเกณฑ์ Debounce เป็น 5 ครั้งติดต่อกัน เพื่อตัด False Alarm จากสภาพอากาศ</td>
+        </tr>
+        <tr>
+            <td><strong>2. มาตรฐาน (Standard Balanced)</strong></td>
+            <td>สมดุลระหว่างความไวและความแม่นยำ (Vibration Weight 1.0, Audio Weight 0.8, Light Weight 1.0)</td>
+        </tr>
+        <tr>
+            <td><strong>3. โรงจอดส่วนตัว (Enclosed High Security)</strong></td>
+            <td>เปิดความไวเซนเซอร์สูงสุดทุกมิติ เพิ่มน้ำหนัก Audio Detection เพื่อตรวจจับแม้เพียงเสียงเสียบกุญแจผี</td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ========================================== -->
+<!-- 7. TELEGRAM BOT COMMANDS -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>6. การควบคุมและสั่งการผ่าน Telegram Bot จากระยะไกล</h1>
+
+<p>
+    หลังจากทำการจับคู่ (Pairing) เรียบร้อยแล้ว เจ้าของรถสามารถพิมพ์คำสั่งต่อไปนี้ในแชตบอท Telegram เพื่อควบคุมและตรวจสอบรถได้จากทุกที่ทั่วโลก:
+</p>
+
+<div class="terminal-box avoid-break">
+    <div><span class="terminal-cmd">/status</span></div>
+    <div class="terminal-comment"># ตรวจสอบสถานะความปลอดภัย แบตเตอรี่ อุณหภูมิ และพิกัด GPS รถ</div>
+    <div style="margin: 6px 0; color: #a5f3fc;">
+        ℹ️ <strong>สถานะรถ:</strong> การป้องกันเปิดอยู่ (ARMED)<br>
+        🔋 <strong>แบตเตอรี่:</strong> 92% (34.5°C)<br>
+        📡 <strong>เซนเซอร์:</strong> ทำงานปกติ (Vibration, Light, Audio)<br>
+        📍 <strong>ตำแหน่ง:</strong> 13.7563, 100.5018 (<a href="#" style="color: #38bdf8;">ดูบน Google Maps</a>)
+    </div>
+</div>
+
+<table style="margin-top: 15px;">
+    <thead>
+        <tr>
+            <th style="width: 25%;">คำสั่ง (Command)</th>
+            <th style="width: 35%;">รูปแบบการใช้งาน</th>
+            <th style="width: 40%;">ผลลัพธ์และการทำงาน</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><code>/status</code></td>
+            <td><code>/status</code></td>
+            <td>ขอรายงานสถานะสดของรถ: สถานะการป้องกัน, แบตเตอรี่, อุณหภูมิ, ความพร้อมเซนเซอร์ และลิงก์พิกัด Google Maps</td>
+        </tr>
+        <tr>
+            <td><code>/arm</code></td>
+            <td><code>/arm</code></td>
+            <td>สั่ง <strong>เปิดระบบป้องกัน</strong> จากระยะไกล (ระบบจะเริ่มนับถอยหลัง 10 วินาทีและปรับเทียบเซนเซอร์)</td>
+        </tr>
+        <tr>
+            <td><code>/disarm</code></td>
+            <td><code>/disarm</code></td>
+            <td>สั่ง <strong>ปลดระบบป้องกัน</strong> จากระยะไกล (หยุดการเฝ้าระวังและปิดสัญญาณเตือนภัย)</td>
+        </tr>
+        <tr>
+            <td><code>/sensitivity</code></td>
+            <td><code>/sensitivity 7</code></td>
+            <td>ปรับเปลี่ยนระดับความไวของเซนเซอร์เป็นตัวเลข <strong>1 ถึง 10</strong> ทันทีโดยไม่ต้องเปิดแอปบนมือถือรถ</td>
+        </tr>
+        <tr>
+            <td><code>/pair</code></td>
+            <td><code>/pair &lt;รหัส 6 หลัก&gt;</code></td>
+            <td>ใช้สำหรับผูกบัญชี Telegram ในขั้นตอนติดตั้งครั้งแรก (เช่น <code>/pair 482910</code>)</td>
+        </tr>
+        <tr>
+            <td><code>/decode</code></td>
+            <td><code>/decode [ENC_ALARM_V2]...</code></td>
+            <td>นำข้อความ SMS ฉุกเฉินที่ได้รับมาวางต่อท้ายคำสั่ง เพื่อให้บอททำการถอดรหัสลับและแสดงพิกัด GPS</td>
+        </tr>
+        <tr>
+            <td><code>/help</code></td>
+            <td><code>/help</code></td>
+            <td>แสดงคู่มือและรายการคำสั่งทั้งหมดที่สามารถสั่งการได้</td>
+        </tr>
+    </tbody>
+</table>
+
+<div class="callout callout-danger avoid-break">
+    <div class="callout-title">🔒 ระบบป้องกันคำสั่งจากบุคคลภายนอก (Unauthorized Access Protection)</div>
+    หากมีบัญชี Telegram อื่นที่ไม่ใช่เจ้าของ พยายามส่งคำสั่งเข้ามายังบอท ระบบจะปฏิเสธคำสั่งทั้งหมด ไม่เปลี่ยนสถานะใดๆ ของรถ และจะส่งข้อความแจ้งเตือนมายัง Telegram ของเจ้าของรถทันทีว่ามีผู้พยายามสั่งงานโดยไม่ได้รับอนุญาต
+</div>
+
+<!-- ========================================== -->
+<!-- 8. ANTI-TAMPER & SECURITY HARDENING -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>7. ระบบความปลอดภัยระดับฮาร์ดแวร์และการป้องกันการดัดแปลง</h1>
+
+<p>
+    เพื่อป้องกันไม่ให้โจรสามารถปิดเครื่องโทรศัพท์, ลบแอปพลิเคชัน, หรือเชื่อมต่อคอมพิวเตอร์เพื่อแฮกข้อมูล ระบบได้ผสานมาตรการความปลอดภัยระดับสูงของ Android ดังนี้:
+</p>
+
+<h3>7.1 Kiosk Mode &amp; FRP Lock (สิทธิ์ผู้ดูแลระบบ Device Admin)</h3>
+<ul>
+    <li><strong>ล็อกหน้าจอแบบ Lock Task:</strong> เมื่อเปิดระบบ Kiosk แถบ Notification Bar และ Quick Settings ด้านบนจะถูกล็อก ไม่สามารถรูดลงมาเพื่อเปิดโหมดเครื่องบิน (Airplane Mode) ได้</li>
+    <li><strong>ป้องกันการปิดเครื่อง (Power Menu Lock):</strong> ยับยั้งไม่ให้เมนูปิดเครื่องทำงานในหน้าล็อก</li>
+    <li><strong>Factory Reset Protection:</strong> หากมีความพยายามจะลบสิทธิ์ Device Admin ระบบจะส่งข้อความแจ้งเตือนฉุกเฉินไปยัง Telegram ทันที</li>
+</ul>
+
+<h3>7.2 ปิดพอร์ต USB Debugging (ADB) อัตโนมัติ</h3>
+<p>
+    เมื่อแอปได้รับสิทธิ์ Device Owner ระบบจะสั่งปิดฟังก์ชัน <strong>USB Debugging</strong> ในระดับ Global Setting ของระบบปฏิบัติการทันที ป้องกันไม่ให้คนร้ายเสียบสาย USB เข้ากับคอมพิวเตอร์เพื่อยิงคำสั่ง Shell มาขโมยข้อมูลหรือปิดแอป
+</p>
+
+<h3>7.3 การทำงานต่อเนื่อง 24/7 (24/7 Continuity Architecture)</h3>
+
+<table style="margin-top: 10px;">
+    <thead>
+        <tr>
+            <th style="width: 30%;">กลไกความปลอดภัย</th>
+            <th style="width: 70%;">การทำงาน</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Foreground Service</strong></td>
+            <td>รัน Service พร้อมสิทธิ์พิเศษ <code>specialUse|location</code> ทำงานเป็นงานสำคัญสูงสุดของระบบ ไม่ถูก Android ฆ่าทิ้งเมื่อแรมเหลือน้อย</td>
+        </tr>
+        <tr>
+            <td><strong>AlarmManager Watchdog</strong></td>
+            <td>มีระบบหมาเฝ้าบ้าน (Watchdog) คอยตรวจสอบทุกๆ 5 นาที หากพบว่า Service หยุดทำงาน จะสั่งปลุกและเริ่มระบบใหม่ทันที</td>
+        </tr>
+        <tr>
+            <td><strong>Direct Boot Aware</strong></td>
+            <td>หากโทรศัพท์แบตเตอรี่หมดแล้วเปิดเครื่องใหม่ ระบบตรวจจับจะเริ่มทำงานตั้งแต่ก่อนผู้ใช้จะปลดล็อกรหัสผ่านหน้าจอ (Pre-unlock state)</td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- ========================================== -->
+<!-- 9. TROUBLESHOOTING & FAQ -->
+<!-- ========================================== -->
+<div class="page-break"></div>
+
+<h1>8. แนวทางแก้ไขปัญหาเบื้องต้นและการดูแลรักษา (FAQ)</h1>
+
+<div class="ui-card avoid-break">
+    <div class="ui-title" style="color: #0369a1;">Q1: สั่งงานผ่าน Telegram ไม่ได้ หรือบอทไม่ตอบข้อความ?</div>
+    <p style="margin: 6px 0 0 0;">
+        <strong>แนวทางแก้ไข:</strong>
+        <ol style="margin-top: 4px;">
+            <li>ตรวจสอบว่าโทรศัพท์ที่ติดตั้งบนรถมีสัญญาณอินเทอร์เน็ตหรือมีเงินในซิมการ์ดหรือไม่</li>
+            <li>เปิดหน้าแอปบนมือถือรถ ดูว่าสถานะแสดง <code>Telegram เชื่อมต่อสำเร็จ</code> หรือไม่</li>
+            <li>หากขึ้นว่า Token ไม่ถูกต้อง ให้ไปที่หน้า <strong>ตั้งค่า</strong> แล้วกด <code>ทดสอบและเชื่อมต่อ</code> ใหม่</li>
+            <li>ตรวจสอบว่าท่านพิมพ์คำสั่งจากบัญชี Telegram ที่จับคู่ไว้ถูกต้องหรือไม่</li>
+        </ol>
+    </p>
+</div>
+
+<div class="ui-card avoid-break">
+    <div class="ui-title" style="color: #0369a1;">Q2: มีการแจ้งเตือนเท็จ (False Alarm) บ่อยครั้งเมื่อจอดริมถนน?</div>
+    <p style="margin: 6px 0 0 0;">
+        <strong>แนวทางแก้ไข:</strong>
+        <ol style="margin-top: 4px;">
+            <li>ปรับลดระดับความไวของเซนเซอร์ในหน้า <strong>ตั้งค่า</strong> หรือพิมพ์ <code>/sensitivity 3</code> ผ่าน Telegram</li>
+            <li>ในหน้า <strong>ตั้งค่าขั้นสูง</strong> ให้เปลี่ยน Sensor Preset เป็น <code>จอดริมถนน / ลมแรง (High Wind / Street)</code></li>
+            <li>ตรวจสอบการยึดตัวโทรศัพท์ในช่องใต้เบาะว่าแน่นหนาหรือไม่ โทรศัพท์ไม่ควรโยกหรือกระแทกกับผนังกล่อง</li>
+        </ol>
+    </p>
+</div>
+
+<div class="ui-card avoid-break">
+    <div class="ui-title" style="color: #0369a1;">Q3: ได้รับข้อความ SMS รหัสลับ <code>[ENC_ALARM_V2]...</code> จะอ่านพิกัดอย่างไร?</div>
+    <p style="margin: 6px 0 0 0;">
+        <strong>แนวทางแก้ไข:</strong><br>
+        ข้อความดังกล่าวคือพิกัด GPS ที่ถูกเข้ารหัสลับไว้เพื่อความปลอดภัย ให้คัดลอกข้อความทั้งหมด แล้วเข้าไปที่แชตบอท Telegram พิมพ์คำสั่ง:
+        <div style="margin: 6px 0;"><code>/decode [ENC_ALARM_V2]aB8xYz...</code></div>
+        บอทจะทำการถอดรหัสลับด้วย Pre-shared Key และแสดงพิกัด Google Maps ให้ท่านทราบทันที
+    </p>
+</div>
+
+<div class="ui-card avoid-break">
+    <div class="ui-title" style="color: #0369a1;">Q4: แบตเตอรี่ของโทรศัพท์ที่ติดตั้งในรถหมดเร็วผิดปกติ?</div>
+    <p style="margin: 6px 0 0 0;">
+        <strong>แนวทางแก้ไข:</strong>
+        <ol style="margin-top: 4px;">
+            <li>หรี่ความสว่างหน้าจอโทรศัพท์ให้ต่ำสุด (หน้าจอสามารถล็อกและดับได้ ระบบยังคงทำงานตามปกติ)</li>
+            <li>ปิดการเชื่อมต่อ Wi-Fi และ Bluetooth บนมือถือรถ ให้เปิดเฉพาะสัญญาณเน็ตมือถือ (Cellular Data) และ GPS</li>
+            <li>แนะนำให้ต่อสายชาร์จไฟจากแบตเตอรี่รถจักรยานยนต์เข้ากับโทรศัพท์ผ่านโมดูลแปลงไฟ DC-DC 12V to 5V พร้อมฟิวส์ป้องกัน</li>
+        </ol>
+    </p>
+</div>
+
+<div style="margin-top: 30px; text-align: center; color: #64748b; font-size: 9pt; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+    <strong>Motorcycle Anti-Theft Sensor v2.5</strong> • สิ้นสุดเอกสารคู่มือการใช้งาน • จัดทำเมื่อ 27 สิงหาคม 2026
+</div>
+
+</body>
+</html>

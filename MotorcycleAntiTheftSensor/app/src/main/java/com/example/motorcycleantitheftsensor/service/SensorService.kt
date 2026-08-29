@@ -555,6 +555,7 @@ class SensorService : Service(), ServiceEnvironment {
             graph.livePursuitCoordinator.abortLocal()
             serviceScope.cancel()
             graph.runtime.stopDetectors()
+            graph.runtime.stopPowerStatusMonitoring()
             stopTelegramPolling()
             graph.coordinator.recordServiceStopped()
         } catch (e: Exception) {

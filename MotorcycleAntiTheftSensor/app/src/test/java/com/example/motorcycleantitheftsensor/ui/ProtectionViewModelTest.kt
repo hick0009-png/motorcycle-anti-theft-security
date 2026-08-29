@@ -692,12 +692,12 @@ class ProtectionViewModelTest {
 
     @Test
     fun microphoneHealthTextDistinguishesDetectedUnavailableStaleAndFailed() {
-        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
-        assertEquals("Microphone detected", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
-        assertEquals("Microphone unavailable", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
-        assertEquals("Microphone data stale", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
-        assertEquals("Microphone failed", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
-        assertEquals("Microphone status unknown", microphoneHealthText(null))
+        assertEquals("ตรวจพบไมโครโฟน", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
+                assertEquals("ตรวจพบไมโครโฟน", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
+                assertEquals("ไมโครโฟนไม่พร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
+                assertEquals("ข้อมูลไมโครโฟนไม่ใหม่", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
+                assertEquals("ไมโครโฟนทำงานผิดพลาด", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
+                assertEquals("สถานะไมโครโฟนไม่ทราบ", microphoneHealthText(null))
     }
 
     // --- Task 3: Operation Ownership & Self-Test Result Persistence Tests ---
@@ -1213,23 +1213,59 @@ class ProtectionViewModelTest {
 
     @Test
     fun powerSummaryRowsDeriveIndependentlyFromEachSignal() {
+        val witnessModel = PowerWitnessModel(
+            darkMinLux = 5.0,
+            darkMaxLux = 8.0,
+            litMinLux = 200.0,
+            litMaxLux = 220.0,
+            guardBandLux = 10.0,
+            algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+            sensorIdentity = "test-sensor",
+            hoodSignature = "hood-test",
+        )
+
         // Charger connected while the witness is degraded: both rows stay independent.
         val connectedWitnessDown = powerSummaryRows(
             chargingState = ChargingState.CHARGING,
             degradationReasons = setOf(POWER_CHALLENGE_DEGRADED),
-            lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
+            lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY, lastSampleAtMs = 200L),
+            powerSensorHealth = SensorHealth(SensorHealthState.HEALTHY, lastSampleAtMs = 300L),
         )
-        assertEquals(ChargingRowState.CONNECTED, connectedWitnessDown.charging)
+        assertEquals(ChargingRowState.CHARGING, connectedWitnessDown.charging)
         assertEquals(WitnessRowState.UNAVAILABLE, connectedWitnessDown.witness)
+        assertEquals(300L, connectedWitnessDown.lastUpdatedAtMs)
+        assertFalse(connectedWitnessDown.confirmedFault)
 
-        // Charger lost while the witness still sees the lamp: never an outage claim.
+        // Sensor availability alone is not evidence that the witness lamp is lit.
         val chargerGoneWitnessUp = powerSummaryRows(
             chargingState = ChargingState.NOT_CHARGING,
             degradationReasons = emptySet(),
             lightSensorHealth = SensorHealth(SensorHealthState.AVAILABLE),
         )
-        assertEquals(ChargingRowState.DISCONNECTED, chargerGoneWitnessUp.charging)
-        assertEquals(WitnessRowState.DETECTED, chargerGoneWitnessUp.witness)
+        assertEquals(ChargingRowState.NOT_CHARGING, chargerGoneWitnessUp.charging)
+        assertEquals(WitnessRowState.AVAILABLE, chargerGoneWitnessUp.witness)
+
+        val detectedWitness = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = com.example.motorcycleantitheftsensor.protection.LightHealthDetail(lastLux = 205.0),
+            ),
+            witnessModel = witnessModel,
+        )
+        assertEquals(WitnessRowState.DETECTED, detectedWitness.witness)
+
+        val darkWitness = powerSummaryRows(
+            chargingState = ChargingState.DISCHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = com.example.motorcycleantitheftsensor.protection.LightHealthDetail(lastLux = 7.0),
+            ),
+            witnessModel = witnessModel,
+        )
+        assertEquals(WitnessRowState.DARK, darkWitness.witness)
 
         // Unknown charging plus stale light evidence stays honest on both rows.
         val unknownBoth = powerSummaryRows(
@@ -1241,9 +1277,70 @@ class ProtectionViewModelTest {
         assertEquals(WitnessRowState.UNAVAILABLE, unknownBoth.witness)
 
         assertEquals(
-            ChargingRowState.CONNECTED,
+            ChargingRowState.FULL,
             powerSummaryRows(ChargingState.FULL, emptySet(), null).charging,
         )
+        assertEquals(
+            ChargingRowState.DISCHARGING,
+            powerSummaryRows(ChargingState.DISCHARGING, emptySet(), null).charging,
+        )
+        assertTrue(
+            powerSummaryRows(
+                chargingState = ChargingState.DISCHARGING,
+                degradationReasons = emptySet(),
+                lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
+                confirmedFault = true,
+            ).confirmedFault,
+        )
+        assertEquals(
+            400L,
+            powerSummaryRows(
+                chargingState = ChargingState.CHARGING,
+                degradationReasons = emptySet(),
+                lightSensorHealth = null,
+                powerSensorHealth = SensorHealth(
+                    state = SensorHealthState.AVAILABLE,
+                    powerThermalDetail = com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail(
+                        lastUpdateWallClockMs = 400L,
+                    ),
+                ),
+            ).lastUpdatedAtMs,
+        )
+    }
+
+    @Test
+    fun disarmedPowerProfileRefreshesChargingRowFromLiveStatus() = runTest {
+        val repository = fakeProfileRepository(ProtectionProfile.POWER)
+        val coordinator = fakeCoordinator(
+            state = ProtectionState.DISARMED_ONLINE,
+            profileRepository = repository,
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.DISARMED_ONLINE, viewModel.uiState.value.protection.state)
+        coordinator.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                powerThermalDetail = com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail(
+                    chargingState = ChargingState.DISCHARGING,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(ChargingRowState.DISCHARGING, viewModel.uiState.value.profile.powerSummary?.charging)
     }
 
     @Test

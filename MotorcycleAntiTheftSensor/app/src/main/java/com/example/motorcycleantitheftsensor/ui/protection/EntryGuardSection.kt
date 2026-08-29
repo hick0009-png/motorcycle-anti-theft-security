@@ -1,13 +1,16 @@
 package com.example.motorcycleantitheftsensor.ui.protection
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -29,7 +32,7 @@ import com.example.motorcycleantitheftsensor.ui.ProtectionProfileUiState
 /**
  * เข็มทิศประตู (door compass) section: guided two-cycle commissioning with live angle,
  * door-angle control 5-90° with quick choices 5/15/30, and the armed summary
- * `ประตูปิด · 0°` / `แจ้งเมื่อเกิน N°` per spec section 9.
+ * a readiness summary / `แจ้งเมื่อเกิน N°` per spec section 9.
  */
 @Composable
 fun EntryGuardSection(
@@ -38,8 +41,13 @@ fun EntryGuardSection(
 ) {
     val commissioning = profile.commissioning
     var selectedAngle by rememberSaveable { mutableStateOf(profile.entryAngleDegrees ?: 15) }
+    var angleControlsExpanded by rememberSaveable { mutableStateOf(false) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -103,8 +111,8 @@ fun EntryGuardSection(
                 ) {
                     Text("เริ่มปรับเทียบ")
                 }
-            } else {
-                Text("ประตูปิด · 0°", style = MaterialTheme.typography.headlineMedium)
+            } else if (profile.setupState == ProfileSetupState.READY) {
+                Text("พร้อมเฝ้าระวังทางเข้า", style = MaterialTheme.typography.headlineMedium)
                 Text("แจ้งเมื่อเกิน ${profile.entryAngleDegrees ?: 15}°")
                 if (profile.entryRequiresControlledRearm) {
                     Text(
@@ -112,33 +120,47 @@ fun EntryGuardSection(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                Slider(
-                    value = selectedAngle.toFloat(),
-                    onValueChange = { selectedAngle = it.toInt().coerceIn(5, 90) },
-                    valueRange = 5f..90f,
-                    steps = 84,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(5, 15, 30).forEach { choice ->
-                        OutlinedButton(
-                            onClick = {
-                                selectedAngle = choice
-                                actions.entrySetAngle(choice)
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text("$choice°")
-                        }
-                    }
-                }
                 OutlinedButton(
-                    onClick = { actions.entrySetAngle(selectedAngle) },
+                    onClick = { angleControlsExpanded = !angleControlsExpanded },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
-                    Text("บันทึกมุม $selectedAngle°")
+                    Text(if (angleControlsExpanded) "ซ่อนการปรับมุม" else "ปรับมุมแจ้งเตือน")
                 }
+                AnimatedVisibility(visible = angleControlsExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Slider(
+                            value = selectedAngle.toFloat(),
+                            onValueChange = { selectedAngle = it.toInt().coerceIn(5, 90) },
+                            valueRange = 5f..90f,
+                            steps = 84,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(5, 15, 30).forEach { choice ->
+                                OutlinedButton(
+                                    onClick = {
+                                        selectedAngle = choice
+                                        actions.entrySetAngle(choice)
+                                    },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                ) {
+                                    Text("$choice°")
+                                }
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { actions.entrySetAngle(selectedAngle) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                        ) {
+                            Text("บันทึกมุม $selectedAngle°")
+                        }
+                    }
+                }
+            } else {
+                Text("ตรวจสอบสถานะการตั้งค่าก่อนใช้งาน")
             }
         }
     }

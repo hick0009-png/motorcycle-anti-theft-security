@@ -141,4 +141,12 @@ interface ProtectionRuntime {
 
     /** Live witness-light samples for commissioning UI; empty by default. */
     fun powerWitnessSamples(): Flow<PowerWitnessSample> = emptyFlow()
+
+    /** Starts live charging-status updates for the disarmed Power Guard UI. */
+    fun startPowerStatusMonitoring() {
+    }
+
+    /** Releases live charging-status updates when the hosting service is destroyed. */
+    fun stopPowerStatusMonitoring() {
+    }
 }

@@ -2,7 +2,6 @@ package com.example.motorcycleantitheftsensor.ui
 
 import androidx.lifecycle.ViewModel
 import com.example.motorcycleantitheftsensor.protection.ChargingState
-import com.example.motorcycleantitheftsensor.protection.chargingConnected
 import com.example.motorcycleantitheftsensor.protection.CommandOutcome
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.GuidanceAction
@@ -16,9 +15,12 @@ import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileOverrides
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
+import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
+import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
 import com.example.motorcycleantitheftsensor.protection.PowerArmChallengeRegistry
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
@@ -105,12 +107,14 @@ class ProtectionViewModel(
         snapshotProjectionGate.shouldProject(snapshot, nowMs())
     }
     @Volatile private var pendingSwitchTarget: ProtectionProfile? = null
-    @Volatile private var pendingEntryRearm: Boolean = false
-    private val profileState = MutableStateFlow(ProtectionProfileUiState())
-    private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
-    private var commissioningPolicy: EntryCommissioningPolicy? = null
-    private var commissioningPolicyState = EntryCommissioningPolicy.State()
-    private var commissioningClosedBaseline: EntryOrientationSample? = null
+        @Volatile private var pendingEntryRearm: Boolean = false
+        @Volatile private var previousSelectedProfile: ProtectionProfile? = null
+        private val profileState = MutableStateFlow(ProtectionProfileUiState())
+        private val selectedPowerWitnessModel = MutableStateFlow<PowerWitnessModel?>(null)
+        private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
+        private var commissioningPolicy: EntryCommissioningPolicy? = null
+        private var commissioningPolicyState = EntryCommissioningPolicy.State()
+        private var commissioningClosedBaseline: EntryOrientationSample? = null
     private var commissioningJob: kotlinx.coroutines.Job? = null
     private val powerCommissioningState = MutableStateFlow<PowerCommissioningUiState?>(null)
     private var powerCommissioningPolicy: PowerWitnessCommissioningPolicy? = null
@@ -184,6 +188,28 @@ class ProtectionViewModel(
         scope.launch { refreshEvents() }
         scope.launch { readSettings(initialMissingPermissions) }
         scope.launch { refreshProfile() }
+        scope.launch {
+            combine(coordinator.snapshot, selectedPowerWitnessModel) { snapshot, witnessModel ->
+                    powerSummaryRows(
+                        chargingState = snapshot.chargingState,
+                        degradationReasons = snapshot.degradationReasons,
+                        lightSensorHealth = snapshot.sensorHealth[SensorKind.LIGHT],
+                        powerSensorHealth = snapshot.sensorHealth[SensorKind.POWER_THERMAL],
+                        witnessModel = witnessModel,
+                        confirmedFault = snapshot.hasConfirmedPowerFault(),
+                    )
+                }
+                .distinctUntilChanged()
+                .collect { summary ->
+                    profileState.update { profile ->
+                        if (profile.selectedProfile == ProtectionProfile.POWER && profile.powerSummary != summary) {
+                            profile.copy(powerSummary = summary)
+                        } else {
+                            profile
+                        }
+                    }
+                }
+        }
     }
 
     fun selectDestination(destination: ProtectionDestination) {
@@ -451,8 +477,17 @@ class ProtectionViewModel(
             runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
         }
         val entryAngle = (resolved?.specificSettings as? EntryProfileSettings)?.angleThresholdDegrees
+        val powerWitnessModel = state.profiles[selected]?.powerWitnessModel
+        selectedPowerWitnessModel.value = powerWitnessModel
         val snapshot = coordinator.snapshot.value
-        profileState.value = ProtectionProfileUiState(
+                if (previousSelectedProfile == ProtectionProfile.POWER && selected != ProtectionProfile.POWER) {
+                    powerRuntime?.stopPowerStatusMonitoring()
+                }
+                if (selected == ProtectionProfile.POWER) {
+                    powerRuntime?.startPowerStatusMonitoring()
+                }
+                previousSelectedProfile = selected
+                profileState.value = ProtectionProfileUiState(
             selectedProfile = selected,
             armedProfile = snapshot.armedProfileSnapshot?.profile,
             setupState = resolved?.setupState,
@@ -466,6 +501,9 @@ class ProtectionViewModel(
                     chargingState = snapshot.chargingState,
                     degradationReasons = snapshot.degradationReasons,
                     lightSensorHealth = snapshot.sensorHealth[SensorKind.LIGHT],
+                    powerSensorHealth = snapshot.sensorHealth[SensorKind.POWER_THERMAL],
+                    witnessModel = powerWitnessModel,
+                    confirmedFault = snapshot.hasConfirmedPowerFault(),
                 )
             } else {
                 null
@@ -865,11 +903,16 @@ internal fun powerSummaryRows(
     chargingState: ChargingState,
     degradationReasons: Set<String>,
     lightSensorHealth: SensorHealth?,
+    powerSensorHealth: SensorHealth? = null,
+    witnessModel: PowerWitnessModel? = null,
+    confirmedFault: Boolean = false,
 ): PowerSummaryRows {
-    val charging = when (chargingState.chargingConnected) {
-        true -> ChargingRowState.CONNECTED
-        false -> ChargingRowState.DISCONNECTED
-        null -> ChargingRowState.UNKNOWN
+    val charging = when (chargingState) {
+        ChargingState.CHARGING -> ChargingRowState.CHARGING
+        ChargingState.DISCHARGING -> ChargingRowState.DISCHARGING
+        ChargingState.FULL -> ChargingRowState.FULL
+        ChargingState.NOT_CHARGING -> ChargingRowState.NOT_CHARGING
+        ChargingState.UNKNOWN -> ChargingRowState.UNKNOWN
     }
     val lightUsable = lightSensorHealth != null &&
         (
@@ -878,8 +921,28 @@ internal fun powerSummaryRows(
             )
     val witness = when {
         POWER_CHALLENGE_DEGRADED in degradationReasons -> WitnessRowState.UNAVAILABLE
-        lightUsable -> WitnessRowState.DETECTED
+        !lightUsable -> WitnessRowState.UNAVAILABLE
+        witnessModel != null && lightSensorHealth.lightDetail?.lastLux?.let { it <= witnessModel.darkMaxLux } == true ->
+            WitnessRowState.DARK
+        witnessModel != null && lightSensorHealth.lightDetail?.lastLux?.let { it >= witnessModel.litMinLux } == true ->
+            WitnessRowState.DETECTED
+        lightUsable -> WitnessRowState.AVAILABLE
         else -> WitnessRowState.UNAVAILABLE
     }
-    return PowerSummaryRows(charging = charging, witness = witness)
+    return PowerSummaryRows(
+        charging = charging,
+        witness = witness,
+        lastUpdatedAtMs = listOfNotNull(
+            powerSensorHealth?.lastSampleAtMs,
+            powerSensorHealth?.powerThermalDetail?.lastUpdateWallClockMs,
+            lightSensorHealth?.lastSampleAtMs,
+            lightSensorHealth?.lightDetail?.lastSampleWallClockMs,
+        ).maxOrNull(),
+        confirmedFault = confirmedFault,
+    )
 }
+
+private fun ProtectionSnapshot.hasConfirmedPowerFault(): Boolean =
+    state == ProtectionState.ALERT_ACTIVE &&
+        lastIncident?.type == IncidentType.POWER &&
+        lastIncident.lifecycle == IncidentLifecycle.OPEN

@@ -38,7 +38,7 @@ class TelegramCommandHandlerTest {
         gate.complete(Unit)
         job.join()
         assertEquals(1, replies.size)
-        assertEquals("ℹ️ สถานะรถ: การป้องกันทำงานปกติ", replies.single())
+        assertEquals("ℹ️ สถานะระบบ: การป้องกันทำงานปกติ", replies.single())
     }
 
     @Test

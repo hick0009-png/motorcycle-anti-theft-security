@@ -62,10 +62,10 @@ object UserGuidanceCatalog {
             GuidanceCode.SETUP_REQUIRED -> GuidanceContent(
                 titleTh = "ต้องตั้งค่าระบบก่อนเปิดการป้องกัน",
                 bodyTh = "ตั้งค่า Bot และจับคู่เจ้าของให้ครบ",
-                telegramTh = "⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าบนมือถือรถ",
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                telegramTh = "⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าในแอป",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
+                persistent = true
             )
             GuidanceCode.DISARMED -> GuidanceContent(
                 titleTh = "การป้องกันปิดอยู่",
@@ -95,25 +95,25 @@ object UserGuidanceCatalog {
                 titleTh = "การป้องกันทำงานแบบจำกัด",
                 bodyTh = "{reason}",
                 telegramTh = "⚠️ การป้องกันทำงานแบบจำกัด: {reason}",
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.ALERT_ACTIVE -> GuidanceContent(
                 titleTh = "กำลังส่งสัญญาณเตือนภัย",
                 bodyTh = "ตรวจพบความผิดปกติและกำลังส่งสัญญาณเตือนภัย",
                 telegramTh = "🚨 กำลังส่งสัญญาณเตือนภัย ตรวจพบความผิดปกติ",
                 severity = GuidanceSeverity.CRITICAL,
-                action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                action = GuidanceAction.OPEN_EVENTS,
+                persistent = true
             )
             GuidanceCode.OFFLINE -> GuidanceContent(
                 titleTh = "ระบบออฟไลน์",
                 bodyTh = "บริการหลักหยุดทำงาน",
                 telegramTh = "⚠️ ระบบออฟไลน์ บริการหลักหยุดทำงาน",
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.SERVICE_RECOVERED -> GuidanceContent(
                 titleTh = "บริการเริ่มใหม่สำเร็จ",
@@ -143,37 +143,37 @@ object UserGuidanceCatalog {
                 titleTh = "Token ไม่ถูกต้องหรือเชื่อมต่อไม่ได้",
                 bodyTh = "ตรวจสอบ Token จาก BotFather แล้วลองใหม่",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
+                persistent = true
             )
             GuidanceCode.TELEGRAM_UNREACHABLE -> GuidanceContent(
                 titleTh = "ติดต่อ Telegram ไม่ได้",
-                bodyTh = "ตรวจสอบอินเทอร์เน็ตของมือถือรถ",
-                telegramTh = "⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของมือถือรถ",
-                severity = GuidanceSeverity.INFO,
+                bodyTh = "ตรวจสอบอินเทอร์เน็ตของอุปกรณ์ที่ติดตั้ง",
+                telegramTh = "⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของอุปกรณ์",
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.PAIRING_REQUIRED -> GuidanceContent(
                 titleTh = "ต้องจับคู่ Telegram ก่อน",
-                bodyTh = "พิมพ์ /pair <รหัส> จากแอปในมือถือรถ",
-                telegramTh = "🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในมือถือรถ",
-                severity = GuidanceSeverity.INFO,
+                bodyTh = "พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์",
+                telegramTh = "🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์",
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.PAIRING_ACCEPTED -> GuidanceContent(
                 titleTh = "จับคู่ Telegram สำเร็จ",
-                bodyTh = "บัญชีนี้สามารถสั่งงานรถได้",
-                telegramTh = "✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานรถได้",
+                bodyTh = "บัญชีนี้สามารถสั่งงานระบบได้",
+                telegramTh = "✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานระบบได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.PAIRING_INVALID_OR_EXPIRED -> GuidanceContent(
                 titleTh = "รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ",
-                bodyTh = "รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่บนมือถือรถ",
+                bodyTh = "รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่ในแอป",
                 telegramTh = "⚠️ รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
@@ -181,16 +181,16 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.UNAUTHORIZED_COMMAND -> GuidanceContent(
                 titleTh = "คำสั่งจากบัญชีที่ไม่ได้รับอนุญาต",
-                bodyTh = "ไม่มีการเปลี่ยนสถานะรถ",
+                bodyTh = "ไม่มีการเปลี่ยนสถานะของระบบ",
                 telegramTh = "🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.COMMAND_STATUS_SUCCESS -> GuidanceContent(
-                titleTh = "update status card only",
-                bodyTh = "update status card only",
-                telegramTh = "ℹ️ สถานะรถ: {protectionStatus}",
+                titleTh = "สถานะระบบ",
+                bodyTh = "อัปเดตข้อมูลสถานะ",
+                telegramTh = "ℹ️ สถานะระบบ: {protectionStatus}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -244,8 +244,8 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
-                titleTh = "ไม่มี",
-                bodyTh = "ไม่มี",
+                titleTh = "คำสั่งที่ใช้ได้",
+                bodyTh = "ดูรายการคำสั่งใน Telegram",
                 telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -253,7 +253,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.COMMAND_UNKNOWN -> GuidanceContent(
                 titleTh = "คำสั่งไม่สำเร็จ",
-                bodyTh = "ไม่มี",
+                bodyTh = "พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 telegramTh = "ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -271,17 +271,17 @@ object UserGuidanceCatalog {
                 titleTh = "เซนเซอร์ไม่พร้อมใช้งาน",
                 bodyTh = "{sensorName}: {safeReason}",
                 telegramTh = "รวมใน /status",
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
             )
             GuidanceCode.SENSOR_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ต้องอนุญาตสิทธิ์",
                 bodyTh = "เปิดสิทธิ์ {permissionName} เพื่อใช้ {featureName}",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
+                persistent = true
             )
             GuidanceCode.SENSOR_SAMPLE_FAILED -> GuidanceContent(
                 titleTh = "อ่านค่าเซนเซอร์ไม่สำเร็จ",
@@ -343,9 +343,9 @@ object UserGuidanceCatalog {
                 titleTh = "ส่ง Telegram ไม่สำเร็จ",
                 bodyTh = "ระบบจะรายงานสถานะการเชื่อมต่อ",
                 telegramTh = "ไม่มีการตอบซ้ำ",
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
             )
             GuidanceCode.SMS_FALLBACK_USED -> GuidanceContent(
                 titleTh = "ใช้ช่องทางสำรองสำหรับเหตุการณ์วิกฤต",
@@ -357,27 +357,27 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.NOTIFICATION_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ยังไม่ได้อนุญาตการแจ้งเตือน",
-                bodyTh = "เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนมือถือรถ",
+                bodyTh = "เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนอุปกรณ์เครื่องนี้",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.MICROPHONE_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ไมโครโฟนยังไม่พร้อม",
                 bodyTh = "การตรวจจับเสียงจะไม่ทำงาน แต่ระบบส่วนอื่นยังทำงาน",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.LOCATION_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ตำแหน่งยังไม่พร้อม",
                 bodyTh = "ข้อมูลตำแหน่งจะไม่ถูกรวมในเหตุการณ์",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.SMS_PERMISSION_DENIED -> GuidanceContent(
                 titleTh = "SMS ถูกปิดเพื่อความปลอดภัย",

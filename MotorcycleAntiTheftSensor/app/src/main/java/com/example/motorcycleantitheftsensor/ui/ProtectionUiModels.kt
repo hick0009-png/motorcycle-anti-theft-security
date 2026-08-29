@@ -143,13 +143,15 @@ data class PowerCommissioningUiState(
  * Independent POWER signal rows (spec sections 3.6/5): neither row alone may claim an
  * outage; each carries its own state so the owner reads them separately.
  */
-enum class ChargingRowState { CONNECTED, DISCONNECTED, UNKNOWN }
+enum class ChargingRowState { CHARGING, DISCHARGING, FULL, NOT_CHARGING, UNKNOWN }
 
-enum class WitnessRowState { DETECTED, DARK, UNAVAILABLE }
+enum class WitnessRowState { AVAILABLE, DETECTED, DARK, UNAVAILABLE }
 
 data class PowerSummaryRows(
     val charging: ChargingRowState = ChargingRowState.UNKNOWN,
     val witness: WitnessRowState = WitnessRowState.UNAVAILABLE,
+    val lastUpdatedAtMs: Long? = null,
+    val confirmedFault: Boolean = false,
 )
 
 data class ProtectionStatusUiState(
@@ -279,14 +281,30 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
     },
     lastDeliveryState = lastDeliveryState,
     persistentGuidance = when {
+        // Level 1: Alert active — highest priority
+        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.ALERT_ACTIVE ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.ALERT_ACTIVE)
+        // Level 2: Service offline
+        !serviceRunning || state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE)
+        // Level 3: Setup required
         state == com.example.motorcycleantitheftsensor.protection.ProtectionState.SETUP_REQUIRED ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED)
-        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
-            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE)
+        // Level 4: Telegram unreachable
+        !telegramReachable && telegramPolling ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_UNREACHABLE)
+        // Level 5: Permission blockers
         permissionBlockers.isNotEmpty() ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
                 com.example.motorcycleantitheftsensor.protection.GuidanceCode.NOTIFICATION_PERMISSION_MISSING
             )
+        // Level 6: Degraded operation
+        degradationReasons.isNotEmpty() ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_DEGRADED)
+        // Level 7: Delivery failed
+        lastDeliveryState == com.example.motorcycleantitheftsensor.protection.DeliveryState.FAILED ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_DELIVERY_FAILED)
+        // Healthy or disarmed — no persistent card
         else -> null
     },
 )
@@ -353,11 +371,11 @@ internal fun AudioTelemetry.toAudioUiTelemetry(
 }
 
 internal fun microphoneHealthText(health: SensorHealth?): String {
-    if (health == null) return "Microphone status unknown"
+    if (health == null) return "สถานะไมโครโฟนไม่ทราบ"
     return when (health.state) {
-        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "Microphone detected"
-        SensorHealthState.UNAVAILABLE -> "Microphone unavailable"
-        SensorHealthState.STALE -> "Microphone data stale"
-        SensorHealthState.FAILED -> "Microphone failed"
+        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "ตรวจพบไมโครโฟน"
+        SensorHealthState.UNAVAILABLE -> "ไมโครโฟนไม่พร้อมใช้งาน"
+        SensorHealthState.STALE -> "ข้อมูลไมโครโฟนไม่ใหม่"
+        SensorHealthState.FAILED -> "ไมโครโฟนทำงานผิดพลาด"
     }
 }

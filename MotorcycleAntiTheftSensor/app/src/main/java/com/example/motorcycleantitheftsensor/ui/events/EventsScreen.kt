@@ -44,7 +44,7 @@ fun EventsScreen(
 
     when {
         state.eventsLoading -> EventMessage(
-            title = "Loading events",
+            title = "กำลังโหลดเหตุการณ์…",
             contentPadding = contentPadding,
             modifier = modifier,
             progress = true,
@@ -58,8 +58,8 @@ fun EventsScreen(
         )
 
         state.events.isEmpty() -> EventMessage(
-            title = "No protection events",
-            detail = "Incidents will appear here when protection records them.",
+            title = "ยังไม่มีเหตุการณ์ด้านความปลอดภัย",
+            detail = "เหตุการณ์จะปรากฏที่นี่เมื่อระบบตรวจพบความผิดปกติ",
             contentPadding = contentPadding,
             modifier = modifier,
         )
@@ -74,7 +74,7 @@ fun EventsScreen(
             item(key = "events-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Events",
+                        text = "เหตุการณ์",
                         style = MaterialTheme.typography.headlineMedium,
                         modifier = Modifier.semantics { heading() },
                     )
@@ -85,8 +85,23 @@ fun EventsScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Clear history")
+                        Text("ล้างประวัติเหตุการณ์")
                     }
+                }
+            }
+            // Anti-spam caption: shown when the latest event is still open
+            if (state.events.firstOrNull()?.lifecycle ==
+                com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.OPEN
+            ) {
+                item(key = "anti-spam-caption") {
+                    Text(
+                        text = "เหตุการณ์เดิมกำลังบันทึกหลักฐานเพิ่ม — ยังไม่ส่งข้อความซ้ำ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                    )
                 }
             }
             items(state.events, key = ProtectionEventRow::id) { event ->
@@ -98,8 +113,8 @@ fun EventsScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear event history?") },
-            text = { Text("This permanently removes the local event history.") },
+            title = { Text("ล้างประวัติเหตุการณ์หรือไม่?") },
+            text = { Text("การดำเนินการนี้ลบประวัติเหตุการณ์ในเครื่องและย้อนกลับไม่ได้") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -108,7 +123,7 @@ fun EventsScreen(
                     },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Confirm clear")
+                    Text("ยืนยันการล้าง")
                 }
             },
             dismissButton = {
@@ -116,7 +131,7 @@ fun EventsScreen(
                     onClick = { confirmClear = false },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("Cancel")
+                    Text("ยกเลิก")
                 }
             },
         )
@@ -131,12 +146,12 @@ private fun EventRow(event: ProtectionEventRow) {
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(event.type.displayName(), style = MaterialTheme.typography.titleMedium)
-            Text("Source: REAL")
-            Text("Severity: ${event.severity.displayName()}")
-            Text("Lifecycle: ${event.lifecycle.displayName()}")
-            Text("Evidence: ${event.evidenceSummary}")
-            Text("Time: ${formatProtectionTimestamp(event.updatedAtMs)}")
-            Text("Delivery: ${event.deliveryState.displayName()}")
+            Text("แหล่งที่มา: เหตุการณ์จริง")
+            Text("ระดับความรุนแรง: ${event.severity.displayName()}")
+            Text("สถานะเหตุการณ์: ${event.lifecycle.displayName()}")
+            Text("หลักฐาน: ${event.evidenceSummary}")
+            Text("เวลา: ${formatProtectionTimestamp(event.updatedAtMs)}")
+            Text("สถานะการส่ง: ${event.deliveryState.displayName()}")
         }
     }
 }
@@ -160,7 +175,7 @@ private fun EventError(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Unable to load events",
+                text = "โหลดเหตุการณ์ไม่สำเร็จ",
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.semantics { heading() },
             )
@@ -169,7 +184,7 @@ private fun EventError(
                 onClick = retry,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("Retry")
+                Text("ลองใหม่")
             }
         }
     }

@@ -200,7 +200,7 @@ data class ProtectionStatusProjection(
             if (!snapshot.serviceRunning) {
                 serviceHealthy = false
                 serviceStatusTh = "❌ Service: ออฟไลน์"
-                serviceIssue = IssueRecommendation("❌ Service: ออฟไลน์", "เปิดแอปบนมือถือรถเพื่อเริ่มบริการป้องกัน")
+                serviceIssue = IssueRecommendation("❌ Service: ออฟไลน์", "เปิดแอปในอุปกรณ์เพื่อเริ่มบริการป้องกัน")
             } else when (serviceFreshness) {
                 FreshnessState.FRESH -> {
                     serviceHealthy = true
@@ -210,18 +210,18 @@ data class ProtectionStatusProjection(
                 FreshnessState.STALE -> {
                     serviceHealthy = false
                     serviceStatusTh = "⚠️ Service: ขาดการตอบสนอง"
-                    serviceIssue = IssueRecommendation("⚠️ Service: ขาดการตอบสนอง", "ตรวจสอบสถานะแอปบนมือถือรถ")
-                }
-                FreshnessState.CLOCK_ANOMALY -> {
+                    serviceIssue = IssueRecommendation("⚠️ Service: ขาดการตอบสนอง", "ตรวจสอบสถานะแอปในอุปกรณ์")
+                                    }
+                                    FreshnessState.CLOCK_ANOMALY -> {
                     serviceHealthy = false
                     serviceStatusTh = "⚠️ Service: เวลาในระบบผิดปกติ"
-                    serviceIssue = IssueRecommendation("⚠️ Service: เวลาในระบบผิดปกติ", "ตรวจสอบการตั้งค่าเวลาบนมือถือรถ")
+                    serviceIssue = IssueRecommendation("⚠️ Service: เวลาในระบบผิดปกติ", "ตรวจสอบการตั้งค่าเวลาบนอุปกรณ์")
                 }
                 FreshnessState.MISSING -> {
-                    serviceHealthy = false
-                    serviceStatusTh = "⚠️ Service: ขาดการตอบสนอง"
-                    serviceIssue = IssueRecommendation("⚠️ Service: ขาดการตอบสนอง", "ตรวจสอบสถานะแอปบนมือถือรถ")
-                }
+                                    serviceHealthy = false
+                                    serviceStatusTh = "⚠️ Service: ขาดการตอบสนอง"
+                                    serviceIssue = IssueRecommendation("⚠️ Service: ขาดการตอบสนอง", "ตรวจสอบสถานะแอปในอุปกรณ์")
+                                }
             }
 
             val telegramFreshness = healthPolicy.freshness(snapshot.lastTelegramContactAtMs, nowWallClockMs, FRESHNESS_TELEGRAM_MS)
@@ -232,7 +232,7 @@ data class ProtectionStatusProjection(
             if (!snapshot.telegramPolling || !snapshot.telegramReachable) {
                 telegramHealthy = false
                 telegramStatusTh = "❌ Telegram: ขาดการเชื่อมต่อ"
-                telegramIssue = IssueRecommendation("❌ Telegram: ขาดการเชื่อมต่อ", "ตรวจสอบสัญญาณอินเทอร์เน็ตของมือถือรถ")
+                telegramIssue = IssueRecommendation("❌ Telegram: ขาดการเชื่อมต่อ", "ตรวจสอบสัญญาณอินเทอร์เน็ตของอุปกรณ์")
             } else when (telegramFreshness) {
                 FreshnessState.FRESH -> {
                     telegramHealthy = true
@@ -246,12 +246,12 @@ data class ProtectionStatusProjection(
                     val ageMs = nowWallClockMs - (snapshot.lastTelegramContactAtMs ?: nowWallClockMs)
                     val ageSec = (ageMs / 1000L).coerceAtLeast(0L)
                     telegramStatusTh = "⚠️ Telegram: การติดต่อล่าช้า | ติดต่อล่าสุด $ageSec วินาทีที่แล้ว"
-                    telegramIssue = IssueRecommendation("⚠️ Telegram: การติดต่อล่าช้า", "ตรวจสอบสัญญาณอินเทอร์เน็ตของมือถือรถ")
+                    telegramIssue = IssueRecommendation("⚠️ Telegram: การติดต่อล่าช้า", "ตรวจสอบสัญญาณอินเทอร์เน็ตของอุปกรณ์")
                 }
                 FreshnessState.CLOCK_ANOMALY -> {
                     telegramHealthy = false
                     telegramStatusTh = "⚠️ Telegram: เวลาในระบบผิดปกติ"
-                    telegramIssue = IssueRecommendation("⚠️ Telegram: เวลาในระบบผิดปกติ", "ตรวจสอบการตั้งค่าเวลาบนมือถือรถ")
+                    telegramIssue = IssueRecommendation("⚠️ Telegram: เวลาในระบบผิดปกติ", "ตรวจสอบการตั้งค่าเวลาบนอุปกรณ์")
                 }
                 FreshnessState.MISSING -> {
                     telegramHealthy = false

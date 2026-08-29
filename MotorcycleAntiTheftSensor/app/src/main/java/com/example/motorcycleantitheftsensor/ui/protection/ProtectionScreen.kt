@@ -1,5 +1,7 @@
 package com.example.motorcycleantitheftsensor.ui.protection
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -9,25 +11,39 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.AudioGateState
+import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
+import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
+import com.example.motorcycleantitheftsensor.protection.DeliveryState
+import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
+import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
+import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
@@ -61,22 +77,90 @@ fun ProtectionScreen(
         }
         .sorted()
     val permissionDegradationReasons = reducedCoveragePermissions
-        .mapTo(mutableSetOf()) { permission -> "${permission.substringAfterLast('.')} unavailable" }
-    val remainingDegradationReasons = protection.degradationReasons - permissionDegradationReasons
+        .mapTo(mutableSetOf()) { permission -> formatPermissionThai(permission) }
+    val remainingDegradationReasons = (protection.degradationReasons - permissionDegradationReasons)
+        .map(::formatDegradationReasonThai)
+        .distinct()
+        .sorted()
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .testTag(PROTECTION_LIST_TAG)
             .padding(contentPadding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         val stateGuidance = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(protection.state.toGuidanceCode())
 
+        item(key = "header") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "การป้องกัน",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.semantics { heading() },
+                )
+                TextButton(
+                    onClick = { actions.selectDestination(ProtectionDestination.SETTINGS) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("การตั้งค่า")
+                }
+            }
+        }
+
+        item(key = "protection-state") {
+            StatusCard(title = "สถานะระบบ") {
+                Text(
+                    text = stateGuidance.titleTh,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = stateGuidance.bodyTh,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                protection.persistentGuidance
+                    ?.takeIf { guidance -> guidance != stateGuidance }
+                    ?.let { guidance ->
+                        Text(guidance.titleTh, style = MaterialTheme.typography.titleSmall)
+                        Text(guidance.bodyTh, style = MaterialTheme.typography.bodyMedium)
+                    }
+                state.armingSecondsRemaining?.let { seconds ->
+                    Text(
+                        text = "ระบบจะเปิดในอีก $seconds วินาที",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                Button(
+                    onClick = if (disarmAction) actions.disarm else actions.arm,
+                    enabled = actionEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        text = when (protection.state) {
+                            ProtectionState.ALERT_ACTIVE -> "ปิดสัญญาณเตือน"
+                            ProtectionState.ARMING,
+                            ProtectionState.ARMED_HEALTHY,
+                            ProtectionState.ARMED_DEGRADED -> "ปิดระบบป้องกัน"
+                            else -> "เปิดการป้องกัน"
+                        },
+                    )
+                }
+            }
+        }
+
         if (state.profile.showPicker) {
             item(key = "profile-picker") {
                 ProfilePickerSection(
                     selectedProfile = null,
+                    selectedSetupState = null,
                     onProfileSelected = actions.selectProfile,
                     headingText = "คุณกำลังปกป้องอะไร?",
                 )
@@ -85,6 +169,7 @@ fun ProtectionScreen(
             item(key = "profile-change-use") {
                 ChangeUseSection(
                     selectedProfile = state.profile.selectedProfile,
+                    selectedSetupState = state.profile.setupState,
                     onProfileSelected = actions.selectProfile,
                 )
             }
@@ -97,6 +182,19 @@ fun ProtectionScreen(
                     onConfirm = actions.confirmProfileSwitch,
                     onCancel = actions.cancelProfileSwitch,
                 )
+            }
+        }
+
+        if (state.profile.selectedProfile == ProtectionProfile.VEHICLE) {
+            item(key = "vehicle-guard") {
+                StatusCard(title = "สรุปการดูแลยานพาหนะ") {
+                    Text("เฝ้าระวังยานพาหนะด้วยเซนเซอร์ที่เปิดใช้งาน")
+                    Text(
+                        text = "รายละเอียดค่าจากเซนเซอร์อยู่ในรายละเอียดระบบ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -118,54 +216,9 @@ fun ProtectionScreen(
             }
         }
 
-        protection.persistentGuidance?.let { guidance ->
-            item(key = "persistent-guidance") {
-                StatusCard(title = guidance.titleTh) {
-                    Text(guidance.bodyTh)
-                }
-            }
-        }
-
-        item(key = "protection-state") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stateGuidance.titleTh,
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    text = stateGuidance.bodyTh,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                state.armingSecondsRemaining?.let { seconds ->
-                    Text(
-                        text = "Armed in $seconds seconds",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-                Button(
-                    onClick = if (disarmAction) actions.disarm else actions.arm,
-                    enabled = actionEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                ) {
-                    Text(
-                        text = when (protection.state) {
-                            ProtectionState.ALERT_ACTIVE -> "ปิดสัญญาณเตือน (Disarm)"
-                            ProtectionState.ARMING,
-                            ProtectionState.ARMED_HEALTHY,
-                            ProtectionState.ARMED_DEGRADED -> "ปิดระบบป้องกัน (Disarm)"
-                            else -> "เปิดระบบป้องกัน (Arm)"
-                        }
-                    )
-                }
-            }
-        }
-
         if (blockingPermissionIssues.isNotEmpty()) {
             item(key = "permission-blockers") {
-                StatusCard(title = "Protection blockers") {
+                StatusCard(title = "สิ่งที่ต้องตั้งค่า") {
                     blockingPermissionIssues.forEach { issue ->
                         Text(issue)
                     }
@@ -178,7 +231,7 @@ fun ProtectionScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Review permissions")
+                        Text("ตรวจสอบสิทธิ์")
                     }
                 }
             }
@@ -186,7 +239,7 @@ fun ProtectionScreen(
 
         if (reducedCoveragePermissions.isNotEmpty()) {
             item(key = "reduced-permission-coverage") {
-                StatusCard(title = "Reduced sensor coverage") {
+                StatusCard(title = "ความครอบคลุมของเซนเซอร์ลดลง") {
                     reducedCoveragePermissions.forEach { permission ->
                         Text(friendlyPermissionExplanation(permission))
                     }
@@ -199,7 +252,7 @@ fun ProtectionScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("Review permissions")
+                        Text("ตรวจสอบสิทธิ์")
                     }
                 }
             }
@@ -207,129 +260,136 @@ fun ProtectionScreen(
 
         if (remainingDegradationReasons.isNotEmpty()) {
             item(key = "degradation-reasons") {
-                StatusCard(title = "Degradation reasons") {
-                    remainingDegradationReasons.sorted().forEach { reason ->
+                StatusCard(title = "สาเหตุที่ระบบทำงานจำกัด") {
+                    remainingDegradationReasons.forEach { reason ->
                         Text(reason)
                     }
                 }
             }
         }
 
-        item(key = "runtime-health") {
-            StatusCard(title = "Runtime health") {
-                StatusRow("Service", if (protection.serviceRunning) "Running" else "Stopped")
-                StatusRow(
-                    "Telegram polling",
-                    if (protection.telegramPolling) "Running" else "Stopped",
-                )
-                StatusRow(
-                    "Telegram reachability",
-                    if (protection.telegramReachable) "Reachable" else "Unreachable",
-                )
-                StatusRow(
-                    "Last Telegram contact",
-                    protection.lastTelegramContactAtMs?.let(::formatProtectionTimestamp)
-                        ?: "No contact",
-                )
-            }
-        }
-
-        item(key = "sensor-health-heading") {
-            Text(
-                text = "Sensor health",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.semantics { heading() },
-            )
-        }
-
-        if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
-            item(key = "audio-runtime-card") {
-                StatusCard(
-                    title = "Audio Threat Runtime",
-                    modifier = Modifier.testTag(AUDIO_RUNTIME_CARD_TAG),
-                ) {
-                    StatusRow("Runtime State", state.audio.state.name.lowercase().replace('_', ' '))
-                    StatusRow("Classifier Model", if (state.audio.modelReady) "Ready" else "Not ready")
-                    StatusRow("Gate State", state.audio.gateState.name.lowercase())
-                    state.audio.approximateLevelDbfs?.let { level ->
-                        StatusRow("Audio Level", "%.1f dBFS".format(java.util.Locale.US, level))
-                    }
-                    state.audio.currentCandidate?.let { candidate ->
-                        StatusRow(
-                            "Threat Candidate",
-                            "${candidate.category.name.lowercase().replace('_', ' ')} (${(candidate.confidence * 100).toInt()}%)",
-                        )
-                    }
-                }
-            }
-        }
-
-        items(SensorKind.entries, key = { "sensor-${it.name}" }) { sensor ->
-            val health = protection.sensorHealth[sensor]
-            StatusCard(title = sensor.displayName()) {
-                if (sensor == SensorKind.MICROPHONE) {
-                    Text(com.example.motorcycleantitheftsensor.ui.microphoneHealthText(health))
-                    health?.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
-                    if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
-                        Text("Active: ${state.audio.state.name.lowercase().replace('_', ' ')}")
-                    }
-                } else if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
-                    Text("Live samples begin after arming")
-                } else if (health == null) {
-                    Text("Unavailable")
+        item(key = "latest-event") {
+            StatusCard(
+                title = if (protection.state == ProtectionState.ALERT_ACTIVE) {
+                    "เหตุการณ์ที่กำลังดำเนินอยู่"
                 } else {
-                    Text(health.healthText())
-                    health.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
-
-                    health.latestReading?.let { reading ->
-                        val valueString = if (reading.value != null) {
-                            if (reading.unit != null) "${reading.value} ${reading.unit}" else "${reading.value}"
-                        } else ""
-                        val displayString = if (valueString.isNotEmpty()) "${reading.label}: $valueString" else reading.label
-                        Text(displayString)
-                    }
-
-                    health.lastSampleAtMs?.let { lastSample ->
-                        Text("Last sample: ${formatProtectionTimestamp(lastSample)}")
-                    }
+                    "เหตุการณ์ล่าสุด"
+                },
+            ) {
+                val incident = protection.lastIncident
+                if (incident == null) {
+                    Text("ยังไม่มีเหตุการณ์")
+                } else {
+                    StatusRow("ระดับความรุนแรง", incident.severity.thaiDisplayName())
+                    StatusRow("สถานะเหตุการณ์", incident.lifecycle.thaiDisplayName())
+                    StatusRow("อัปเดต", formatProtectionTimestamp(incident.updatedAtMs))
+                    StatusRow("สถานะการส่ง", incident.deliveryState.thaiDisplayName())
                 }
             }
         }
 
-        item(key = "battery") {
-            StatusCard(title = "Battery") {
-                StatusRow(
-                    "Level",
-                    protection.batteryLevelPercent?.let { "$it%" } ?: "Unavailable",
-                )
-                StatusRow(
-                    "Temperature",
-                    protection.batteryTemperatureCelsius?.let { "$it C" } ?: "Unavailable",
-                )
-            }
-        }
-
-        protection.lastIncident?.let { incident ->
-            item(key = "latest-incident") {
-                StatusCard(
-                    title = if (protection.state == ProtectionState.ALERT_ACTIVE) {
-                        "Active incident"
-                    } else {
-                        "Latest incident"
-                    },
+        item(key = "system-details-toggle") {
+            var systemDetailsExpanded by rememberSaveable { mutableStateOf(false) }
+            Column {
+                TextButton(
+                    onClick = { systemDetailsExpanded = !systemDetailsExpanded },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
                 ) {
-                    StatusRow("Severity", incident.severity.displayName())
-                    StatusRow("Lifecycle", incident.lifecycle.displayName())
-                    StatusRow("Updated", formatProtectionTimestamp(incident.updatedAtMs))
-                    StatusRow("Delivery", incident.deliveryState.displayName())
+                    Text(
+                        text = if (systemDetailsExpanded) "▲ ซ่อนรายละเอียดระบบ" else "▼ ดูรายละเอียดระบบ",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                 }
-            }
-        }
+                AnimatedVisibility(visible = systemDetailsExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        StatusCard(title = "สถานะการทำงาน") {
+                            StatusRow("บริการ", if (protection.serviceRunning) "ทำงาน" else "หยุด")
+                            StatusRow(
+                                "การรับคำสั่ง Telegram",
+                                if (protection.telegramPolling) "ทำงาน" else "หยุด",
+                            )
+                            StatusRow(
+                                "สถานะ Telegram",
+                                if (protection.telegramReachable) "เชื่อมต่อได้" else "เชื่อมต่อไม่ได้",
+                            )
+                            StatusRow(
+                                "ติดต่อ Telegram ล่าสุด",
+                                protection.lastTelegramContactAtMs?.let(::formatProtectionTimestamp)
+                                    ?: "ยังไม่มีการติดต่อ",
+                            )
+                        }
 
-        protection.lastDeliveryState?.let { deliveryState ->
-            item(key = "latest-delivery") {
-                StatusCard(title = "Latest delivery") {
-                    Text(deliveryState.displayName())
+                        Text(
+                            text = "สถานะเซนเซอร์",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.semantics { heading() },
+                        )
+
+                        if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
+                            StatusCard(
+                                title = "ระบบตรวจจับเสียง",
+                                modifier = Modifier.testTag(AUDIO_RUNTIME_CARD_TAG),
+                            ) {
+                                StatusRow("สถานะ", state.audio.state.thaiDisplayName())
+                                StatusRow("โมเดลจำแนก", if (state.audio.modelReady) "พร้อม" else "ไม่พร้อม")
+                                StatusRow("ตัวกรองเสียง", state.audio.gateState.thaiDisplayName())
+                                state.audio.approximateLevelDbfs?.let { level ->
+                                    StatusRow("ระดับเสียง", "%.1f dBFS".format(java.util.Locale.US, level))
+                                }
+                                state.audio.currentCandidate?.let { candidate ->
+                                    StatusRow(
+                                        "ภัยคุกคามที่ตรวจพบ",
+                                        "${candidate.category.thaiDisplayName()} (${(candidate.confidence * 100).toInt()}%)",
+                                    )
+                                }
+                            }
+                        }
+
+                        SensorKind.entries.forEach { sensor ->
+                            val health = protection.sensorHealth[sensor]
+                            StatusCard(title = sensor.thaiDisplayName()) {
+                                if (sensor == SensorKind.MICROPHONE) {
+                                    Text(com.example.motorcycleantitheftsensor.ui.microphoneHealthText(health))
+                                    health?.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
+                                    if (state.audio.state != com.example.motorcycleantitheftsensor.protection.AudioRuntimeState.OFF) {
+                                        Text("กำลังทำงาน: ${state.audio.state.thaiDisplayName()}")
+                                    }
+                                } else if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
+                                    Text("จะเริ่มอ่านค่าหลังเปิดการป้องกัน")
+                                } else if (health == null) {
+                                    Text("ไม่พร้อมใช้งาน")
+                                } else {
+                                    Text(health.healthText())
+                                    health.detail?.takeIf(String::isNotBlank)?.let { detail -> Text(detail) }
+
+                                    health.latestReading?.let { reading ->
+                                        val valueString = if (reading.value != null) {
+                                            if (reading.unit != null) "${reading.value} ${reading.unit}" else "${reading.value}"
+                                        } else ""
+                                        val displayString = if (valueString.isNotEmpty()) "${reading.label}: $valueString" else reading.label
+                                        Text(displayString)
+                                    }
+
+                                    health.lastSampleAtMs?.let { lastSample ->
+                                        Text("อ่านค่าล่าสุด: ${formatProtectionTimestamp(lastSample)}")
+                                    }
+                                }
+                            }
+                        }
+
+                        StatusCard(title = "แบตเตอรี่") {
+                            StatusRow(
+                                "ระดับ",
+                                protection.batteryLevelPercent?.let { "$it%" } ?: "ไม่พร้อมใช้งาน",
+                            )
+                            StatusRow(
+                                "อุณหภูมิ",
+                                protection.batteryTemperatureCelsius?.let { "$it C" } ?: "ไม่พร้อมใช้งาน",
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -338,21 +398,19 @@ fun ProtectionScreen(
 }
 
 const val AUDIO_RUNTIME_CARD_TAG = "audio-threat-status"
+const val PROTECTION_LIST_TAG = "ui.protection.LIST"
 
 @Composable
 private fun ChangeUseSection(
     selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
+    selectedSetupState: ProfileSetupState?,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "การใช้งานปัจจุบัน: ${profileLabel(selectedProfile)}",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.semantics { heading() },
-        )
+    StatusCard(title = "การใช้งานปัจจุบัน") {
+        Text(profileLabel(selectedProfile), style = MaterialTheme.typography.titleLarge)
         if (!expanded) {
-            Button(
+            OutlinedButton(
                 onClick = { expanded = true },
                 enabled = true,
                 modifier = Modifier
@@ -360,11 +418,12 @@ private fun ChangeUseSection(
                     .heightIn(min = 48.dp)
                     .testTag("change_use_button"),
             ) {
-                Text("เปลี่ยนการใช้งาน (Change use)")
+                Text("เปลี่ยนการใช้งาน")
             }
         } else {
             ProfilePickerSection(
                 selectedProfile = selectedProfile,
+                selectedSetupState = selectedSetupState,
                 onProfileSelected = { profile ->
                     expanded = false
                     onProfileSelected(profile)
@@ -377,15 +436,16 @@ private fun ChangeUseSection(
 
 private fun profileLabel(profile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?): String =
     when (profile) {
-        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE -> "Vehicle Guard"
-        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY -> "Entry Guard"
-        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER -> "Power Guard"
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE -> "ดูแลยานพาหนะ"
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY -> "ดูแลทางเข้า"
+        com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER -> "ดูแลไฟเลี้ยง"
         null -> "ยังไม่ได้เลือก"
     }
 
 @Composable
 private fun ProfilePickerSection(
     selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
+    selectedSetupState: ProfileSetupState?,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
     headingText: String,
 ) {
@@ -396,9 +456,9 @@ private fun ProfilePickerSection(
             modifier = Modifier.semantics { heading() },
         )
         listOf(
-            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE to "Vehicle Guard",
-            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY to "Entry Guard",
-            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER to "Power Guard",
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE to "ดูแลยานพาหนะ",
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY to "ดูแลทางเข้า",
+            com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER to "ดูแลไฟเลี้ยง",
         ).forEach { (profile, label) ->
             Surface(
                 onClick = { onProfileSelected(profile) },
@@ -420,7 +480,11 @@ private fun ProfilePickerSection(
                     )
                     if (profile != com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE) {
                         Text(
-                            text = "Setup required",
+                            text = if (profile == selectedProfile && selectedSetupState == ProfileSetupState.READY) {
+                                "พร้อมใช้งาน"
+                            } else {
+                                "ตรวจสอบการตั้งค่าก่อนใช้งาน"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -442,12 +506,18 @@ private fun ProfileSwitchConfirmationCard(
             text = "การเปลี่ยนจะหยุดการป้องกันปัจจุบันและจะไม่เปิดใหม่อัตโนมัติ",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Keep current protection")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text("ใช้การป้องกันปัจจุบันต่อ")
             }
-            Button(onClick = onConfirm, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Stop protection and change use")
+            Button(
+                onClick = onConfirm,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text("หยุดการป้องกันและเปลี่ยนการใช้งาน")
             }
         }
     }
@@ -459,9 +529,13 @@ private fun StatusCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
@@ -478,10 +552,14 @@ private fun StatusCard(
 private fun StatusRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(label, modifier = Modifier.weight(1f))
-        Text(value)
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+        )
     }
 }
 
@@ -497,9 +575,91 @@ private fun ProtectionState.toGuidanceCode(): com.example.motorcycleantitheftsen
 
 
 
-private fun SensorHealth?.healthText(): String = this?.state?.displayName() ?: "Unavailable"
+private fun SensorHealth?.healthText(): String = this?.state?.thaiDisplayName() ?: "ไม่พร้อมใช้งาน"
 
-private fun Enum<*>.displayName(): String = name
-    .lowercase()
-    .replace('_', ' ')
-    .replaceFirstChar(Char::uppercase)
+private fun SensorKind.thaiDisplayName(): String = when (this) {
+    SensorKind.VIBRATION -> "การสั่นสะเทือน"
+    SensorKind.LIGHT -> "แสง"
+    SensorKind.POWER_THERMAL -> "ไฟเลี้ยงและอุณหภูมิ"
+    SensorKind.MICROPHONE -> "ไมโครโฟน"
+    SensorKind.LOCATION -> "ตำแหน่ง"
+}
+
+private fun SensorHealthState.thaiDisplayName(): String = when (this) {
+    SensorHealthState.UNAVAILABLE -> "ไม่พร้อมใช้งาน"
+    SensorHealthState.AVAILABLE -> "พร้อมอ่านค่า"
+    SensorHealthState.HEALTHY -> "ปกติ"
+    SensorHealthState.STALE -> "ข้อมูลไม่ใหม่"
+    SensorHealthState.FAILED -> "ทำงานผิดพลาด"
+}
+
+private fun IncidentSeverity.thaiDisplayName(): String = when (this) {
+    IncidentSeverity.WARNING -> "เฝ้าระวัง"
+    IncidentSeverity.CRITICAL -> "วิกฤต"
+}
+
+private fun IncidentLifecycle.thaiDisplayName(): String = when (this) {
+    IncidentLifecycle.OPEN -> "กำลังดำเนินอยู่"
+    IncidentLifecycle.CLOSED -> "สิ้นสุดแล้ว"
+    IncidentLifecycle.INTERRUPTED -> "ถูกขัดจังหวะ"
+}
+
+private fun DeliveryState.thaiDisplayName(): String = when (this) {
+    DeliveryState.PENDING -> "รอส่ง"
+    DeliveryState.SENT -> "ส่งแล้ว"
+    DeliveryState.FAILED -> "ส่งไม่สำเร็จ"
+    DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเกณฑ์การส่ง"
+}
+
+private fun AudioRuntimeState.thaiDisplayName(): String = when (this) {
+    AudioRuntimeState.OFF -> "ปิด"
+    AudioRuntimeState.STARTING -> "กำลังเริ่ม"
+    AudioRuntimeState.CALIBRATING -> "กำลังปรับเทียบ"
+    AudioRuntimeState.LISTENING -> "กำลังฟัง"
+    AudioRuntimeState.CLASSIFYING -> "กำลังจำแนก"
+    AudioRuntimeState.DEGRADED -> "ทำงานแบบจำกัด"
+    AudioRuntimeState.FAILED -> "ทำงานผิดพลาด"
+}
+
+private fun AudioGateState.thaiDisplayName(): String = when (this) {
+    AudioGateState.DISABLED -> "ปิด"
+    AudioGateState.QUIET -> "เงียบ"
+    AudioGateState.OPEN -> "เปิดรับ"
+}
+
+private fun AudioThreatCategory.thaiDisplayName(): String = when (this) {
+    AudioThreatCategory.IMPACT -> "เสียงกระแทก"
+    AudioThreatCategory.BREAKING -> "เสียงแตกหัก"
+    AudioThreatCategory.POWER_TOOL -> "เครื่องมือไฟฟ้า"
+    AudioThreatCategory.METAL_TAMPER -> "การงัดโลหะ"
+    AudioThreatCategory.ENGINE_START -> "เสียงสตาร์ตเครื่องยนต์"
+    AudioThreatCategory.ENGINE_RUNNING -> "เสียงเครื่องยนต์ทำงาน"
+}
+
+private fun formatPermissionThai(permission: String): String {
+    val name = when {
+        permission.endsWith("RECORD_AUDIO") -> "ไมโครโฟน"
+        permission.endsWith("POST_NOTIFICATIONS") -> "การแจ้งเตือน"
+        permission.endsWith("ACCESS_FINE_LOCATION") -> "ตำแหน่ง"
+        permission.endsWith("ACCESS_COARSE_LOCATION") -> "ตำแหน่ง"
+        else -> permission.substringAfterLast('.')
+    }
+    return "$name ยังไม่พร้อม"
+}
+
+private fun formatDegradationReasonThai(reason: String): String {
+    if (reason == "Power witness placement not revalidated") {
+        return "ต้องยืนยันตำแหน่งไฟยืนยันอีกครั้ง"
+    }
+
+    val sensorName = reason.removeSuffix(" not healthy")
+        .takeIf { reason.endsWith(" not healthy") }
+        ?.let { rawName ->
+            SensorKind.entries.firstOrNull { kind -> kind.name == rawName }?.thaiDisplayName()
+        }
+    if (sensorName != null) {
+        return "${sensorName}ทำงานไม่ปกติ"
+    }
+
+    return "ระบบบางส่วนทำงานแบบจำกัด"
+}

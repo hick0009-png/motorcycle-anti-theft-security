@@ -123,7 +123,7 @@ fun ProtectionAppScreen(
                                     )
                                     .testTag(PRIMARY_DESTINATION_TAG)
                                     .semantics(mergeDescendants = true) {
-                                        contentDescription = "${item.label} destination"
+                                        contentDescription = item.label
                                     }
                                     .padding(vertical = 2.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -243,17 +243,17 @@ private enum class PrimaryDestination(
 ) {
     PROTECTION(
         destination = ProtectionDestination.PROTECTION,
-        label = "Protection",
+        label = "ป้องกัน",
         iconResource = android.R.drawable.ic_secure,
     ),
     EVENTS(
         destination = ProtectionDestination.EVENTS,
-        label = "Events",
+        label = "เหตุการณ์",
         iconResource = android.R.drawable.ic_menu_recent_history,
     ),
     SETTINGS(
         destination = ProtectionDestination.SETTINGS,
-        label = "Settings",
+        label = "ตั้งค่า",
         iconResource = android.R.drawable.ic_menu_preferences,
     ),
 }

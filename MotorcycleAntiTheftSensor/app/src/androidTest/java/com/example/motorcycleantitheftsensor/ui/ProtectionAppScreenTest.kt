@@ -276,7 +276,8 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText("การป้องกันทำงานแบบจำกัด").assertExists()
-        compose.onNodeWithText("VIBRATION not healthy").assertExists()
+        compose.onNodeWithText("การสั่นสะเทือนทำงานไม่ปกติ").assertExists()
+        compose.onNodeWithText("VIBRATION not healthy").assertDoesNotExist()
     }
 
     @Test

@@ -2,14 +2,22 @@ package com.example.motorcycleantitheftsensor.ui
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
+import com.example.motorcycleantitheftsensor.protection.DeliveryState
+import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
+import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
+import com.example.motorcycleantitheftsensor.protection.IncidentSummary
+import com.example.motorcycleantitheftsensor.ui.protection.PROTECTION_LIST_TAG
 import org.junit.Rule
 import org.junit.Test
 
@@ -23,16 +31,19 @@ class ProtectionProfilesUiTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun setState(profile: ProtectionProfileUiState) {
+    private fun setState(
+        profile: ProtectionProfileUiState,
+        snapshot: ProtectionSnapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+            state = ProtectionState.DISARMED_ONLINE,
+            serviceRunning = true,
+            telegramPolling = true,
+            telegramReachable = true,
+        ),
+    ) {
         composeRule.setContent {
             ProtectionAppScreen(
                 state = ProtectionUiState.from(
-                    snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
-                        state = ProtectionState.DISARMED_ONLINE,
-                        serviceRunning = true,
-                        telegramPolling = true,
-                        telegramReachable = true,
-                    ),
+                    snapshot = snapshot,
                     incidents = emptyList(),
                     settings = ProtectionSettingsSummary(
                         tokenConfigured = true,
@@ -72,10 +83,10 @@ class ProtectionProfilesUiTest {
             ),
         )
 
-        composeRule.onNodeWithText("Vehicle Guard").assertIsDisplayed()
-        composeRule.onNodeWithText("Entry Guard").assertIsDisplayed()
-        composeRule.onNodeWithText("Power Guard").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Setup required").assertCountEquals(2)
+        composeRule.onNodeWithText("ดูแลยานพาหนะ").assertIsDisplayed()
+        composeRule.onNodeWithText("ดูแลทางเข้า").assertIsDisplayed()
+        composeRule.onNodeWithText("ดูแลไฟเลี้ยง").assertIsDisplayed()
+        composeRule.onAllNodesWithText("ตรวจสอบการตั้งค่าก่อนใช้งาน").assertCountEquals(2)
     }
 
     /** Compile-only this slice; executed on device during Task 7 acceptance. */
@@ -86,14 +97,146 @@ class ProtectionProfilesUiTest {
                 selectedProfile = ProtectionProfile.POWER,
                 setupState = ProfileSetupState.READY,
                 powerSummary = PowerSummaryRows(
-                    charging = ChargingRowState.CONNECTED,
+                    charging = ChargingRowState.CHARGING,
                     witness = WitnessRowState.UNAVAILABLE,
                 ),
             ),
         )
 
         composeRule.onNodeWithText("กำลังชาร์จ").assertIsDisplayed()
-        composeRule.onNodeWithText("ไฟยืนยัน: ใช้งานไม่ได้").assertIsDisplayed()
+        composeRule.onNodeWithText("ไฟยืนยัน: ยังยืนยันไม่ได้").assertIsDisplayed()
+    }
+
+    @Test
+    fun readyPowerHomePrioritizesStatusAndKeepsCommissioningOutOfNormalState() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = ProfileSetupState.READY,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.CHARGING,
+                    witness = WitnessRowState.DETECTED,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithText("สถานะระบบ").assertIsDisplayed()
+        composeRule.onNodeWithText("การใช้งานปัจจุบัน").assertIsDisplayed()
+        composeRule.onNodeWithText("สถานะไฟเลี้ยง").assertIsDisplayed()
+        composeRule.onNodeWithText("อัปเดตล่าสุด", substring = true).assertIsDisplayed()
+        composeRule.onAllNodesWithText("สถานะการทำงาน").assertCountEquals(0)
+        composeRule.onAllNodesWithText("ยืนยันตำแหน่งไฟ", substring = true).assertCountEquals(0)
+        composeRule.onNodeWithText("เปลี่ยนการใช้งาน").performClick()
+        composeRule.onNodeWithText("พร้อมใช้งาน").assertExists()
+    }
+
+    @Test
+    fun powerSignalsDoNotCreateAConfirmedFaultInCompose() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = ProfileSetupState.READY,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.DISCHARGING,
+                    witness = WitnessRowState.DARK,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("สถานะไฟเลี้ยง"))
+        composeRule.onAllNodesWithText("ตรวจสอบแหล่งจ่ายไฟและไฟยืนยัน").assertCountEquals(0)
+    }
+
+    @Test
+    fun confirmedPowerFaultShowsOneRecoveryInstruction() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = ProfileSetupState.READY,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.DISCHARGING,
+                    witness = WitnessRowState.DARK,
+                    confirmedFault = true,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("สถานะไฟเลี้ยง"))
+        composeRule.onAllNodesWithText("ตรวจสอบแหล่งจ่ายไฟและไฟยืนยัน").assertCountEquals(1)
+    }
+
+    @Test
+    fun notChargingCopyDoesNotClaimThatACableIsConnected() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = ProfileSetupState.READY,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.NOT_CHARGING,
+                    witness = WitnessRowState.DETECTED,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("สถานะไฟเลี้ยง"))
+        composeRule.onNodeWithText("ไม่ได้ชาร์จในขณะนี้").assertIsDisplayed()
+        composeRule.onAllNodesWithText("เสียบสายอยู่", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun vehicleHomeUsesSharedHierarchyAndThaiProfileCopy() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.VEHICLE,
+                setupState = ProfileSetupState.READY,
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("สรุปการดูแลยานพาหนะ"))
+        composeRule.onNodeWithText("สถานะระบบ").assertExists()
+        composeRule.onNodeWithText("การใช้งานปัจจุบัน").assertExists()
+        composeRule.onNodeWithText("ดูแลยานพาหนะ").assertIsDisplayed()
+        composeRule.onNodeWithText("สรุปการดูแลยานพาหนะ").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Vehicle Guard").assertCountEquals(0)
+    }
+
+    @Test
+    fun latestEventUsesThaiDisplayValuesInsteadOfRawEnums() {
+        val snapshot = ProtectionSnapshot.offline(nowMs = 1_000L).copy(
+            state = ProtectionState.DISARMED_ONLINE,
+            serviceRunning = true,
+            telegramPolling = true,
+            telegramReachable = true,
+            lastIncident = IncidentSummary(
+                id = "event-1",
+                severity = IncidentSeverity.WARNING,
+                lifecycle = IncidentLifecycle.CLOSED,
+                updatedAtMs = 1_000L,
+                deliveryState = DeliveryState.SENT,
+            ),
+            lastDeliveryState = DeliveryState.SENT,
+        )
+        setState(
+            profile = ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.VEHICLE,
+                setupState = ProfileSetupState.READY,
+            ),
+            snapshot = snapshot,
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เหตุการณ์ล่าสุด"))
+        composeRule.onNodeWithText("เฝ้าระวัง").assertExists()
+        composeRule.onNodeWithText("สิ้นสุดแล้ว").assertExists()
+        composeRule.onNodeWithText("ส่งแล้ว").assertExists()
+        composeRule.onAllNodesWithText("Warning").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Closed").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Sent").assertCountEquals(0)
+        composeRule.onAllNodesWithText("สถานะการส่งล่าสุด").assertCountEquals(0)
     }
 
     @Test
@@ -145,13 +288,13 @@ class ProtectionProfilesUiTest {
             )
         }
 
-        composeRule.onNodeWithText("Keep current protection")
+        composeRule.onNodeWithText("ใช้การป้องกันปัจจุบันต่อ")
             .assertIsDisplayed()
             .performClick()
         composeRule.runOnIdle { check(!confirmed) { "Cancel must not confirm" } }
         composeRule.runOnIdle { check(cancelled) { "Cancel must be invoked" } }
 
-        composeRule.onNodeWithText("Stop protection and change use").assertIsDisplayed()
+        composeRule.onNodeWithText("หยุดการป้องกันและเปลี่ยนการใช้งาน").assertIsDisplayed()
     }
 
     @Test
@@ -200,12 +343,14 @@ class ProtectionProfilesUiTest {
             )
         }
 
-        composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เริ่มปรับเทียบ"))
+        composeRule.onNodeWithText("เข็มทิศประตู").assertExists()
         composeRule.onNodeWithText("ปรับเทียบตำแหน่งปิดของประตูก่อนเริ่มใช้งาน")
-            .assertIsDisplayed()
-        composeRule.onNodeWithText("15°").assertIsDisplayed()
+            .assertExists()
+        composeRule.onNodeWithText("15°").assertExists()
         composeRule.onNodeWithText("แจ้งเมื่อประตูเปิดเกิน 15° จากตำแหน่งปิด")
-            .assertIsDisplayed()
+            .assertExists()
 
         composeRule.onNodeWithText("เริ่มปรับเทียบ")
             .assertIsDisplayed()
@@ -226,10 +371,65 @@ class ProtectionProfilesUiTest {
         )
 
         composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
-        composeRule.onNodeWithText("ประตูปิด · 0°").assertIsDisplayed()
+        composeRule.onNodeWithText("พร้อมเฝ้าระวังทางเข้า").assertIsDisplayed()
         composeRule.onNodeWithText("แจ้งเมื่อเกิน 15°").assertIsDisplayed()
         composeRule.onNodeWithText(
             "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",
         ).assertIsDisplayed()
+    }
+
+    @Test
+    fun readyEntrySummaryKeepsAngleControlsBehindSecondaryAction() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.ENTRY,
+                setupState = ProfileSetupState.READY,
+                entryAngleDegrees = 15,
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เข็มทิศประตู"))
+        composeRule.onNodeWithText("พร้อมเฝ้าระวังทางเข้า").assertIsDisplayed()
+        composeRule.onAllNodesWithText("ประตูปิด", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("บันทึกมุม", substring = true).assertCountEquals(0)
+        composeRule.onNodeWithText("ปรับมุมแจ้งเตือน")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithText("บันทึกมุม 15°").assertExists()
+    }
+
+    @Test
+    fun unresolvedEntrySetupDoesNotClaimReady() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.ENTRY,
+                setupState = null,
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เข็มทิศประตู"))
+        composeRule.onNodeWithText("ตรวจสอบสถานะการตั้งค่าก่อนใช้งาน").assertIsDisplayed()
+        composeRule.onAllNodesWithText("พร้อมเฝ้าระวังทางเข้า").assertCountEquals(0)
+    }
+
+    @Test
+    fun unresolvedPowerSetupDoesNotShowNormalSummary() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.POWER,
+                setupState = null,
+                powerSummary = PowerSummaryRows(
+                    charging = ChargingRowState.CHARGING,
+                    witness = WitnessRowState.DETECTED,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("สถานะไฟเลี้ยง"))
+        composeRule.onNodeWithText("ตรวจสอบสถานะการตั้งค่าก่อนใช้งาน").assertIsDisplayed()
+        composeRule.onAllNodesWithText("กำลังชาร์จ").assertCountEquals(0)
     }
 }

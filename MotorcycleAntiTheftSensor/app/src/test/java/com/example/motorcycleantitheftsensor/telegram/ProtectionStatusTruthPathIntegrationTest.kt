@@ -146,7 +146,7 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะรถ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
+        assertTrue(output.contains("สถานะระบบ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
         assertTrue(output.contains("🔎 เซนเซอร์: กำลังเริ่มการทำงาน | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("⏳ GPS: กำลังติดตาม | รอพิกัดแรก"))
         assertFalse(output.contains("ข้อมูลเก่า"))
@@ -274,7 +274,7 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะรถ: ปลดการป้องกันแล้ว"))
+        assertTrue(output.contains("สถานะระบบ: ปลดการป้องกันแล้ว"))
         assertTrue(output.contains("🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("✅ ระบบทำงานครบ ไม่พบปัญหา"))
     }
@@ -289,7 +289,7 @@ class ProtectionStatusTruthPathIntegrationTest {
 
         val output = formatter.format(snapshot, nowMs, nowMs)
         assertTrue(output.contains("❌ Service: ออฟไลน์"))
-        assertTrue(output.contains("วิธีแก้: เปิดแอปบนมือถือรถเพื่อเริ่มบริการป้องกัน"))
+        assertTrue(output.contains("วิธีแก้: เปิดแอปในอุปกรณ์เพื่อเริ่มบริการป้องกัน"))
     }
 
     @Test

@@ -6,10 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -23,6 +24,7 @@ import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionProfileUiState
 import com.example.motorcycleantitheftsensor.ui.PowerCommissioningPhase
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
+import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 
 /**
  * Power Guard section (spec sections 3.6/4.3): guided lamp off/on witness commissioning
@@ -37,13 +39,17 @@ fun PowerGuardSection(
 ) {
     val commissioning = profile.powerCommissioning
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "ไฟเลี้ยงและไฟยืนยัน",
+                text = "สถานะไฟเลี้ยง",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.semantics { heading() },
             )
@@ -92,76 +98,78 @@ fun PowerGuardSection(
                 ) {
                     Text("เริ่มปรับเทียบ")
                 }
-            } else {
+            } else if (profile.setupState == ProfileSetupState.READY) {
                 profile.powerSummary?.let { summary ->
+                    val confirmedFault = summary.confirmedFault
                     val charging = when (summary.charging) {
-                        ChargingRowState.CONNECTED -> Triple(
+                        ChargingRowState.CHARGING -> Triple(
                             "●",
                             "กำลังชาร์จ",
-                            MaterialTheme.colorScheme.primary,
+                            PowerHealthy,
                         )
-                        ChargingRowState.DISCONNECTED -> Triple(
+                        ChargingRowState.DISCHARGING -> Triple(
                             "○",
-                            "การชาร์จหยุด",
-                            MaterialTheme.colorScheme.error,
+                            "ไม่ได้เสียบสายชาร์จ",
+                            if (confirmedFault) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        ChargingRowState.FULL -> Triple(
+                            "●",
+                            "ชาร์จเต็ม · ยังเสียบสายอยู่",
+                            PowerHealthy,
+                        )
+                        ChargingRowState.NOT_CHARGING -> Triple(
+                            "▲",
+                            "ไม่ได้ชาร์จในขณะนี้",
+                            if (confirmedFault) MaterialTheme.colorScheme.error else PowerWarning,
                         )
                         ChargingRowState.UNKNOWN -> Triple(
                             "◌",
-                            "สถานะการชาร์จไม่ทราบ",
+                            "ยังไม่ทราบสถานะการชาร์จ",
                             MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     val witness = when (summary.witness) {
+                        WitnessRowState.AVAILABLE -> Triple(
+                            "○",
+                            "ไฟยืนยัน: เซนเซอร์พร้อมอ่านค่า",
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         WitnessRowState.DETECTED -> Triple(
                             "●",
                             "ไฟยืนยัน: ตรวจพบแสง",
-                            MaterialTheme.colorScheme.primary,
+                            PowerHealthy,
                         )
                         WitnessRowState.DARK -> Triple(
                             "○",
                             "ไฟยืนยัน: ไม่พบแสง",
-                            MaterialTheme.colorScheme.error,
+                            if (confirmedFault) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         WitnessRowState.UNAVAILABLE -> Triple(
-                            "▲",
-                            "ไฟยืนยัน: ใช้งานไม่ได้",
-                            MaterialTheme.colorScheme.error,
+                            "◌",
+                            "ไฟยืนยัน: ยังยืนยันไม่ได้",
+                            MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     SignalRow(glyph = charging.first, text = charging.second, tint = charging.third)
-                    if (summary.charging == ChargingRowState.DISCONNECTED) {
-                        RecoveryHint("ตรวจสอบสายชาร์จและแหล่งจ่ายไฟ")
-                    }
                     SignalRow(glyph = witness.first, text = witness.second, tint = witness.third)
-                    if (summary.witness != WitnessRowState.DETECTED) {
-                        RecoveryHint("ตรวจสอบหลอดไฟ ตำแหน่งฝาครอบ หรือปรับเทียบใหม่")
-                    }
                     Text(
-                        text = "สัญญาณเดี่ยว (ชาร์จหยุด หรือไฟมืด อย่างใดอย่างหนึ่ง) ยังไม่ถือเป็นไฟเลี้ยงขาด",
+                        text = "อัปเดตล่าสุด: ${summary.lastUpdatedAtMs?.let(::formatProtectionTimestamp) ?: "ยังไม่มีข้อมูล"}",
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (confirmedFault) {
+                        RecoveryHint("ตรวจสอบแหล่งจ่ายไฟและไฟยืนยัน")
+                    }
                 }
-
-                OutlinedButton(
-                    onClick = actions.powerMarkChallengePassed,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                ) {
-                    Text("ยืนยันตำแหน่งไฟ (ปิด-เปิดไฟยืนยันแล้ว)")
-                }
-                if (profile.setupState == ProfileSetupState.READY &&
-                    profile.powerSummary?.witness == WitnessRowState.UNAVAILABLE
-                ) {
-                    Text(
-                        text = "เปิดระบบแบบเฝ้าระวังลดระดับ: ตำแหน่งไฟยืนยันไม่ได้รับการยืนยัน",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+            } else {
+                Text("ตรวจสอบสถานะการตั้งค่าก่อนใช้งาน")
             }
         }
     }
 }
+
+private val PowerHealthy = Color(0xFF047857)
+private val PowerWarning = Color(0xFFB45309)
 
 @Composable
 private fun SignalRow(glyph: String, text: String, tint: Color) {
