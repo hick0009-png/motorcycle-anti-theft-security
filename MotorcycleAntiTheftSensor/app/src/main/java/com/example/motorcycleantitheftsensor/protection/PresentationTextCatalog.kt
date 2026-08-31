@@ -8,11 +8,157 @@ object PresentationTextCatalog {
 
     const val NEUTRAL_INCIDENT_GUIDANCE = "ตรวจสอบสถานการณ์และดำเนินการตามความเหมาะสม"
 
+    /**
+     * Approved profile card wording from the profile-aware Thai UX specification.
+     * Profile names are protection contexts, never installation-type inferences.
+     */
+    fun profile(profile: ProtectionProfile): ProfilePresentation = when (profile) {
+        ProtectionProfile.VEHICLE -> ProfilePresentation(
+            name = "ยานพาหนะ",
+            promise = "แจ้งเตือนเมื่อรถยนต์หรือรถจักรยานยนต์ถูกกระทบ ขยับ หรือเคลื่อนย้าย",
+        )
+        ProtectionProfile.ENTRY -> ProfilePresentation(
+            name = "ประตูและทางเข้า",
+            promise = "แจ้งเตือนเมื่อประตูที่ติดตั้งโทรศัพท์ไว้เปิดเกินมุมที่กำหนด หรือเกิดแรงกระแทก",
+        )
+        ProtectionProfile.POWER -> ProfilePresentation(
+            name = "ไฟเลี้ยงจุดติดตั้ง",
+            promise = "เฝ้าระวังสายชาร์จและไฟยืนยันของปลั๊กหรือรางไฟที่ตั้งค่าไว้",
+        )
+    }
+
+    /** Evidence-role labels approved by the spec (§3.3). */
+    fun evidenceRoleLabel(role: SensorRole): String = when (role) {
+        SensorRole.PRIMARY -> "ใช้ยืนยันหลัก"
+        SensorRole.SUPPORTING -> "ใช้ประกอบการยืนยัน"
+        SensorRole.OFF -> "ไม่ใช้"
+    }
+
+    /**
+     * Profile-aware capability wording. The primary adjustable control exists only
+     * where a real bounded detector parameter changes; supporting evidence never
+     * claims theft, forced entry, or a site-wide outage by itself.
+     */
+    fun capability(profile: ProtectionProfile, capability: SensorCapability): CapabilityPresentation =
+        when (profile) {
+            ProtectionProfile.VEHICLE -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "การขยับที่ต้องการให้แจ้งเตือน",
+                    explanation = "ปรับระดับการตรวจจับได้ตั้งแต่ ต้องขยับมากจึงตรวจพบ ถึง ขยับเล็กน้อยก็ตรวจพบ",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = true,
+                    isGenericSensitivityControl = true,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "การหมุนหรือเอียง",
+                    explanation = "ใช้ประกอบการยืนยันการขยับหรือเคลื่อนย้าย",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กรอบจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งแวดล้อมบริเวณจุดติดตั้งเปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "แสงบริเวณจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อสิ่งที่บังเซ็นเซอร์ถูกนำออก",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+            ProtectionProfile.ENTRY -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "แรงกระแทกหรือการสั่น",
+                    explanation = "ใช้ประกอบการยืนยันแรงกระแทกที่บานประตู",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "มุมเปลี่ยนจากตำแหน่งเริ่มต้น",
+                    explanation = "วัดมุมเทียบตำแหน่งปิดที่ปรับเทียบไว้ ไม่ใช่ความไวการหมุน",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กบริเวณประตู",
+                    explanation = "ใช้ประกอบการยืนยันเท่านั้น ไม่ใช่หลักฐานว่าประตูเปิด",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "แสงบริเวณประตู",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อแสงที่จุดติดตั้งเปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+            ProtectionProfile.POWER -> when (capability) {
+                SensorCapability.MOVEMENT -> CapabilityPresentation(
+                    title = "การสั่นหรือถูกขยับ",
+                    explanation = "ใช้ประกอบการยืนยันว่าโทรศัพท์หรือขายึดถูกขยับ",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.ROTATION -> CapabilityPresentation(
+                    title = "การเปลี่ยนการวางแนว",
+                    explanation = "ใช้ประกอบการยืนยันเมื่อการวางโทรศัพท์เปลี่ยน",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.MAGNETIC -> CapabilityPresentation(
+                    title = "สนามแม่เหล็กบริเวณจุดติดตั้ง",
+                    explanation = "ใช้ประกอบการยืนยันเท่านั้น",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.LIGHT -> CapabilityPresentation(
+                    title = "ไฟยืนยันจุดติดตั้ง",
+                    explanation = "ยืนยันด้วยช่วงสว่างหรือมืดที่ตั้งค่าไว้ตอนเปิดระบบ ไม่ใช้ความไวแสงทั่วไป",
+                    roleLabel = evidenceRoleLabel(SensorRole.PRIMARY),
+                    isPrimaryControl = true,
+                    isGenericSensitivityControl = false,
+                )
+                SensorCapability.PROXIMITY -> CapabilityPresentation(
+                    title = "วัตถุใกล้โทรศัพท์",
+                    explanation = "แจ้งสถานะใกล้หรือไกลเพื่อประกอบการยืนยัน ไม่วัดระยะเป็นเซนติเมตร",
+                    roleLabel = evidenceRoleLabel(SensorRole.SUPPORTING),
+                    isPrimaryControl = false,
+                    isGenericSensitivityControl = false,
+                )
+            }
+        }
+
     fun capabilityName(capability: SensorCapability): String = when (capability) {
         SensorCapability.MOVEMENT -> "การเคลื่อนไหว"
         SensorCapability.ROTATION -> "การหมุนและเอียง"
         SensorCapability.MAGNETIC -> "สนามแม่เหล็ก"
-        SensorCapability.LIGHT -> "แสงใต้เบาะ"
+        SensorCapability.LIGHT -> "แสงบริเวณจุดติดตั้ง"
         SensorCapability.PROXIMITY -> "ระยะประชิด"
     }
 
@@ -47,13 +193,117 @@ object PresentationTextCatalog {
         IncidentType.TAMPER -> "⚠️ พบการงัดแงะหรือเปิดเบาะ"
         IncidentType.POWER -> "🔌 แหล่งจ่ายไฟถูกตัด"
         IncidentType.THERMAL -> "🌡️ อุณหภูมิผิดปกติ"
-        IncidentType.AUDIO -> "🔊 เสียงผิดปกติรอบตัวรถ"
+        IncidentType.AUDIO -> "🔊 เสียงผิดปกติบริเวณจุดติดตั้ง"
         IncidentType.ENTRY_DOOR -> "🚪 ตรวจพบประตูเปิด"
+    }
+
+    /** Compact incident wording for sentences and external messages; never expose enum names. */
+    fun incidentTypeLabel(type: IncidentType): String = when (type) {
+        IncidentType.VIBRATION -> "การเคลื่อนไหวผิดปกติ"
+        IncidentType.TAMPER -> "การงัดแงะหรือเปิดเบาะ"
+        IncidentType.POWER -> "แหล่งจ่ายไฟผิดปกติ"
+        IncidentType.THERMAL -> "อุณหภูมิผิดปกติ"
+        IncidentType.AUDIO -> "เสียงผิดปกติบริเวณจุดติดตั้ง"
+        IncidentType.ENTRY_DOOR -> "ประตูเปิด"
     }
 
     fun severityLabel(severity: IncidentSeverity): String = when (severity) {
         IncidentSeverity.WARNING -> "เตือนภัย"
         IncidentSeverity.CRITICAL -> "วิกฤต"
+    }
+
+    /**
+     * Single-sourced incident lifecycle/delivery Thai labels (profile-aware Thai UX,
+     * Task 5): the Events history screen and Protection diagnostics must render
+     * identical wording, so display code never derives labels from enum names.
+     */
+    fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String = when (lifecycle) {
+        IncidentLifecycle.OPEN -> "กำลังดำเนินเหตุการณ์"
+        IncidentLifecycle.CLOSED -> "สิ้นสุดแล้ว"
+        IncidentLifecycle.INTERRUPTED -> "ยกระดับเป็นวิกฤต"
+    }
+
+    fun deliveryStateLabel(state: DeliveryState): String = when (state) {
+        DeliveryState.PENDING -> "รอส่ง"
+        DeliveryState.SENT -> "ส่งสำเร็จ"
+        DeliveryState.FAILED -> "ส่งไม่สำเร็จ"
+        DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเงื่อนไขการส่ง"
+    }
+
+    /**
+     * Events history screen terms (profile-aware Thai UX, Task 5). `strings.xml`
+     * mirrors these values for resource-based rendering; host tests pin them here
+     * so resource drift fails the build.
+     */
+    const val EVENTS_LOADING = "กำลังโหลดเหตุการณ์"
+    const val EVENTS_EMPTY_TITLE = "ยังไม่มีเหตุการณ์"
+    const val EVENTS_EMPTY_DETAIL = "เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้"
+    const val EVENTS_ERROR_TITLE = "เกิดข้อผิดพลาดในการโหลดเหตุการณ์"
+    const val EVENTS_RETRY = "ลองใหม่"
+    const val EVENTS_HEADER = "ประวัติเหตุการณ์"
+    const val EVENTS_CLEAR_HISTORY = "ล้างประวัติ"
+    const val EVENTS_CLEAR_CONFIRM_TITLE = "ยืนยันการล้างประวัติ"
+    const val EVENTS_CLEAR_CONFIRM_BODY = "การดำเนินการนี้จะลบประวัติเหตุการณ์ในเครื่องอย่างถาวร"
+    const val EVENTS_CONFIRM_CLEAR = "ยืนยัน"
+    const val EVENTS_CANCEL = "ยกเลิก"
+
+    /** Truthful source label: persisted incidents are real recorded events only. */
+    const val REAL_EVENT_SOURCE = "เหตุการณ์จริง"
+
+    /** Typed row-line formatters; never leak raw enum names or English field prefixes. */
+    fun formatEventSourceLine(): String = "แหล่งข้อมูล: $REAL_EVENT_SOURCE"
+
+    fun formatEventSeverityLine(severity: IncidentSeverity): String =
+        "ความรุนแรง: ${severityLabel(severity)}"
+
+    fun formatEventLifecycleLine(lifecycle: IncidentLifecycle): String =
+        "สถานะเหตุการณ์: ${incidentLifecycleLabel(lifecycle)}"
+
+    fun formatEventDeliveryLine(state: DeliveryState): String =
+        "การแจ้งเตือน: ${deliveryStateLabel(state)}"
+
+    const val EVENT_EVIDENCE_PREFIX = "หลักฐาน: "
+    const val EVENT_TIME_PREFIX = "เวลา: "
+
+    /**
+     * Notification presentation (profile-aware Thai UX, Task 6). The title and channel
+     * names are installation-neutral; resources mirror these values while host tests pin
+     * them so wording cannot drift back to legacy brand or raw state enums.
+     */
+    const val NOTIFICATION_TITLE = "ระบบป้องกัน"
+    const val FOREGROUND_CHANNEL_NAME = "สถานะการป้องกัน"
+    const val DIRECT_BOOT_CHANNEL_NAME = "การกู้คืนหลังบูต"
+
+    /**
+     * Pre-unlock recovery facts only: these bodies never read or reveal Telegram/SMS/
+     * TOTP/pairing/encrypted-incident data and never claim protection already resumed —
+     * resumption is announced only after the coordinator confirms it post-unlock.
+     */
+    const val DIRECT_BOOT_WAITING_BODY = "การกู้คืนการป้องกันรอการปลดล็อกอุปกรณ์"
+    const val DIRECT_BOOT_MOVEMENT_BODY = "ตรวจพบการขยับขณะอุปกรณ์ล็อกอยู่ ปลดล็อกเพื่อใช้การป้องกันเต็มรูปแบบ"
+
+    /**
+     * Foreground notification body built only from the authoritative [state] plus a
+     * caller-supplied [detail] (blockers / arming seconds / degradation reasons /
+     * incident id). Shared state labels keep wording identical to the app UI.
+     */
+    fun foregroundNotificationBody(state: ProtectionState, detail: String = ""): String {
+        val suffix = if (detail.isBlank()) "" else ": $detail"
+        return when (state) {
+            ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าก่อนใช้งาน$suffix"
+            ProtectionState.DISARMED_ONLINE -> "ระบบปิดอยู่ — ควบคุมจากระยะไกลได้"
+            ProtectionState.ARMING ->
+                if (detail.isBlank()) {
+                    "กำลังเปิดระบบและปรับเทียบ"
+                } else {
+                    "กำลังเปิดระบบและปรับเทียบ อีก $detail วินาที"
+                }
+            ProtectionState.ARMED_HEALTHY -> protectionStateLabel(ProtectionState.ARMED_HEALTHY)
+            ProtectionState.ARMED_DEGRADED -> "การป้องกันทำงานแบบจำกัด$suffix"
+            ProtectionState.ALERT_ACTIVE ->
+                if (detail.isBlank()) "พบเหตุการณ์ผิดปกติ" else "พบเหตุการณ์ผิดปกติ: $detail"
+            ProtectionState.OFFLINE -> "บริการป้องกันออฟไลน์"
+        }
     }
 
     fun protectionStateLabel(state: ProtectionState): String = when (state) {
@@ -74,7 +324,7 @@ object PresentationTextCatalog {
             SensorUnit.DEGREES -> "มุมของรถเปลี่ยนประมาณ ${String.format(Locale.US, "%.1f", evidence.baselineDelta)}°"
             SensorUnit.RADIANS_PER_SECOND -> "การหมุนความเร็ว ${String.format(Locale.US, "%.2f", evidence.normalizedValue)} rad/s"
             SensorUnit.MICROTESLA -> "สนามแม่เหล็กรอบรถเปลี่ยนจากค่าตอนเปิดระบบ (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} µT)"
-            SensorUnit.LUX_RATIO -> "แสงใต้เบาะเพิ่มขึ้นจากค่าตอนเปิดระบบ"
+            SensorUnit.LUX_RATIO -> "แสงบริเวณจุดติดตั้งเพิ่มขึ้นจากค่าตอนเปิดระบบ"
             SensorUnit.NORMALIZED_STATE -> "สถานะวัตถุใกล้โทรศัพท์เปลี่ยนจาก ใกล้ เป็น ไกล"
             SensorUnit.TRIGGER -> "เซ็นเซอร์ตรวจพบการเคลื่อนไหวของตัวรถ"
             null -> "ตรวจพบสัญญาณความผิดปกติ"

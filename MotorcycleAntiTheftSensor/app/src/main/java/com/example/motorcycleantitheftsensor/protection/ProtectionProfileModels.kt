@@ -44,7 +44,7 @@ data class EntryProfileSettings(
 
 data class PowerProfileSettings(
     val lossConfirmationMs: Long = 10_000L,
-    val recoveryConfirmationMs: Long = 30_000L,
+    val recoveryConfirmationMs: Long = 10_000L,
 ) : ProfileSpecificSettings
 
 data class SensorCapabilityProfileOverrides(
@@ -101,6 +101,7 @@ data class EntryArmedCalibrationSnapshot(
 data class PowerArmedCalibrationSnapshot(
     override val generation: Long,
     val modelFingerprint: String,
+    val witnessPlacementValidated: Boolean = false,
 ) : ArmedCalibrationSnapshot
 
 /**

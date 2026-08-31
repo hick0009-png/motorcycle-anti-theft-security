@@ -41,13 +41,14 @@ class IncidentMessageFormatterTest {
         )
 
         val message = formatter.format(incident)
-        val expectedBase = UserGuidanceCatalog.content(GuidanceCode.INCIDENT_OPENED).telegramTh!!.replace("{incidentType}", "TAMPER")
-
-        assertTrue(message.contains(expectedBase))
+        assertTrue(message.contains("การงัดแงะหรือเปิดเบาะ"))
         assertTrue(message.contains("รายละเอียด:"))
-        assertTrue(message.contains("แสงสว่างลอดเข้าใต้เบาะ (ambient_lux): ตรวจพบความสว่างเปลี่ยนไป Δ 15.20"))
-        assertTrue(message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป (accelerometer): ตรวจพบการเอียง/สั่น Δ 2.50"))
+        assertTrue(message.contains("แสงบริเวณจุดติดตั้ง: ตรวจพบความสว่างเปลี่ยนไป Δ 15.20"))
+        assertTrue(message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป: ตรวจพบการเอียง/สั่น Δ 2.50"))
         assertTrue(message.contains("🔋 แบตเตอรี่: 82% (31.5°C)"))
+        assertFalse(message.contains("TAMPER"))
+        assertFalse(message.contains("ambient_lux"))
+        assertFalse(message.contains("accelerometer"))
     }
 
     @Test
@@ -58,7 +59,8 @@ class IncidentMessageFormatterTest {
         )
 
         val message = formatter.format(incident)
-        assertTrue(message.contains(UserGuidanceCatalog.content(GuidanceCode.INCIDENT_OPENED).telegramTh!!.replace("{incidentType}", "TAMPER")))
+        assertTrue(message.contains("การงัดแงะหรือเปิดเบาะ"))
+        assertFalse(message.contains("TAMPER"))
     }
 
     @Test
@@ -69,7 +71,8 @@ class IncidentMessageFormatterTest {
         )
 
         val message = formatter.format(incident)
-        assertTrue(message.contains(UserGuidanceCatalog.content(GuidanceCode.INCIDENT_OPENED).telegramTh!!.replace("{incidentType}", "AUDIO")))
+        assertTrue(message.contains("เสียงผิดปกติบริเวณจุดติดตั้ง"))
+        assertFalse(message.contains("AUDIO"))
     }
 
     @Test
@@ -223,9 +226,33 @@ class IncidentMessageFormatterTest {
 
         val message = formatter.format(update)
         assertTrue("Message must contain escalated header", message.contains("🚨 เหตุยกระดับเป็นวิกฤต"))
-        assertTrue("Message must contain urgency marker", message.contains("⚠️ ระดับความรุนแรง: วิกฤต (CRITICAL)"))
+        assertTrue("Message must contain urgency marker", message.contains("⚠️ ระดับความรุนแรง: วิกฤต"))
         assertTrue("Message must contain evidence chain", message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป"))
-        assertFalse("Message must not contain opened header", message.contains("🚨 ตรวจพบ TAMPER"))
+        assertFalse("Message must not expose incident enum", message.contains("TAMPER"))
+        assertFalse("Message must not expose severity enum", message.contains("CRITICAL"))
+    }
+
+    @Test
+    fun progressAndContinuationHideIncidentEnumsAndDiagnostics() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            evidence = listOf(
+                IncidentEvidence(
+                    kind = SensorKind.POWER_THERMAL,
+                    eventElapsedMs = 1_000L,
+                    wallClockMs = 1_000L,
+                    normalizedValue = 1.0,
+                    baselineDelta = 1.0,
+                    diagnostic = "charger_disconnected",
+                ),
+            ),
+        )
+
+        listOf(formatter.formatProgress(incident), formatter.formatContinuation(incident)).forEach { message ->
+            assertFalse(message.contains("TAMPER"))
+            assertFalse(message.contains("POWER"))
+            assertFalse(message.contains("charger_disconnected"))
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -107,14 +107,14 @@ class ProtectionViewModel(
         snapshotProjectionGate.shouldProject(snapshot, nowMs())
     }
     @Volatile private var pendingSwitchTarget: ProtectionProfile? = null
-        @Volatile private var pendingEntryRearm: Boolean = false
-        @Volatile private var previousSelectedProfile: ProtectionProfile? = null
-        private val profileState = MutableStateFlow(ProtectionProfileUiState())
-        private val selectedPowerWitnessModel = MutableStateFlow<PowerWitnessModel?>(null)
-        private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
-        private var commissioningPolicy: EntryCommissioningPolicy? = null
-        private var commissioningPolicyState = EntryCommissioningPolicy.State()
-        private var commissioningClosedBaseline: EntryOrientationSample? = null
+    @Volatile private var pendingEntryRearm: Boolean = false
+    @Volatile private var previousSelectedProfile: ProtectionProfile? = null
+    private val profileState = MutableStateFlow(ProtectionProfileUiState())
+    private val selectedPowerWitnessModel = MutableStateFlow<PowerWitnessModel?>(null)
+    private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
+    private var commissioningPolicy: EntryCommissioningPolicy? = null
+    private var commissioningPolicyState = EntryCommissioningPolicy.State()
+    private var commissioningClosedBaseline: EntryOrientationSample? = null
     private var commissioningJob: kotlinx.coroutines.Job? = null
     private val powerCommissioningState = MutableStateFlow<PowerCommissioningUiState?>(null)
     private var powerCommissioningPolicy: PowerWitnessCommissioningPolicy? = null
@@ -183,32 +183,21 @@ class ProtectionViewModel(
         scope.launch {
             ticker.collect {
                 currentTimeMs.value = nowMs()
+                refreshPowerWitnessPlacementConfirmation()
+                advancePowerCommissioningClock()
             }
         }
         scope.launch { refreshEvents() }
         scope.launch { readSettings(initialMissingPermissions) }
         scope.launch { refreshProfile() }
         scope.launch {
+            // Both inputs matter: a new snapshot changes the live signals, and a newly
+            // commissioned witness model changes how those signals are classified.
             combine(coordinator.snapshot, selectedPowerWitnessModel) { snapshot, witnessModel ->
-                    powerSummaryRows(
-                        chargingState = snapshot.chargingState,
-                        degradationReasons = snapshot.degradationReasons,
-                        lightSensorHealth = snapshot.sensorHealth[SensorKind.LIGHT],
-                        powerSensorHealth = snapshot.sensorHealth[SensorKind.POWER_THERMAL],
-                        witnessModel = witnessModel,
-                        confirmedFault = snapshot.hasConfirmedPowerFault(),
-                    )
-                }
+                snapshot to witnessModel
+            }
                 .distinctUntilChanged()
-                .collect { summary ->
-                    profileState.update { profile ->
-                        if (profile.selectedProfile == ProtectionProfile.POWER && profile.powerSummary != summary) {
-                            profile.copy(powerSummary = summary)
-                        } else {
-                            profile
-                        }
-                    }
-                }
+                .collect { (snapshot, witnessModel) -> updatePowerSummary(snapshot, witnessModel) }
         }
     }
 
@@ -379,7 +368,7 @@ class ProtectionViewModel(
         val runtime = powerRuntime ?: return
         val repository = profileRepository ?: return
         val policy = PowerWitnessCommissioningPolicy(
-            windowDurationMs = 5_000L,
+            windowDurationMs = 10_000L,
             maxSampleGapMs = 2_000L,
             maxRangeSpanLux = 20.0,
             guardBandLux = 10.0,
@@ -409,9 +398,32 @@ class ProtectionViewModel(
         scope.launch { refreshProfile() }
     }
 
+    /** Clears only Power Guard witness calibration so the owner can run the guided flow again. */
+    fun resetPowerCalibration() = runProtectionCommand(GuidanceCode.SETTINGS_SAVE_FAILED) {
+        val repository = profileRepository ?: return@runProtectionCommand
+        val result = repository.update { profilePolicy.decommissionPower(it) }
+        if (result.isSuccess) {
+            selectedPowerWitnessModel.value = null
+            refreshProfile()
+        } else {
+            publishMessage(UserGuidanceCatalog.content(GuidanceCode.SETTINGS_SAVE_FAILED))
+        }
+    }
+
     /** Records the per-arm lamp off/on integrity challenge as just passed. */
     fun markPowerChallengePassed() {
-        powerArmChallenge?.markPassed(nowMs())
+        val now = nowMs()
+        powerArmChallenge?.markPassed(now)
+        refreshPowerWitnessPlacementConfirmation(now)
+    }
+
+    /** Keeps the UI confirmation truthful when its pre-Arm validity window expires. */
+    private fun refreshPowerWitnessPlacementConfirmation(now: Long = nowMs()) {
+        val confirmed = powerArmChallenge?.isSatisfied(now) == true
+        profileState.update { current ->
+            if (current.powerWitnessPlacementConfirmed == confirmed) current
+            else current.copy(powerWitnessPlacementConfirmed = confirmed)
+        }
     }
 
     private suspend fun advancePowerCommissioning(
@@ -422,7 +434,30 @@ class ProtectionViewModel(
         val policy = powerCommissioningPolicy ?: return
         val current = powerCommissioningState.value ?: return
         powerCommissioningPolicyState = policy.onSample(powerCommissioningPolicyState, sample)
+        applyPowerCommissioningState(repository, runtime, current, liveLux = sample.lux)
+    }
 
+    private suspend fun advancePowerCommissioningClock() {
+        val repository = profileRepository ?: return
+        val runtime = powerRuntime ?: return
+        val policy = powerCommissioningPolicy ?: return
+        val current = powerCommissioningState.value ?: return
+        val previousPhase = powerCommissioningPolicyState.phase
+        powerCommissioningPolicyState = policy.onTick(
+            powerCommissioningPolicyState,
+            elapsedNowMs(),
+        )
+        if (powerCommissioningPolicyState.phase == previousPhase) return
+
+        applyPowerCommissioningState(repository, runtime, current, liveLux = current.liveLux)
+    }
+
+    private suspend fun applyPowerCommissioningState(
+        repository: ProtectionProfileRepository,
+        runtime: ProtectionRuntime,
+        current: PowerCommissioningUiState,
+        liveLux: Double?,
+    ) {
         val nextPhase = when (powerCommissioningPolicyState.phase) {
             PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW -> PowerCommissioningPhase.DARK_WINDOW
             PowerWitnessCommissioningPolicy.Phase.LIT_WINDOW -> PowerCommissioningPhase.LIT_WINDOW
@@ -431,21 +466,28 @@ class ProtectionViewModel(
         }
         powerCommissioningState.value = current.copy(
             phase = nextPhase,
-            liveLux = sample.lux,
+            liveLux = liveLux,
             failureReason = powerCommissioningPolicyState.rejectionReason,
         )
 
         if (powerCommissioningPolicyState.phase == PowerWitnessCommissioningPolicy.Phase.COMMISSIONED) {
-            val model = powerCommissioningPolicyState.model
-            if (model != null) {
-                repository.update { profilePolicy.commissionPower(it, model) }
-            }
+            val model = powerCommissioningPolicyState.model ?: return
+            val saved = repository.update { profilePolicy.commissionPower(it, model) }
             powerCommissioningPolicy = null
             runtime.stopPowerCommissioningStream()
-            powerCommissioningState.value = null
-            // Refresh before cancelling: this runs inside the commissioning job and a
-            // self-cancel here would abort the profile-state refresh below.
-            refreshProfile()
+            if (saved.isSuccess) {
+                powerCommissioningState.value = null
+                // Refresh before cancelling: this can run inside the sample collector,
+                // where cancelling first would abort the durable profile refresh.
+                refreshProfile()
+            } else {
+                powerCommissioningState.value = current.copy(
+                    phase = PowerCommissioningPhase.FAILED,
+                    liveLux = liveLux,
+                    failureReason = POWER_COMMISSIONING_SAVE_FAILED,
+                )
+                publishMessage(UserGuidanceCatalog.content(GuidanceCode.SETTINGS_SAVE_FAILED))
+            }
             powerCommissioningJob?.cancel()
             powerCommissioningJob = null
         }
@@ -509,6 +551,28 @@ class ProtectionViewModel(
                 null
             },
         )
+    }
+
+    private fun updatePowerSummary(snapshot: ProtectionSnapshot, witnessModel: PowerWitnessModel?) {
+        profileState.update { current ->
+            if (current.selectedProfile != ProtectionProfile.POWER) {
+                return@update current
+            }
+            val updatedSummary = powerSummaryRows(
+                chargingState = snapshot.chargingState,
+                degradationReasons = snapshot.degradationReasons,
+                lightSensorHealth = snapshot.sensorHealth[SensorKind.LIGHT],
+                powerSensorHealth = snapshot.sensorHealth[SensorKind.POWER_THERMAL],
+                witnessModel = witnessModel,
+                confirmedFault = snapshot.hasConfirmedPowerFault(),
+            )
+            val armedProfile = snapshot.armedProfileSnapshot?.profile
+            if (current.powerSummary == updatedSummary && current.armedProfile == armedProfile) current
+            else current.copy(
+                armedProfile = armedProfile,
+                powerSummary = updatedSummary,
+            )
+        }
     }
 
     private var activeProtectionJob: kotlinx.coroutines.Job? = null
@@ -675,6 +739,7 @@ class ProtectionViewModel(
     }
 
     override fun onCleared() {
+        powerRuntime?.stopPowerStatusMonitoring()
         scope.cancel()
         super.onCleared()
     }
@@ -881,6 +946,7 @@ class ProtectionViewModel(
 
     private companion object {
         const val UI_SNAPSHOT_PROJECTION_INTERVAL_MS = 1_000L
+        const val POWER_COMMISSIONING_SAVE_FAILED = "save-failed"
 
         fun emptySettingsSummary() = ProtectionSettingsSummary(
             tokenConfigured = false,
@@ -919,13 +985,22 @@ internal fun powerSummaryRows(
             lightSensorHealth.state == SensorHealthState.HEALTHY ||
                 lightSensorHealth.state == SensorHealthState.AVAILABLE
             )
+    val lastLux = lightSensorHealth?.lightDetail?.lastLux
+    val armedDarkThreshold = lightSensorHealth?.lightDetail?.armedWitnessDarkThresholdLux
+    val armedLitThreshold = lightSensorHealth?.lightDetail?.armedWitnessLitThresholdLux
+    val darkThreshold = armedDarkThreshold ?: witnessModel?.witnessDarkThresholdLux
+    val litThreshold = armedLitThreshold ?: witnessModel?.witnessLitThresholdLux
+    val requiresWitnessPlacementRevalidation = POWER_CHALLENGE_DEGRADED in degradationReasons
     val witness = when {
-        POWER_CHALLENGE_DEGRADED in degradationReasons -> WitnessRowState.UNAVAILABLE
+        // A skipped per-arm placement check is reported through
+        // requiresWitnessPlacementRevalidation, never by calling a working light
+        // sensor unavailable.
         !lightUsable -> WitnessRowState.UNAVAILABLE
-        witnessModel != null && lightSensorHealth.lightDetail?.lastLux?.let { it <= witnessModel.darkMaxLux } == true ->
-            WitnessRowState.DARK
-        witnessModel != null && lightSensorHealth.lightDetail?.lastLux?.let { it >= witnessModel.litMinLux } == true ->
-            WitnessRowState.DETECTED
+        lastLux != null && darkThreshold != null && lastLux <= darkThreshold -> WitnessRowState.DARK
+        lastLux != null && litThreshold != null && lastLux >= litThreshold -> WitnessRowState.DETECTED
+        lastLux != null && darkThreshold != null && litThreshold != null -> WitnessRowState.AMBIGUOUS
+        // Sensor readable but no calibrated classification is possible yet: say so
+        // instead of claiming the witness lamp was detected.
         lightUsable -> WitnessRowState.AVAILABLE
         else -> WitnessRowState.UNAVAILABLE
     }
@@ -939,6 +1014,8 @@ internal fun powerSummaryRows(
             lightSensorHealth?.lightDetail?.lastSampleWallClockMs,
         ).maxOrNull(),
         confirmedFault = confirmedFault,
+        lastLux = lastLux,
+        requiresWitnessPlacementRevalidation = requiresWitnessPlacementRevalidation,
     )
 }
 

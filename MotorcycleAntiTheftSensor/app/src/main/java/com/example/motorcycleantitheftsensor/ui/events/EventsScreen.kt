@@ -16,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,9 +26,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.R
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionEventRow
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
@@ -44,7 +48,7 @@ fun EventsScreen(
 
     when {
         state.eventsLoading -> EventMessage(
-            title = "กำลังโหลดเหตุการณ์…",
+            title = stringResource(R.string.events_loading_title),
             contentPadding = contentPadding,
             modifier = modifier,
             progress = true,
@@ -58,8 +62,8 @@ fun EventsScreen(
         )
 
         state.events.isEmpty() -> EventMessage(
-            title = "ยังไม่มีเหตุการณ์ด้านความปลอดภัย",
-            detail = "เหตุการณ์จะปรากฏที่นี่เมื่อระบบตรวจพบความผิดปกติ",
+            title = stringResource(R.string.events_empty_title),
+            detail = stringResource(R.string.events_empty_detail),
             contentPadding = contentPadding,
             modifier = modifier,
         )
@@ -73,11 +77,28 @@ fun EventsScreen(
         ) {
             item(key = "events-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "เหตุการณ์",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.semantics { heading() },
-                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = "เหตุการณ์ล่าสุด",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            Text(
+                                text = "ตรวจสอบเหตุการณ์และการแจ้งเตือน",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = { confirmClear = true },
                         enabled = !state.eventsOperationInFlight,
@@ -85,23 +106,8 @@ fun EventsScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text("ล้างประวัติเหตุการณ์")
+                        Text(stringResource(R.string.events_clear_history_action))
                     }
-                }
-            }
-            // Anti-spam caption: shown when the latest event is still open
-            if (state.events.firstOrNull()?.lifecycle ==
-                com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.OPEN
-            ) {
-                item(key = "anti-spam-caption") {
-                    Text(
-                        text = "เหตุการณ์เดิมกำลังบันทึกหลักฐานเพิ่ม — ยังไม่ส่งข้อความซ้ำ",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                    )
                 }
             }
             items(state.events, key = ProtectionEventRow::id) { event ->
@@ -113,8 +119,8 @@ fun EventsScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("ล้างประวัติเหตุการณ์หรือไม่?") },
-            text = { Text("การดำเนินการนี้ลบประวัติเหตุการณ์ในเครื่องและย้อนกลับไม่ได้") },
+            title = { Text(stringResource(R.string.events_clear_confirm_title)) },
+            text = { Text(stringResource(R.string.events_clear_confirm_body)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -123,7 +129,7 @@ fun EventsScreen(
                     },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("ยืนยันการล้าง")
+                    Text(stringResource(R.string.events_clear_confirm_action))
                 }
             },
             dismissButton = {
@@ -131,13 +137,18 @@ fun EventsScreen(
                     onClick = { confirmClear = false },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text("ยกเลิก")
+                    Text(stringResource(R.string.events_cancel_action))
                 }
             },
         )
     }
 }
 
+/**
+ * Renders persisted incident facts through the shared Thai presentation catalog.
+ * Evidence stays bounded to what the incident actually recorded; no raw enum
+ * names, English field prefixes, diagnostics, tokens, or identifiers are shown.
+ */
 @Composable
 private fun EventRow(event: ProtectionEventRow) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -145,16 +156,23 @@ private fun EventRow(event: ProtectionEventRow) {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(event.type.displayName(), style = MaterialTheme.typography.titleMedium)
-            Text("แหล่งที่มา: เหตุการณ์จริง")
-            Text("ระดับความรุนแรง: ${event.severity.displayName()}")
-            Text("สถานะเหตุการณ์: ${event.lifecycle.displayName()}")
-            Text("หลักฐาน: ${event.evidenceSummary}")
-            Text("เวลา: ${formatProtectionTimestamp(event.updatedAtMs)}")
-            Text("สถานะการส่ง: ${event.deliveryState.displayName()}")
+            Text(
+                text = timelineIncidentTitle(event),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(PresentationTextCatalog.formatEventSourceLine())
+            Text(PresentationTextCatalog.formatEventSeverityLine(event.severity))
+            Text(PresentationTextCatalog.formatEventLifecycleLine(event.lifecycle))
+            Text(PresentationTextCatalog.EVENT_EVIDENCE_PREFIX + event.evidenceSummary)
+            Text(PresentationTextCatalog.EVENT_TIME_PREFIX + formatProtectionTimestamp(event.updatedAtMs))
+            Text(PresentationTextCatalog.formatEventDeliveryLine(event.deliveryState))
         }
     }
 }
+
+private fun timelineIncidentTitle(event: ProtectionEventRow): String =
+    PresentationTextCatalog.incidentTitle(event.type)
+        .replace(Regex("^[^\\p{L}\\p{N}]+"), "")
 
 @Composable
 private fun EventError(
@@ -175,7 +193,7 @@ private fun EventError(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "โหลดเหตุการณ์ไม่สำเร็จ",
+                text = stringResource(R.string.events_error_title),
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.semantics { heading() },
             )
@@ -184,7 +202,7 @@ private fun EventError(
                 onClick = retry,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text("ลองใหม่")
+                Text(stringResource(R.string.events_retry_action))
             }
         }
     }
@@ -219,8 +237,3 @@ private fun EventMessage(
         }
     }
 }
-
-private fun Enum<*>.displayName(): String = name
-    .lowercase()
-    .replace('_', ' ')
-    .replaceFirstChar(Char::uppercase)

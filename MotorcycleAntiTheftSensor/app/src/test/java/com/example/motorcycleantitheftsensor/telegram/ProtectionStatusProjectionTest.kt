@@ -131,7 +131,7 @@ class ProtectionStatusProjectionTest {
 
         assertEquals("🔋 แบตเตอรี่: 100%", projection.batteryPower.batteryPercentTh)
         assertEquals("🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): 32.0°C", projection.batteryPower.temperatureTh)
-        assertEquals("🔌 แหล่งจ่ายไฟ: กำลังชาร์จ", projection.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ", projection.batteryPower.powerSourceTh)
 
         assertNotNull(projection.lastIncident)
         assertEquals("ตรวจพบการสั่น", projection.lastIncident?.typeTh)
@@ -515,22 +515,27 @@ class ProtectionStatusProjectionTest {
         val charging = ProtectionStatusProjection.evaluate(
             ProtectionSnapshot.offline(nowMs).copy(chargingState = ChargingState.CHARGING), nowMs, nowMs
         )
-        assertEquals("🔌 แหล่งจ่ายไฟ: กำลังชาร์จ", charging.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ", charging.batteryPower.powerSourceTh)
 
         val discharging = ProtectionStatusProjection.evaluate(
             ProtectionSnapshot.offline(nowMs).copy(chargingState = ChargingState.DISCHARGING), nowMs, nowMs
         )
-        assertEquals("🔌 แหล่งจ่ายไฟ: ไม่ได้ชาร์จ", discharging.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: ไม่ได้เสียบ", discharging.batteryPower.powerSourceTh)
+
+        val notCharging = ProtectionStatusProjection.evaluate(
+            ProtectionSnapshot.offline(nowMs).copy(chargingState = ChargingState.NOT_CHARGING), nowMs, nowMs
+        )
+        assertEquals("🔌 สายชาร์จ: ไม่ได้เสียบ", notCharging.batteryPower.powerSourceTh)
 
         val full = ProtectionStatusProjection.evaluate(
             ProtectionSnapshot.offline(nowMs).copy(chargingState = ChargingState.FULL), nowMs, nowMs
         )
-        assertEquals("🔌 แหล่งจ่ายไฟ: แบตเตอรี่เต็ม", full.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: เสียบอยู่ | แบตเตอรี่เต็ม", full.batteryPower.powerSourceTh)
 
         val unknown = ProtectionStatusProjection.evaluate(
             ProtectionSnapshot.offline(nowMs).copy(chargingState = ChargingState.UNKNOWN), nowMs, nowMs
         )
-        assertEquals("🔌 แหล่งจ่ายไฟ: ยังไม่มีข้อมูล", unknown.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: ยังไม่มีข้อมูล", unknown.batteryPower.powerSourceTh)
     }
 
     @Test
@@ -617,7 +622,7 @@ class ProtectionStatusProjectionTest {
         assertNull(proj.protectionState.armDurationTh)
         assertEquals("🔋 แบตเตอรี่: ยังไม่มีข้อมูล", proj.batteryPower.batteryPercentTh)
         assertEquals("🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): ยังไม่มีข้อมูล", proj.batteryPower.temperatureTh)
-        assertEquals("🔌 แหล่งจ่ายไฟ: ยังไม่มีข้อมูล", proj.batteryPower.powerSourceTh)
+        assertEquals("🔌 สายชาร์จ: ยังไม่มีข้อมูล", proj.batteryPower.powerSourceTh)
         assertNull(proj.lastIncident)
     }
 

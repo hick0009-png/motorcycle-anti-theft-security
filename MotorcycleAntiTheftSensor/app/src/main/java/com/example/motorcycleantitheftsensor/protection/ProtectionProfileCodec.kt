@@ -280,9 +280,19 @@ class ProtectionProfileCodec(
                 require(lossConfirmationMs == null || lossConfirmationMs == 10_000L) {
                     "Power loss confirmation must be 10000 ms"
                 }
-                val recoveryConfirmationMs = decodeOptionalLong(obj, "recoveryConfirmationMs")
-                require(recoveryConfirmationMs == null || recoveryConfirmationMs == 30_000L) {
-                    "Power recovery confirmation must be 30000 ms"
+                val encodedRecoveryConfirmationMs = decodeOptionalLong(obj, "recoveryConfirmationMs")
+                require(
+                    encodedRecoveryConfirmationMs == null ||
+                        encodedRecoveryConfirmationMs == 10_000L ||
+                        encodedRecoveryConfirmationMs == 30_000L
+                ) {
+                    "Power recovery confirmation must be 10000 ms"
+                }
+                // Migrate the former persisted contract instead of discarding the
+                // entire saved profile store when upgrading to the 10-second policy.
+                val recoveryConfirmationMs = when (encodedRecoveryConfirmationMs) {
+                    30_000L -> 10_000L
+                    else -> encodedRecoveryConfirmationMs
                 }
                 PowerProfileOverrides(
                     lossConfirmationMs = lossConfirmationMs,

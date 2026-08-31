@@ -5,13 +5,24 @@ import kotlin.math.abs
 class IncidentEngine(
     private val idGenerator: IncidentIdGenerator,
     private val correlationWindowMs: Long = AUDIO_CORRELATION_WINDOW_MS,
+    restoredActiveIncident: SecurityIncident? = null,
+    restoredAtElapsedMs: Long = 0L,
 ) {
     private data class ActiveIncident(
         val incident: SecurityIncident,
         val lastEvidenceElapsedMs: Long,
     )
 
-    private var activeIncident: ActiveIncident? = null
+    private var activeIncident: ActiveIncident? = restoredActiveIncident
+        ?.takeIf { incident ->
+            incident.type == IncidentType.POWER && incident.lifecycle == IncidentLifecycle.OPEN
+        }
+        ?.let { incident ->
+            ActiveIncident(
+                incident = incident,
+                lastEvidenceElapsedMs = restoredAtElapsedMs.coerceAtLeast(0L),
+            )
+        }
     val hasActiveIncident: Boolean
         @Synchronized get() = activeIncident != null
     private var lightPrecursor: IncidentEvidence? = null
@@ -147,7 +158,7 @@ class IncidentEngine(
                 return openIncident(openingClassification, openingEvidence, observation, protectionState, location)
             }
 
-            if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "charger_disconnected") {
+            if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == ProtectionDiagnostics.CHARGER_DISCONNECTED) {
                 chargerPrecursor = evidence
                 val matchedAudio = audioPrecursors.lastOrNull {
                     abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
@@ -408,7 +419,7 @@ class IncidentEngine(
         observation: SensorObservation,
         evidence: List<IncidentEvidence>,
     ): Classification {
-        if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == "charger_disconnected") {
+        if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == ProtectionDiagnostics.CHARGER_DISCONNECTED) {
             return Classification(IncidentType.POWER, IncidentSeverity.CRITICAL)
         }
 
@@ -635,6 +646,13 @@ class IncidentEngine(
             }
             POWER_RECOVERED -> {
                 if (isPowerIncident) {
+                    val recovered = active.incident.copy(
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(recovered, observation.eventElapsedMs)
                     close(
                         nowMs = observation.wallClockMs,
                         reason = "power supply stable again",

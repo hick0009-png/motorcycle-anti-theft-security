@@ -162,9 +162,9 @@ class ProtectionProfilePolicy(
                 }
                 require(
                     overrides.recoveryConfirmationMs == null ||
-                        overrides.recoveryConfirmationMs == 30_000L
+                        overrides.recoveryConfirmationMs == 10_000L
                 ) {
-                    "Power recovery confirmation must be 30000 ms"
+                    "Power recovery confirmation must be 10000 ms"
                 }
             }
         }

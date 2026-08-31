@@ -1,10 +1,104 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class AndroidProtectionRuntimeTest {
+    @Test
+    fun powerSessionDisconnectWaitsForArbiterAndSendsOneLocalizedTelegramMessage() = runTest {
+        val telegramMessages = mutableListOf<String>()
+        val engine = IncidentEngine(IncidentIdGenerator { "power-disconnect" })
+        val deliveryPolicy = IncidentUpdateDeliveryPolicy()
+        val delivery = IncidentDeliveryCoordinator(
+            repository = RuntimeRecordingIncidentRepository(),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { message -> telegramMessages += message; true },
+            sms = IncidentTransport { false },
+        )
+        lateinit var detectors: RecordingDetectorSet
+        val runtime = runtime(
+            processor = powerProcessor(),
+            state = ProtectionState.ARMED_HEALTHY,
+            incidentConsumer = { batch ->
+                val update = engine.accept(batch.primary, ProtectionState.ARMED_HEALTHY)
+                if (deliveryPolicy.action(update, nowElapsedMs = batch.primary.eventElapsedMs) == DeliveryAction.SEND) {
+                    launch {
+                        delivery.deliver(update, DeliveryConfiguration(smsConfigured = false))
+                    }
+                }
+            },
+            detectorCapture = { detectors = it },
+        )
+        runtime.beginPowerSession(
+            sessionId = "power-session",
+            model = testPowerWitnessModel(),
+            settings = PowerProfileSettings(lossConfirmationMs = 10_000L),
+        )
+
+        detectors.emit(powerObservation(value = 1.0, diagnostic = "charger_disconnected"))
+        advanceUntilIdle()
+        assertTrue("Raw cable telemetry must not send immediately in POWER", telegramMessages.isEmpty())
+
+        detectors.emit(powerObservation(value = 0.0, diagnostic = "power_charging_health"))
+        detectors.emit(powerObservation(value = 0.0, diagnostic = "power_charging_health"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("การชาร์จโทรศัพท์หยุด ตรวจสอบสายชาร์จ ที่ชาร์จ หรือพอร์ตชาร์จของโทรศัพท์"), telegramMessages)
+        assertUserMessageHidesInternalPowerTokens(telegramMessages.single())
+    }
+
+    @Test
+    fun nonPowerSessionDisconnectStillSendsOneLocalizedTelegramMessage() = runTest {
+        val telegramMessages = mutableListOf<String>()
+        val engine = IncidentEngine(IncidentIdGenerator { "vehicle-or-entry-disconnect" })
+        val delivery = IncidentDeliveryCoordinator(
+            repository = RuntimeRecordingIncidentRepository(),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { message -> telegramMessages += message; true },
+            sms = IncidentTransport { false },
+        )
+        lateinit var detectors: RecordingDetectorSet
+        runtime(
+            processor = powerProcessor(),
+            state = ProtectionState.ARMED_HEALTHY,
+            incidentConsumer = { batch ->
+                val update = engine.accept(batch.primary, ProtectionState.ARMED_HEALTHY)
+                if (update is IncidentUpdate.Opened) {
+                    launch {
+                        delivery.deliver(update, DeliveryConfiguration(smsConfigured = false))
+                    }
+                }
+            },
+            detectorCapture = { detectors = it },
+        )
+
+        detectors.emit(powerObservation(value = 1.0, diagnostic = "charger_disconnected"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("ตรวจพบว่าสายชาร์จถูกถอดออก"), telegramMessages)
+        assertUserMessageHidesInternalPowerTokens(telegramMessages.single())
+    }
+
+    @Test
+    fun powerStatusMonitorRetainsTheLatestWitnessLuxAfterArmedDetectorsStop() {
+        val health = powerLightHealthAfterDetectorStop(
+            hasLightSensor = true,
+            powerStatusMonitoringActive = true,
+            lastWitnessLux = 3.0,
+        )
+
+        assertEquals(SensorHealthState.HEALTHY, health.state)
+        assertTrue(health.lightDetail?.isRegistered == true)
+        assertEquals(3.0, health.lightDetail?.lastLux)
+    }
+
     @Test
     fun armingObservationRecordsHealthBeforeUpdatingBaselineWithoutOpeningIncident() {
         val events = mutableListOf<String>()
@@ -290,6 +384,147 @@ class AndroidProtectionRuntimeTest {
         runtime.startDetectors("session-abc-123")
 
         assertEquals("session-abc-123", detectors.startedSessionId)
+    }
+
+    @Test
+    fun elapsedPowerConfirmationDeadlineIsNotRescheduledAtZeroDelay() {
+        assertEquals(1L, powerConfirmationDelayMs(deadlineMs = 21_000L, nowMs = 20_999L))
+        assertNull(powerConfirmationDelayMs(deadlineMs = 21_000L, nowMs = 21_000L))
+        assertNull(powerConfirmationDelayMs(deadlineMs = 21_000L, nowMs = 21_001L))
+    }
+
+    @Test
+    fun cachedPowerWitnessIsFreshOnlyInTheGenerationThatDeliveredIt() {
+        assertTrue(
+            powerWitnessIsFreshForGeneration(
+                witnessLux = 50.0,
+                witnessGeneration = 7L,
+                currentGeneration = 7L,
+            ),
+        )
+        assertFalse(
+            powerWitnessIsFreshForGeneration(
+                witnessLux = 50.0,
+                witnessGeneration = 7L,
+                currentGeneration = 8L,
+            ),
+        )
+        assertFalse(
+            powerWitnessIsFreshForGeneration(
+                witnessLux = null,
+                witnessGeneration = 8L,
+                currentGeneration = 8L,
+            ),
+        )
+    }
+
+    @Test
+    fun endingPowerLightListenerContinuityDropsCachedWitness() {
+        val continuity = PowerWitnessContinuityCache()
+        continuity.record(lux = 3.0, generation = 7L)
+        assertTrue(
+            powerWitnessIsFreshForGeneration(
+                witnessLux = continuity.latest()?.lux,
+                witnessGeneration = continuity.latest()?.generation,
+                currentGeneration = 7L,
+            ),
+        )
+
+        continuity.endListenerContinuity()
+
+        assertNull(continuity.latest())
+        assertFalse(
+            powerWitnessIsFreshForGeneration(
+                witnessLux = continuity.latest()?.lux,
+                witnessGeneration = continuity.latest()?.generation,
+                currentGeneration = 7L,
+            ),
+        )
+    }
+
+    // --- Bug #6: commissioning stall on an on-change light sensor ---
+
+    @Test
+    fun commissioningRepeatReEmitsTheCachedReadingWhileTheStreamIsActive() {
+        val continuity = PowerWitnessContinuityCache()
+        continuity.record(lux = 4.5, generation = 3L)
+
+        val sample = powerCommissioningRepeatSample(
+            streamActive = true,
+            listenerRegistered = true,
+            cached = continuity.latest(),
+            nowElapsedMs = 12_000L,
+        )
+
+        assertEquals(PowerWitnessSample(lux = 4.5, timestampMs = 12_000L, fresh = true), sample)
+    }
+
+    @Test
+    fun commissioningRepeatStaysSilentUntilTheFirstRealReadingArrives() {
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = true,
+                listenerRegistered = true,
+                cached = null,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun commissioningRepeatStopsWhenTheListenerOrStreamIsGone() {
+        val cached = CachedPowerWitness(lux = 4.5, generation = 3L)
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = true,
+                listenerRegistered = false,
+                cached = cached,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = false,
+                listenerRegistered = true,
+                cached = cached,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+    }
+
+}
+
+private fun assertUserMessageHidesInternalPowerTokens(message: String) {
+    assertFalse(message.contains("POWER"))
+    assertFalse(message.contains("TAMPER"))
+    assertFalse(message.contains("charger_disconnected"))
+    assertFalse(message.contains("power_"))
+}
+
+private fun testPowerWitnessModel() = PowerWitnessModel(
+    darkMinLux = 0.0,
+    darkMaxLux = 1.0,
+    litMinLux = 10.0,
+    litMaxLux = 12.0,
+    guardBandLux = 9.0,
+    algorithmVersion = 1,
+    sensorIdentity = "test-sensor",
+    hoodSignature = "test-hood",
+)
+
+private class RuntimeRecordingIncidentRepository : IncidentRepository {
+    private val incidents = linkedMapOf<String, SecurityIncident>()
+
+    override fun upsert(incident: SecurityIncident) {
+        incidents[incident.id] = incident
+    }
+
+    override fun findById(id: String): SecurityIncident? = incidents[id]
+
+    override fun listNewestFirst(): List<SecurityIncident> = incidents.values.toList().asReversed()
+
+    override fun clearHistory() {
+        incidents.clear()
     }
 }
 

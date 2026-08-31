@@ -81,5 +81,14 @@ class PowerIncidentFormatterTest {
         assertEquals("ยืนยันไฟเลี้ยงขาดในจุดที่เฝ้าระวัง", sms)
     }
 
+    @Test
+    fun legacyCableDisconnectUsesLocalizedCopyWithoutInternalTokens() {
+        val message = formatter.format(powerIncident("charger_disconnected"))
+
+        assertEquals("ตรวจพบว่าสายชาร์จถูกถอดออก", message)
+        assertFalse(message.contains("POWER"))
+        assertFalse(message.contains("charger_disconnected"))
+    }
+
     private fun assertFalse(value: Boolean) = org.junit.Assert.assertFalse(value)
 }

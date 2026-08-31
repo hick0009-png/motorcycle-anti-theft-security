@@ -37,6 +37,7 @@ class ProtectionCoordinator(
     private val powerCommissioningContextProvider:
         (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     private val powerIntegrityChallenge: (() -> Boolean)? = null,
+    private val recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -199,6 +200,7 @@ class ProtectionCoordinator(
                 // Power Guard: Arm requires a commissioned witness model whose fingerprint
                 // still matches the current commissioning context (spec section 4.3).
                 var powerWitnessModel: PowerWitnessModel? = null
+                var powerChallengePassed: Boolean? = null
                 if (selectedProfile == ProtectionProfile.POWER) {
                     val storedModel = profileState.profiles.getValue(ProtectionProfile.POWER).powerWitnessModel
                     if (storedModel == null) {
@@ -242,7 +244,12 @@ class ProtectionCoordinator(
                     powerWitnessModel = storedModel
                     // Full Healthy readiness requires the per-arm lamp off/on integrity
                     // challenge; skipping arms degraded without any incident.
-                    val challengePassed = powerIntegrityChallenge?.invoke() ?: false
+                    val challengePassed = if (origin == CommandOrigin.RECOVERY) {
+                        recoveredPowerIntegrityChallenge?.invoke() ?: false
+                    } else {
+                        powerIntegrityChallenge?.invoke() ?: false
+                    }
+                    powerChallengePassed = challengePassed
                     if (!challengePassed) {
                         armingDegradations = armingDegradations + setOf(POWER_CHALLENGE_DEGRADED)
                     }
@@ -262,6 +269,7 @@ class ProtectionCoordinator(
                     powerWitnessModel != null -> PowerArmedCalibrationSnapshot(
                         generation = runtime.currentGenerationId(),
                         modelFingerprint = modelFingerprint!!,
+                        witnessPlacementValidated = powerChallengePassed == true,
                     )
                     else -> VehicleArmedCalibrationSnapshot(generation = runtime.currentGenerationId())
                 }

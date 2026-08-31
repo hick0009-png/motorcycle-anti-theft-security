@@ -228,17 +228,17 @@ object UserGuidanceCatalog {
                 persistent = false
             )
             GuidanceCode.COMMAND_SENSITIVITY_APPLIED -> GuidanceContent(
-                titleTh = "บันทึกความไวแล้ว",
-                bodyTh = "บันทึกความไวแล้ว",
-                telegramTh = "✅ ปรับความไวเป็นระดับ {level} แล้ว",
+                titleTh = "บันทึกระดับการตรวจจับแล้ว",
+                bodyTh = "บันทึกระดับการตรวจจับแล้ว",
+                telegramTh = "✅ บันทึกระดับการตรวจจับ {level}/10 แล้ว (ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.COMMAND_SENSITIVITY_INVALID -> GuidanceContent(
-                titleTh = "ระดับความไวไม่ถูกต้อง",
-                bodyTh = "ระดับความไวไม่ถูกต้อง",
-                telegramTh = "⚠️ ระดับความไวต้องอยู่ระหว่าง 1 ถึง 10",
+                titleTh = "ระดับการตรวจจับไม่ถูกต้อง",
+                bodyTh = "ระดับการตรวจจับไม่ถูกต้อง",
+                telegramTh = "⚠️ ระดับการตรวจจับต้องอยู่ระหว่าง 1 ถึง 10",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -246,7 +246,8 @@ object UserGuidanceCatalog {
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
                 titleTh = "คำสั่งที่ใช้ได้",
                 bodyTh = "ดูรายการคำสั่งใน Telegram",
-                telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10",
+                telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+                    "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
@@ -277,7 +278,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.SENSOR_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ต้องอนุญาตสิทธิ์",
-                bodyTh = "เปิดสิทธิ์ {permissionName} เพื่อใช้ {featureName}",
+                bodyTh = "เปิดสิทธิ์ที่จำเป็นเพื่อใช้งานฟีเจอร์นี้",
                 telegramTh = null,
                 severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
@@ -408,7 +409,10 @@ object UserGuidanceCatalog {
         val seconds = (detail as? GuidanceDetail.ArmingSeconds)?.seconds?.toString() ?: "0"
         val level = (detail as? GuidanceDetail.SensitivityLevel)?.level?.toString() ?: "0"
         val state = (detail as? GuidanceDetail.ProtectionStateValue)?.state?.name ?: ""
-        val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)?.incidentType?.name ?: ""
+        val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)
+            ?.incidentType
+            ?.let(PresentationTextCatalog::incidentTypeLabel)
+            ?: ""
         val sensorName = (detail as? GuidanceDetail.SensorKindValue)?.sensorKind?.name ?: ""
         val safeReason = (detail as? GuidanceDetail.SafeReason)?.reason?.name ?: ""
         val permissionName = "Permission"

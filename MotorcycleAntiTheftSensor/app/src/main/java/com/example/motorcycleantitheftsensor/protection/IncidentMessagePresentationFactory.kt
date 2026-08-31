@@ -16,17 +16,14 @@ object IncidentMessagePresentationFactory {
             "ความแม่นยำประมาณ ${loc.accuracyMeters.toInt()} เมตร"
         }
 
-        val deliverySummary = when (incident.deliveryState) {
-            DeliveryState.SENT -> "ส่งข้อความแจ้งเตือนแล้ว"
-            DeliveryState.FAILED -> "การส่งข้อความแจ้งเตือนล้มเหลว"
-            DeliveryState.PENDING -> "กำลังส่งข้อความแจ้งเตือน"
-            DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเกณฑ์ส่งแจ้งเตือน"
-        }
+        // Single-sourced with the Events screen so every channel reports the same
+        // typed delivery meaning; only SENT may ever read as successful.
+        val deliverySummary = PresentationTextCatalog.deliveryStateLabel(incident.deliveryState)
 
         return IncidentMessagePresentation(
             id = incident.id,
             title = title,
-            summary = "พบเหตุการณ์ $title ระดับ $severity",
+            summary = "พบเหตุการณ์ $title ความรุนแรง $severity",
             severityLabel = severity,
             isUrgent = incident.severity == IncidentSeverity.CRITICAL,
             formattedTime = formattedTime,
@@ -42,7 +39,7 @@ object IncidentMessagePresentationFactory {
     fun formatTelegramMessage(presentation: IncidentMessagePresentation): String {
         val sb = StringBuilder()
         sb.append(presentation.title).append("\n\n")
-        sb.append("ระดับความเสี่ยง: ").append(presentation.severityLabel).append("\n")
+        sb.append("ความรุนแรง: ").append(presentation.severityLabel).append("\n")
         sb.append("สถานะระบบ: ").append(presentation.protectionStateLabel).append("\n")
         sb.append("แนะนำ: ").append(presentation.recommendedAction).append("\n\n")
         sb.append("เวลา: ").append(presentation.formattedTime).append("\n")
@@ -68,8 +65,8 @@ object IncidentMessagePresentationFactory {
     }
 
     fun formatSmsMessage(presentation: IncidentMessagePresentation): String {
-        // SMS Fallback MUST NOT include GPS location
+        // SMS Fallback MUST NOT include GPS location or map links
         val demoPrefix = if (presentation.isDemo) "[DEMO] " else ""
-        return "${demoPrefix}ALERT: ${presentation.title} | ความเสี่ยง:${presentation.severityLabel} | สถานะ:${presentation.protectionStateLabel} | ID:${presentation.id}"
+        return "${demoPrefix}แจ้งเตือน: ${presentation.title} | ความรุนแรง:${presentation.severityLabel} | สถานะ:${presentation.protectionStateLabel} | ID:${presentation.id}"
     }
 }

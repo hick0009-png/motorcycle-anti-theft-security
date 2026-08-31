@@ -93,7 +93,11 @@ class TelegramCommandHandlerTest {
         handler.handle("tg-help", RemoteCommand.Help) { replies += it }
 
         val reply = replies.single()
-        assertEquals("ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10", reply)
+        assertEquals(
+            "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+                "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
+            reply,
+        )
         assertFalse(reply.contains("<รหัส>"))
         assertFalse(reply.contains("Authenticator", ignoreCase = true))
         assertFalse(reply.contains("totp", ignoreCase = true))
@@ -117,11 +121,14 @@ class TelegramCommandHandlerTest {
 
         handler.handle("tg-sens-5", RemoteCommand.Sensitivity(5)) { replies += it }
         assertEquals(1, replies.size)
-        assertEquals("✅ ปรับความไวเป็นระดับ 5 แล้ว", replies.single())
+        assertEquals(
+            "✅ บันทึกระดับการตรวจจับ 5/10 แล้ว (ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
+            replies.single(),
+        )
 
         handler.handle("tg-sens-invalid", RemoteCommand.Sensitivity(null)) { replies += it }
         assertEquals(2, replies.size)
-        assertEquals("⚠️ ระดับความไวต้องอยู่ระหว่าง 1 ถึง 10", replies.last())
+        assertEquals("⚠️ ระดับการตรวจจับต้องอยู่ระหว่าง 1 ถึง 10", replies.last())
     }
 
     @Test

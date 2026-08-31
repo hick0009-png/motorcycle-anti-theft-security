@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -49,6 +50,7 @@ data class ProtectionAppActions(
     val entryCancelCommissioning: () -> Unit = {},
     val powerStartCommissioning: () -> Unit = {},
     val powerCancelCommissioning: () -> Unit = {},
+    val powerResetCalibration: () -> Unit = {},
     val powerMarkChallengePassed: () -> Unit = {},
     val arm: () -> Unit,
     val disarm: () -> Unit,
@@ -88,7 +90,7 @@ fun ProtectionAppScreen(
         }
     }
 
-    MaterialTheme(colorScheme = ProtectionMonochromeColorScheme) {
+    MaterialTheme(colorScheme = MotoGuardNavyColorScheme) {
         Scaffold(
             modifier = modifier.safeDrawingPadding(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -105,11 +107,13 @@ fun ProtectionAppScreen(
                     modifier = Modifier
                         .height(80.dp)
                         .testTag(PRIMARY_NAVIGATION_TAG),
-                    color = Color.White,
+                    color = CanvasWhite,
                 ) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
                             val selected = state.destination == item.destination
+                            val destinationLabel = stringResource(item.labelRes)
+                            val destinationContentDescription = stringResource(item.contentDescriptionRes)
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -123,7 +127,7 @@ fun ProtectionAppScreen(
                                     )
                                     .testTag(PRIMARY_DESTINATION_TAG)
                                     .semantics(mergeDescendants = true) {
-                                        contentDescription = item.label
+                                        contentDescription = destinationContentDescription
                                     }
                                     .padding(vertical = 2.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -133,19 +137,19 @@ fun ProtectionAppScreen(
                                 ),
                             ) {
                                 Surface(
-                                    color = if (selected) Color.Black else Color.Transparent,
-                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (selected) Navy else Color.Transparent,
+                                    shape = RoundedCornerShape(16.dp),
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .width(64.dp)
-                                            .height(26.dp),
+                                            .width(68.dp)
+                                            .height(32.dp),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Icon(
                                             painter = painterResource(item.iconResource),
                                             contentDescription = null,
-                                            tint = if (selected) Color.White else Color.Black,
+                                            tint = if (selected) Color.White else Navy,
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .testTag(
@@ -155,9 +159,9 @@ fun ProtectionAppScreen(
                                     }
                                 }
                                 Text(
-                                    text = item.label,
+                                    text = destinationLabel,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = Color.Black,
+                                    color = if (selected) Navy else MutedInk,
                                     modifier = Modifier.testTag(
                                         "primary_destination_label_${item.name}",
                                     ),
@@ -191,70 +195,79 @@ fun ProtectionAppScreen(
     }
 }
 
-private val NearWhite = Color(0xFFF7F7F7)
-private val LightGraySurface = Color(0xFFEEEEEC)
-private val MediumGray = Color(0xFF9A9A9A)
-private val DarkInk = Color(0xFF171717)
+private val Navy = Color(0xFF16324F)
+private val HeaderNavy = Color(0xFF245B85)
+private val Canvas = Color(0xFFF8FAFC)
+private val CanvasWhite = Color.White
+private val SoftNavySurface = Color(0xFFE6EFF8)
+private val MutedInk = Color(0xFF667085)
+private val Ink = Color(0xFF1C2530)
+private val Outline = Color(0xFFC8D3DF)
+private val HealthyGreen = Color(0xFF168A63)
 
-// Paper-light monochrome scheme: white surfaces, black ink.
-private val ProtectionMonochromeColorScheme = lightColorScheme(
-    primary = DarkInk,
+// Thai-first Moto Guard palette: navy communicates protection, white keeps dense controls legible.
+private val MotoGuardNavyColorScheme = lightColorScheme(
+    primary = Navy,
     onPrimary = Color.White,
-    primaryContainer = Color.White,
-    onPrimaryContainer = DarkInk,
-    inversePrimary = Color.White,
-    secondary = DarkInk,
+    primaryContainer = SoftNavySurface,
+    onPrimaryContainer = Navy,
+    inversePrimary = HeaderNavy,
+    secondary = HeaderNavy,
     onSecondary = Color.White,
-    secondaryContainer = Color.White,
-    onSecondaryContainer = DarkInk,
-    tertiary = DarkInk,
+    secondaryContainer = SoftNavySurface,
+    onSecondaryContainer = Navy,
+    tertiary = HealthyGreen,
     onTertiary = Color.White,
-    tertiaryContainer = Color.White,
-    onTertiaryContainer = DarkInk,
-    background = Color.White,
-    onBackground = DarkInk,
-    surface = Color.White,
-    onSurface = DarkInk,
-    surfaceVariant = LightGraySurface,
-    onSurfaceVariant = DarkInk,
+    tertiaryContainer = Color(0xFFE6F5EF),
+    onTertiaryContainer = HealthyGreen,
+    background = Canvas,
+    onBackground = Ink,
+    surface = CanvasWhite,
+    onSurface = Ink,
+    surfaceVariant = SoftNavySurface,
+    onSurfaceVariant = MutedInk,
     surfaceTint = Color.Transparent,
-    inverseSurface = DarkInk,
+    inverseSurface = Navy,
     inverseOnSurface = Color.White,
     error = Color(0xFFA81818),
     onError = Color.White,
     errorContainer = Color(0xFFFCE8E6),
     onErrorContainer = Color(0xFFA81818),
-    outline = MediumGray,
-    outlineVariant = LightGraySurface,
+    outline = Outline,
+    outlineVariant = SoftNavySurface,
     scrim = Color.Black,
-    surfaceBright = Color.White,
-    surfaceContainer = Color.White,
-    surfaceContainerHigh = NearWhite,
-    surfaceContainerHighest = LightGraySurface,
-    surfaceContainerLow = Color.White,
-    surfaceContainerLowest = Color.White,
-    surfaceDim = LightGraySurface,
+    surfaceBright = CanvasWhite,
+    surfaceContainer = CanvasWhite,
+    surfaceContainerHigh = Canvas,
+    surfaceContainerHighest = SoftNavySurface,
+    surfaceContainerLow = CanvasWhite,
+    surfaceContainerLowest = CanvasWhite,
+    surfaceDim = Canvas,
 )
 
 private enum class PrimaryDestination(
     val destination: ProtectionDestination,
-    val label: String,
+    val labelRes: Int,
+    val contentDescriptionRes: Int,
     val iconResource: Int,
 ) {
     PROTECTION(
         destination = ProtectionDestination.PROTECTION,
-        label = "ป้องกัน",
-        iconResource = android.R.drawable.ic_secure,
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_content_description,
+        iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_protection,
     ),
     EVENTS(
         destination = ProtectionDestination.EVENTS,
-        label = "เหตุการณ์",
-        iconResource = android.R.drawable.ic_menu_recent_history,
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_events_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_events_content_description,
+        iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_events,
     ),
     SETTINGS(
         destination = ProtectionDestination.SETTINGS,
-        label = "ตั้งค่า",
-        iconResource = android.R.drawable.ic_menu_preferences,
+        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_label,
+        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_content_description,
+        iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_settings,
     ),
 }
 

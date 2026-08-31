@@ -52,6 +52,51 @@ class ProtectionProfileCodecTest {
     }
 
     @Test
+    fun roundTripPreservesTenSecondPowerRecoveryOverride() {
+        val base = policy.newStoreState()
+        val powerCustomized = base.profiles.getValue(ProtectionProfile.POWER).copy(
+            specificOverrides = PowerProfileOverrides(recoveryConfirmationMs = 10_000L),
+        )
+        val customized = policy.updateProfile(base, powerCustomized)
+
+        assertEquals(customized, codec.decode(codec.encode(customized)))
+    }
+
+    @Test
+    fun legacyThirtySecondPowerRecoveryOverrideMigratesToTenSeconds() {
+        val witnessModel = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 4,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+        val commissioned = policy.commissionPower(policy.newStoreState(), witnessModel).copy(
+            selectedProfile = ProtectionProfile.POWER,
+        )
+        val root = org.json.JSONObject(codec.encode(commissioned))
+        val profiles = root.getJSONArray("profiles")
+        for (i in 0 until profiles.length()) {
+            val profile = profiles.getJSONObject(i)
+            if (profile.getString("profile") == "POWER") {
+                profile.getJSONObject("specificOverrides")
+                    .put("recoveryConfirmationMs", 30_000L)
+            }
+        }
+
+        val decoded = codec.decode(root.toString())
+        val overrides = decoded.profiles.getValue(ProtectionProfile.POWER)
+            .specificOverrides as PowerProfileOverrides
+
+        assertEquals(ProtectionProfile.POWER, decoded.selectedProfile)
+        assertEquals(witnessModel, decoded.profiles.getValue(ProtectionProfile.POWER).powerWitnessModel)
+        assertEquals(10_000L, overrides.recoveryConfirmationMs)
+    }
+
+    @Test
     fun futureSchemaVersionIsRejected() {
         val json = codec.encode(policy.newStoreState())
         val tampered = json.replace("\"schemaVersion\":1", "\"schemaVersion\":99")

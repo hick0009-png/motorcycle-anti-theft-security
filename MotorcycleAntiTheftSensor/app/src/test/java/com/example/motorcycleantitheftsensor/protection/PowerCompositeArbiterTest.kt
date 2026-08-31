@@ -206,32 +206,245 @@ class PowerCompositeArbiterTest {
     }
 
     @Test
-    fun closeRequiresBothSignalsHealthyThirtySeconds() {
+    fun closeRequiresBothSignalsHealthyTenSeconds() {
         val a = arbiter()
         var state = a.initialState()
         for (t in 0L..10_000L step 1_000L) {
             val (_, next) = a.evaluate(state, sample(false, false, t))
             state = next
         }
-        // Both signals healthy again: no close before 30 s.
-        for (t in 11_000L..39_000L step 1_000L) {
+        // Both signals healthy again: no close before 10 s.
+        for (t in 11_000L..20_000L step 1_000L) {
             val (verdict, next) = a.evaluate(state, sample(true, true, t))
             state = next
             assertTrue(verdict !is PowerArbiterVerdict.RecoveredClosed)
         }
-        val (closed, closedState) = a.evaluate(state, sample(true, true, 41_000L))
+        val (closed, closedState) = a.evaluate(state, sample(true, true, 21_000L))
         assertTrue(closed is PowerArbiterVerdict.RecoveredClosed)
         assertEquals("POWER-1", (closed as PowerArbiterVerdict.RecoveredClosed).episodeId)
         assertNull(closedState.episodeId)
         // A later abnormality receives a NEW powerEpisodeId.
         var reopened: PowerArbiterVerdict.ConfirmedLossOpened? = null
         var walk = closedState
-        for (t in 42_000L..52_000L step 1_000L) {
+        for (t in 22_000L..32_000L step 1_000L) {
             val (verdict, next) = a.evaluate(walk, sample(false, false, t))
             walk = next
             if (verdict is PowerArbiterVerdict.ConfirmedLossOpened) reopened = verdict
         }
         assertEquals("POWER-2", reopened!!.episodeId)
+    }
+
+    @Test
+    fun guardBandDuringRecoveryPreservesHealthyTimer() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = false, t = t))
+            state = next
+        }
+
+        val (_, healthyState) = a.evaluate(state, sample(charging = true, lit = true, t = 11_000L))
+        state = healthyState
+        for (t in 12_000L..14_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = true, t = t))
+            state = next
+        }
+        val (guardBandVerdict, guardBandState) = a.evaluate(
+            state,
+            PowerSignalSample(
+                chargingConnected = true,
+                witnessLux = 50.0,
+                fresh = true,
+                timestampMs = 15_000L,
+            ),
+        )
+        assertNull(guardBandVerdict)
+
+        var walk = guardBandState
+        for (t in 16_000L..20_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(walk, sample(charging = true, lit = true, t = t))
+            walk = next
+            assertTrue("should not close early at $t", verdict !is PowerArbiterVerdict.RecoveredClosed)
+        }
+        val (closed, _) = a.evaluate(walk, sample(charging = true, lit = true, t = 21_000L))
+        assertTrue(closed is PowerArbiterVerdict.RecoveredClosed)
+    }
+
+    @Test
+    fun chargingLossDuringGuardBandRestartsHealthyTimer() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = false, t = t))
+            state = next
+        }
+        for (t in 11_000L..14_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = true, t = t))
+            state = next
+        }
+
+        val (_, disconnectedState) = a.evaluate(
+            state,
+            PowerSignalSample(
+                chargingConnected = false,
+                witnessLux = 50.0,
+                fresh = true,
+                timestampMs = 15_000L,
+            ),
+        )
+
+        var walk = disconnectedState
+        for (t in 16_000L..25_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(walk, sample(charging = true, lit = true, t = t))
+            walk = next
+            assertTrue("should restart recovery after charging loss at $t", verdict !is PowerArbiterVerdict.RecoveredClosed)
+        }
+        val (closed, _) = a.evaluate(walk, sample(charging = true, lit = true, t = 26_000L))
+        assertTrue(closed is PowerArbiterVerdict.RecoveredClosed)
+    }
+
+    @Test
+    fun chargerDisconnectedWithGuardBandLuxUsesFreshLastKnownWitness() {
+        val a = arbiter()
+        var state = a.initialState()
+        val (_, healthyState) = a.evaluate(
+            state,
+            sample(charging = true, lit = true, t = 0L),
+        )
+        state = healthyState
+
+        var alert: PowerArbiterVerdict? = null
+        for (t in 1_000L..11_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(
+                state,
+                PowerSignalSample(false, 50.0, fresh = true, timestampMs = t),
+            )
+            state = next
+            if (verdict != null) alert = verdict
+            assertTrue(verdict !is PowerArbiterVerdict.ConfirmedLossOpened)
+        }
+
+        assertTrue(alert is PowerArbiterVerdict.ChargingHealthAlert)
+    }
+
+    @Test
+    fun witnessLostThenChargerDisconnectsWithGuardBandEscalatesToDualLoss() {
+        val a = arbiter()
+        var state = a.initialState()
+        val (_, witnessLostState) = a.evaluate(
+            state,
+            sample(charging = true, lit = false, t = 0L),
+        )
+        state = witnessLostState
+
+        var verdict: PowerArbiterVerdict? = null
+        for (t in 1_000L..11_000L step 1_000L) {
+            val evaluated = a.evaluate(
+                state,
+                PowerSignalSample(false, 50.0, fresh = true, timestampMs = t),
+            )
+            verdict = evaluated.first ?: verdict
+            state = evaluated.second
+        }
+
+        assertTrue(verdict is PowerArbiterVerdict.ConfirmedLossOpened)
+    }
+
+    @Test
+    fun staleWitnessBaselineCannotEscalateGuardBandCableLossToOutage() {
+        val a = arbiter()
+        var state = a.initialState()
+        val (_, witnessLostState) = a.evaluate(
+            state,
+            sample(charging = true, lit = false, t = 0L),
+        )
+        state = witnessLostState
+        val (_, staleState) = a.evaluate(
+            state,
+            PowerSignalSample(false, null, fresh = false, timestampMs = 1_000L),
+        )
+        state = staleState
+
+        var alert: PowerArbiterVerdict? = null
+        for (t in 2_000L..12_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(
+                state,
+                PowerSignalSample(false, 50.0, fresh = true, timestampMs = t),
+            )
+            state = next
+            if (verdict != null) alert = verdict
+            assertTrue(verdict !is PowerArbiterVerdict.ConfirmedLossOpened)
+        }
+
+        assertTrue(alert is PowerArbiterVerdict.ChargingHealthAlert)
+    }
+
+    @Test
+    fun chargerDisconnectWithoutWitnessBaselineReportsChargingOnly() {
+        val a = arbiter()
+        var state = a.initialState()
+        var alert: PowerArbiterVerdict? = null
+
+        for (t in 0L..10_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(
+                state,
+                PowerSignalSample(false, 50.0, fresh = true, timestampMs = t),
+            )
+            state = next
+            if (verdict != null) alert = verdict
+            assertTrue(verdict !is PowerArbiterVerdict.ConfirmedLossOpened)
+        }
+
+        assertTrue(alert is PowerArbiterVerdict.ChargingHealthAlert)
+    }
+
+    @Test
+    fun witnessLostThenLitAgainRecoverAfterTenSeconds() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = false, t = t))
+            state = next
+        }
+        for (t in 11_000L..20_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(state, sample(charging = true, lit = true, t = t))
+            state = next
+            assertTrue("should not close early at $t", verdict !is PowerArbiterVerdict.RecoveredClosed)
+        }
+
+        val (closed, closedState) = a.evaluate(
+            state,
+            sample(charging = true, lit = true, t = 21_000L),
+        )
+        assertTrue(closed is PowerArbiterVerdict.RecoveredClosed)
+        assertNull(closedState.episodeId)
+    }
+
+    @Test
+    fun recoveredLightMayFluctuateBelowTheRecordedLitMinimum() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(charging = true, lit = false, t = t))
+            state = next
+        }
+
+        var recovered: PowerArbiterVerdict? = null
+        for (t in 11_000L..41_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(
+                state,
+                PowerSignalSample(
+                    chargingConnected = true,
+                    witnessLux = 90.0,
+                    fresh = true,
+                    timestampMs = t,
+                ),
+            )
+            state = next
+            if (verdict != null) recovered = verdict
+        }
+
+        assertTrue(recovered is PowerArbiterVerdict.RecoveredClosed)
     }
 
     @Test
@@ -253,7 +466,7 @@ class PowerCompositeArbiterTest {
     }
 
     @Test
-    fun staleLightSamplesProduceDegradedNotOutage() {
+    fun staleLightSamplesCannotProduceOutageButFreshCableLossStillAlerts() {
         val a = arbiter()
         var state = a.initialState()
         // Stale light source for a full minute: no outage conclusion may be drawn.
@@ -263,13 +476,16 @@ class PowerCompositeArbiterTest {
             assertNull(verdict)
             assertNull(state.episodeId)
         }
-        // Ambiguous lux inside the guard band is equally inconclusive.
+        // Guard-band lux cannot confirm an outage, but the fresh cable signal is
+        // still enough for a charging-only health alert.
+        var chargingAlerts = 0
         for (t in 61_000L..90_000L step 1_000L) {
             val (verdict, next) = a.evaluate(state, PowerSignalSample(false, 10.0, fresh = true, timestampMs = t))
             state = next
-            assertNull(verdict)
-            assertNull(state.episodeId)
+            if (verdict is PowerArbiterVerdict.ChargingHealthAlert) chargingAlerts++
+            assertTrue(verdict !is PowerArbiterVerdict.ConfirmedLossOpened)
         }
+        assertEquals(1, chargingAlerts)
     }
 
     @Test

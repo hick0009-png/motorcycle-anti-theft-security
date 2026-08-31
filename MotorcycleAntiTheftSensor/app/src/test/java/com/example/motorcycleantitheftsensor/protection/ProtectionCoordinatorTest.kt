@@ -1599,6 +1599,7 @@ class ProtectionCoordinatorTest {
         profilePolicy: ProtectionProfilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L }),
         commissioningContext: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
         integrityChallenge: (() -> Boolean)? = null,
+        recoveredIntegrityChallenge: (() -> Boolean?)? = null,
     ): ProtectionCoordinator = coordinator(
         runtime,
         ArmingDelay { },
@@ -1606,6 +1607,7 @@ class ProtectionCoordinatorTest {
         profilePolicy = profilePolicy,
         powerCommissioningContextProvider = commissioningContext,
         powerIntegrityChallenge = integrityChallenge,
+        recoveredPowerIntegrityChallenge = recoveredIntegrityChallenge,
     )
 
     private fun commissionedPowerRepository(
@@ -1670,9 +1672,39 @@ class ProtectionCoordinatorTest {
         calibration as PowerArmedCalibrationSnapshot
         assertEquals(fingerprint, calibration.modelFingerprint)
         assertEquals(7L, calibration.generation)
+        assertTrue(calibration.witnessPlacementValidated)
         assertEquals(1, runtime.powerBeginCalls)
         assertEquals(frozen.armedSessionId, runtime.lastBeganPowerSessionId)
         assertEquals(model, runtime.lastBeganPowerModel)
+    }
+
+    @Test
+    fun recoveryKeepsTheCompletedChallengeForTheExistingArmedSession() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+            recoveredIntegrityChallenge = { true },
+        )
+
+        val result = coordinator.arm(
+            "power-recovery",
+            CommandOrigin.RECOVERY,
+            coordinator.captureRecoveryToken(),
+        )
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertFalse(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+        val calibration = coordinator.snapshot.value.armedProfileSnapshot
+            ?.armedCalibrationSnapshot as PowerArmedCalibrationSnapshot
+        assertTrue(calibration.witnessPlacementValidated)
     }
 
     @Test
@@ -1805,19 +1837,20 @@ class ProtectionCoordinatorTest {
 
         // Healthy dual baseline under generation 1.
         assertTrue(controller.onSample(signal(true, model.litMinLux + 1.0, 0L), currentGeneration = 1L).isEmpty())
+        assertTrue(controller.onSample(signal(true, model.litMinLux + 1.0, 10_000L), currentGeneration = 1L).isEmpty())
 
         // Dual-loss streak starts under generation 1; confirmation window not yet satisfied.
-        assertTrue(controller.onSample(signal(false, model.darkMinLux, 10L), currentGeneration = 1L).isEmpty())
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 10_010L), currentGeneration = 1L).isEmpty())
 
         // Generation change resets the debounce window: the pending streak is discarded
         // even though this sample would otherwise complete the confirmation window.
-        assertTrue(controller.onSample(signal(false, model.darkMinLux, 120L), currentGeneration = 2L).isEmpty())
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 10_120L), currentGeneration = 2L).isEmpty())
 
         // The restarted streak is still young.
-        assertTrue(controller.onSample(signal(false, model.darkMinLux, 130L), currentGeneration = 2L).isEmpty())
+        assertTrue(controller.onSample(signal(false, model.darkMinLux, 10_130L), currentGeneration = 2L).isEmpty())
 
         // Full window under the new generation confirms the outage exactly once.
-        val verdicts = controller.onSample(signal(false, model.darkMinLux, 240L), currentGeneration = 2L)
+        val verdicts = controller.onSample(signal(false, model.darkMinLux, 10_240L), currentGeneration = 2L)
         assertEquals(1, verdicts.size)
         assertTrue(verdicts.single() is PowerArbiterVerdict.ConfirmedLossOpened)
     }
@@ -1882,6 +1915,7 @@ private fun coordinator(
     entryCommissioningContextProvider: (() -> EntryCommissioningPolicy.CommissioningContext)? = null,
     powerCommissioningContextProvider: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     powerIntegrityChallenge: (() -> Boolean)? = null,
+    recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1901,6 +1935,7 @@ private fun coordinator(
     entryCommissioningContextProvider = entryCommissioningContextProvider,
     powerCommissioningContextProvider = powerCommissioningContextProvider,
     powerIntegrityChallenge = powerIntegrityChallenge,
+    recoveredPowerIntegrityChallenge = recoveredPowerIntegrityChallenge,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(

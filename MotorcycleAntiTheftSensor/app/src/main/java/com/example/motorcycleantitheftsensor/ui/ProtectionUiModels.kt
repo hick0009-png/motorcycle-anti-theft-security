@@ -10,6 +10,7 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceContent
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -105,6 +106,8 @@ data class ProtectionProfileUiState(
     val entryRequiresControlledRearm: Boolean = false,
     val commissioning: EntryCommissioningUiState? = null,
     val powerCommissioning: PowerCommissioningUiState? = null,
+    /** True while the owner-confirmed Power witness placement remains valid for the next Arm. */
+    val powerWitnessPlacementConfirmed: Boolean = false,
     /** Two independent POWER signal rows; null for non-POWER profiles. */
     val powerSummary: PowerSummaryRows? = null,
 )
@@ -145,13 +148,15 @@ data class PowerCommissioningUiState(
  */
 enum class ChargingRowState { CHARGING, DISCHARGING, FULL, NOT_CHARGING, UNKNOWN }
 
-enum class WitnessRowState { AVAILABLE, DETECTED, DARK, UNAVAILABLE }
+enum class WitnessRowState { AVAILABLE, DETECTED, DARK, AMBIGUOUS, UNAVAILABLE }
 
 data class PowerSummaryRows(
     val charging: ChargingRowState = ChargingRowState.UNKNOWN,
     val witness: WitnessRowState = WitnessRowState.UNAVAILABLE,
     val lastUpdatedAtMs: Long? = null,
     val confirmedFault: Boolean = false,
+    val lastLux: Double? = null,
+    val requiresWitnessPlacementRevalidation: Boolean = false,
 )
 
 data class ProtectionStatusUiState(
@@ -379,3 +384,56 @@ internal fun microphoneHealthText(health: SensorHealth?): String {
         SensorHealthState.FAILED -> "ไมโครโฟนทำงานผิดพลาด"
     }
 }
+
+/**
+ * Typed Thai presentation labels for the Protection screen diagnostics layer
+ * (profile-aware Thai UX, Task 4). Every mapping is an exhaustive `when` over the
+ * domain enum; display code never calls `.name`, `.lowercase()`, or string replacement.
+ */
+internal fun sensorKindLabel(kind: SensorKind): String = when (kind) {
+    SensorKind.VIBRATION -> "การสั่นสะเทือน"
+    SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+    SensorKind.POWER_THERMAL -> "ไฟและอุณหภูมิ"
+    SensorKind.MICROPHONE -> "ไมโครโฟน"
+    SensorKind.LOCATION -> "ตำแหน่ง"
+}
+
+internal fun sensorHealthStateLabel(state: SensorHealthState): String = when (state) {
+    SensorHealthState.HEALTHY -> "ทำงานปกติ"
+    SensorHealthState.AVAILABLE -> "พร้อมใช้งาน"
+    SensorHealthState.UNAVAILABLE -> "ไม่พร้อมใช้งาน"
+    SensorHealthState.STALE -> "ข้อมูลล่าช้า"
+    SensorHealthState.FAILED -> "ขัดข้อง"
+}
+
+internal fun audioRuntimeStateLabel(state: AudioRuntimeState): String = when (state) {
+    AudioRuntimeState.OFF -> "ปิดอยู่"
+    AudioRuntimeState.STARTING -> "กำลังเริ่มต้น"
+    AudioRuntimeState.CALIBRATING -> "กำลังปรับเทียบ"
+    AudioRuntimeState.LISTENING -> "กำลังฟังเสียง"
+    AudioRuntimeState.CLASSIFYING -> "กำลังวิเคราะห์เสียง"
+    AudioRuntimeState.DEGRADED -> "ทำงานแบบจำกัด"
+    AudioRuntimeState.FAILED -> "ขัดข้อง"
+}
+
+internal fun audioGateStateLabel(state: AudioGateState): String = when (state) {
+    AudioGateState.DISABLED -> "ปิดใช้งาน"
+    AudioGateState.QUIET -> "เสียงเงียบ"
+    AudioGateState.OPEN -> "พบเสียงผิดปกติ"
+}
+
+internal fun audioThreatCategoryLabel(category: com.example.motorcycleantitheftsensor.protection.AudioThreatCategory): String =
+    when (category) {
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.IMPACT -> "แรงกระแทก"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.BREAKING -> "เสียงแตกหัก"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.POWER_TOOL -> "เครื่องมือไฟฟ้า"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.METAL_TAMPER -> "เสียงงัดโลหะ"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.ENGINE_START -> "เครื่องยนต์สตาร์ท"
+        com.example.motorcycleantitheftsensor.protection.AudioThreatCategory.ENGINE_RUNNING -> "เครื่องยนต์กำลังทำงาน"
+    }
+
+internal fun incidentLifecycleLabel(lifecycle: IncidentLifecycle): String =
+    PresentationTextCatalog.incidentLifecycleLabel(lifecycle)
+
+internal fun deliveryStateLabel(state: DeliveryState): String =
+    PresentationTextCatalog.deliveryStateLabel(state)

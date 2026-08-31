@@ -113,7 +113,7 @@ fun EntryGuardSection(
                 }
             } else if (profile.setupState == ProfileSetupState.READY) {
                 Text("พร้อมเฝ้าระวังทางเข้า", style = MaterialTheme.typography.headlineMedium)
-                Text("แจ้งเมื่อเกิน ${profile.entryAngleDegrees ?: 15}°")
+                Text("แจ้งเมื่อเกิน ${profile.entryAngleDegrees ?: 15}° จากตำแหน่งปิด")
                 if (profile.entryRequiresControlledRearm) {
                     Text(
                         text = "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",

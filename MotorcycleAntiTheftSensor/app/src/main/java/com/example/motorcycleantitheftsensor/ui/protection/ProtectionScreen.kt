@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -29,28 +30,45 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.R
+import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.AudioGateState
-import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
-import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
+import com.example.motorcycleantitheftsensor.ui.audioGateStateLabel
+import com.example.motorcycleantitheftsensor.ui.audioRuntimeStateLabel
+import com.example.motorcycleantitheftsensor.ui.audioThreatCategoryLabel
+import com.example.motorcycleantitheftsensor.ui.deliveryStateLabel
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionExplanation
+import com.example.motorcycleantitheftsensor.ui.incidentLifecycleLabel
+import com.example.motorcycleantitheftsensor.ui.microphoneHealthText
+import com.example.motorcycleantitheftsensor.ui.sensorHealthStateLabel
+import com.example.motorcycleantitheftsensor.ui.sensorKindLabel
 
+/**
+ * Outcome-first Protection screen (profile-aware Thai UX, Task 4): the state hero and its
+ * single primary action lead, owner-actionable warnings stay visible, and every technical
+ * diagnostic lives behind one advanced disclosure rendered with typed Thai labels.
+ */
 @Composable
 fun ProtectionScreen(
     state: ProtectionUiState,
@@ -63,8 +81,15 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ARMED_HEALTHY ||
         protection.state == ProtectionState.ARMED_DEGRADED ||
         protection.state == ProtectionState.ALERT_ACTIVE
-    val actionEnabled = (!state.protectionOperationInFlight && protection.state == ProtectionState.DISARMED_ONLINE) ||
+    val actionEnabled = (!state.protectionOperationInFlight && protection.state in setOf(
+        ProtectionState.DISARMED_ONLINE,
+        ProtectionState.SETUP_REQUIRED,
+    )) ||
         disarmAction
+    val powerCalibrationRequired = state.profile.selectedProfile == ProtectionProfile.POWER &&
+        state.profile.setupState == ProfileSetupState.SETUP_REQUIRED &&
+        state.profile.powerCommissioning == null &&
+        state.profile.armedProfile == null
     val blockingPermissionIssues = protection.permissionBlockers
         .map(::friendlyPermissionExplanation)
         .distinct()
@@ -92,7 +117,115 @@ fun ProtectionScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val stateGuidance = com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(protection.state.toGuidanceCode())
+        val stateGuidance = UserGuidanceCatalog.content(protection.state.toGuidanceCode())
+
+        item(key = "moto-guard-header") {
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = "Moto Guard",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        text = "ศูนย์ควบคุมการปกป้อง",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            }
+        }
+
+        item(key = "protection-state") {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "สถานะการปกป้อง",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        text = stateGuidance.titleTh,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        text = stateGuidance.bodyTh,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    state.armingSecondsRemaining?.let { seconds ->
+                        Text(
+                            text = stringResource(R.string.protection_arming_countdown, seconds),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    if (powerCalibrationRequired) {
+                        Text(
+                            text = "ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Button(
+                            onClick = actions.powerStartCommissioning,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                        ) {
+                            Text("เริ่มปรับเทียบไฟยืนยัน")
+                        }
+                    }
+                    Button(
+                        onClick = if (disarmAction) actions.disarm else actions.arm,
+                        enabled = actionEnabled,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Text(
+                            text = when (protection.state) {
+                                ProtectionState.ALERT_ACTIVE -> stringResource(R.string.action_stop_alarm)
+                                ProtectionState.ARMING,
+                                ProtectionState.ARMED_HEALTHY,
+                                ProtectionState.ARMED_DEGRADED,
+                                -> stringResource(R.string.action_disarm_protection)
+                                else -> stringResource(R.string.action_arm_protection)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        protection.persistentGuidance?.let { guidance ->
+            item(key = "persistent-guidance") {
+                StatusCard(title = guidance.titleTh) {
+                    Text(guidance.bodyTh)
+                }
+            }
+        }
 
         item(key = "header") {
             Row(
@@ -207,7 +340,7 @@ fun ProtectionScreen(
             }
         }
 
-        if (state.profile.selectedProfile == com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER) {
+        if (state.profile.selectedProfile == ProtectionProfile.POWER) {
             item(key = "power-guard") {
                 PowerGuardSection(
                     profile = state.profile,
@@ -295,7 +428,8 @@ fun ProtectionScreen(
                     onClick = { systemDetailsExpanded = !systemDetailsExpanded },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp),
+                        .heightIn(min = 48.dp)
+                        .testTag(ADVANCED_DIAGNOSTICS_TOGGLE_TAG),
                 ) {
                     Text(
                         text = if (systemDetailsExpanded) "▲ ซ่อนรายละเอียดระบบ" else "▼ ดูรายละเอียดระบบ",
@@ -393,12 +527,14 @@ fun ProtectionScreen(
                 }
             }
         }
-
     }
 }
 
 const val AUDIO_RUNTIME_CARD_TAG = "audio-threat-status"
 const val PROTECTION_LIST_TAG = "ui.protection.LIST"
+
+/** Single disclosure that keeps runtime diagnostics out of the calm default view. */
+const val ADVANCED_DIAGNOSTICS_TOGGLE_TAG = "advanced_diagnostics_toggle"
 
 @Composable
 private fun ChangeUseSection(
@@ -460,6 +596,7 @@ private fun ProfilePickerSection(
             com.example.motorcycleantitheftsensor.protection.ProtectionProfile.ENTRY to "ดูแลทางเข้า",
             com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER to "ดูแลไฟเลี้ยง",
         ).forEach { (profile, label) ->
+            val profilePresentation = PresentationTextCatalog.profile(profile)
             Surface(
                 onClick = { onProfileSelected(profile) },
                 shape = MaterialTheme.shapes.medium,
@@ -478,7 +615,12 @@ private fun ProfilePickerSection(
                         text = if (profile == selectedProfile) "$label (ปัจจุบัน)" else label,
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    if (profile != com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE) {
+                    Text(
+                        text = profilePresentation.promise,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (profile != ProtectionProfile.VEHICLE) {
                         Text(
                             text = if (profile == selectedProfile && selectedSetupState == ProfileSetupState.READY) {
                                 "พร้อมใช้งาน"
@@ -497,7 +639,7 @@ private fun ProfilePickerSection(
 
 @Composable
 private fun ProfileSwitchConfirmationCard(
-    target: com.example.motorcycleantitheftsensor.protection.ProtectionProfile,
+    target: ProtectionProfile,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {

@@ -1,7 +1,21 @@
 package com.example.motorcycleantitheftsensor.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -9,6 +23,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -18,8 +36,11 @@ import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentSummary
 import com.example.motorcycleantitheftsensor.ui.protection.PROTECTION_LIST_TAG
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.abs
 
 /**
  * Semantics for the visible three-profile picker and the armed change-use
@@ -73,6 +94,9 @@ class ProtectionProfilesUiTest {
             )
         }
     }
+
+    // The navy-header pixel assertion was dropped with the paper-light settings theme
+    // migration (5b7f0b4); its helpers no longer exist on this branch.
 
     @Test
     fun profilePickerHasThreeNamedCardsAndNoFalseReadyClaim() {

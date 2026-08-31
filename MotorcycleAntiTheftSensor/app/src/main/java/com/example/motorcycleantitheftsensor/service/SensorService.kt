@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.motorcycleantitheftsensor.MainActivity
+import com.example.motorcycleantitheftsensor.R
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.data.LegacyAuthenticatorMigrationResult
 import com.example.motorcycleantitheftsensor.data.removeLegacyAuthenticatorState
@@ -26,6 +27,7 @@ import com.example.motorcycleantitheftsensor.location.ForegroundStartController
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryPolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryGate
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryHints
@@ -190,7 +192,7 @@ class SensorService : Service(), ServiceEnvironment {
                 )
                 handleInitializedCommand(action, refreshTelegramPolling, "start")
             } else {
-                handleInitializedCommand(action, refreshTelegramPolling, action.name.lowercase())
+                handleInitializedCommand(action, refreshTelegramPolling, commandNameOf(action))
             }
         }
         return if (action == SensorServiceAction.Stop) START_NOT_STICKY else START_STICKY
@@ -206,6 +208,15 @@ class SensorService : Service(), ServiceEnvironment {
         } else {
             controller.handle(action, commandId(commandName))
         }
+    }
+
+    /** Explicit protocol command ids; never derived from enum names (Task 8 contract). */
+    private fun commandNameOf(action: SensorServiceAction): String = when (action) {
+        SensorServiceAction.Arm -> "arm"
+        SensorServiceAction.Disarm -> "disarm"
+        SensorServiceAction.Start -> "start"
+        SensorServiceAction.Stop -> "stop"
+        SensorServiceAction.Ignore -> "ignore"
     }
 
     private suspend fun applyRecovery(
@@ -479,7 +490,7 @@ class SensorService : Service(), ServiceEnvironment {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Motorcycle Guard")
+            .setContentTitle(getString(R.string.notification_title))
             .setContentText(notificationText(snapshot))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
@@ -490,25 +501,27 @@ class SensorService : Service(), ServiceEnvironment {
             .build()
     }
 
-    private fun notificationText(snapshot: ProtectionSnapshot): String = when (snapshot.state) {
-        ProtectionState.SETUP_REQUIRED -> "Setup required: ${snapshot.permissionBlockers.sorted().joinToString()}"
-        ProtectionState.DISARMED_ONLINE -> "Disarmed — remote control online"
-        ProtectionState.ARMING -> {
-            val remainingMs = (snapshot.lastTransitionAtMs + ARMING_GRACE_MS - System.currentTimeMillis())
-                .coerceAtLeast(0L)
-            "Arming — ${ceil(remainingMs / 1_000.0).toInt()}s; calibrating sensors"
-        }
-        ProtectionState.ARMED_HEALTHY -> "Armed — all required protection healthy"
-        ProtectionState.ARMED_DEGRADED -> "Armed — degraded: ${snapshot.degradationReasons.sorted().joinToString()}"
-        ProtectionState.ALERT_ACTIVE -> "Alert active: ${snapshot.lastIncident?.id ?: "incident pending"}"
-        ProtectionState.OFFLINE -> "Protection service offline"
-    }
+    private fun notificationText(snapshot: ProtectionSnapshot): String =
+        PresentationTextCatalog.foregroundNotificationBody(
+            state = snapshot.state,
+            detail = when (snapshot.state) {
+                ProtectionState.SETUP_REQUIRED -> snapshot.permissionBlockers.sorted().joinToString()
+                ProtectionState.ARMING ->
+                    ceil(
+                        (snapshot.lastTransitionAtMs + ARMING_GRACE_MS - System.currentTimeMillis())
+                            .coerceAtLeast(0L) / 1_000.0,
+                    ).toInt().toString()
+                ProtectionState.ARMED_DEGRADED -> snapshot.degradationReasons.sorted().joinToString()
+                ProtectionState.ALERT_ACTIVE -> snapshot.lastIncident?.id.orEmpty()
+                else -> ""
+            },
+        )
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Motorcycle Guard Protection",
+            getString(R.string.notification_channel_protection),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             setShowBadge(false)

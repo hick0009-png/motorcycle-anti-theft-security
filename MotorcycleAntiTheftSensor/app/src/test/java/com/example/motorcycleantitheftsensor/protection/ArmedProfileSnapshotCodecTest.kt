@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -53,11 +54,37 @@ class ArmedProfileSnapshotCodecTest {
             armedCalibrationSnapshot = PowerArmedCalibrationSnapshot(
                 generation = 5L,
                 modelFingerprint = "model-fp-power",
+                witnessPlacementValidated = true,
             ),
         )
 
         assertEquals(entryArmed, codec.decode(codec.encode(entryArmed)))
         assertEquals(powerArmed, codec.decode(codec.encode(powerArmed)))
+    }
+
+    @Test
+    fun legacyPowerSnapshotWithoutChallengeResultFailsSafe() {
+        val powerArmed = ArmedProfileSnapshot(
+            armedSessionId = "session-power",
+            profile = ProtectionProfile.POWER,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, PowerProfileSettings()),
+            commissionedModelFingerprint = "model-fp-power",
+            armedCalibrationSnapshot = PowerArmedCalibrationSnapshot(
+                generation = 5L,
+                modelFingerprint = "model-fp-power",
+                witnessPlacementValidated = true,
+            ),
+        )
+        val legacy = org.json.JSONObject(codec.encode(powerArmed)).apply {
+            getJSONObject("armedCalibrationSnapshot").remove("witnessPlacementValidated")
+        }.toString()
+
+        val calibration = codec.decode(legacy).armedCalibrationSnapshot as PowerArmedCalibrationSnapshot
+
+        assertFalse(calibration.witnessPlacementValidated)
     }
 
     @Test

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
@@ -15,6 +16,7 @@ import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasScrollAction
@@ -26,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -53,22 +56,22 @@ class ProtectionAppScreenTest {
     fun shellHasExactlyThreePrimaryDestinationsAndNoDemoControls() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
 
-        compose.onNodeWithText("Protection").assertExists()
-        compose.onNodeWithText("Events").assertExists()
-        compose.onNodeWithText("Settings").assertExists()
+        compose.onNodeWithText("ปกป้อง").assertExists()
+        compose.onNodeWithText("เหตุการณ์").assertExists()
+        compose.onNodeWithText("ตั้งค่า").assertExists()
         compose.onAllNodes(hasTestTag("primary_destination")).assertCountEquals(3)
         compose.onAllNodes(hasText("Demo", substring = true, ignoreCase = true))
             .assertCountEquals(0)
     }
 
     @Test
-    fun selectedPrimaryDestinationRendersWithMonochromePixels() {
+    fun selectedPrimaryDestinationRendersWithNavyAndWhitePixels() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
 
         val pixels = compose.onAllNodes(hasTestTag("primary_destination"))[0]
             .captureToImage()
             .toPixelMap()
-        var hasNearBlackPixel = false
+        var hasNavyPixel = false
         var hasNearWhitePixel = false
 
         for (y in 0 until pixels.height) {
@@ -76,18 +79,12 @@ class ProtectionAppScreenTest {
                 val color = pixels[x, y]
                 if (color.alpha < OPAQUE_ALPHA) continue
 
-                val minimumChannel = minOf(color.red, color.green, color.blue)
-                val maximumChannel = maxOf(color.red, color.green, color.blue)
-                assertTrue(
-                    "Non-monochrome pixel at ($x, $y): $color",
-                    maximumChannel - minimumChannel <= CHANNEL_TOLERANCE,
-                )
-                hasNearBlackPixel = hasNearBlackPixel || maximumChannel <= NEAR_BLACK
-                hasNearWhitePixel = hasNearWhitePixel || minimumChannel >= NEAR_WHITE
+                hasNavyPixel = hasNavyPixel || isCloseToNavy(color)
+                hasNearWhitePixel = hasNearWhitePixel || isNearWhite(color)
             }
         }
 
-        assertTrue("Selected destination must render a black surface", hasNearBlackPixel)
+        assertTrue("Selected destination must render a navy surface", hasNavyPixel)
         assertTrue("Selected destination must render a white indicator/content", hasNearWhitePixel)
     }
 
@@ -95,9 +92,84 @@ class ProtectionAppScreenTest {
     fun protectionHasOneStateCorrectPrimaryAction() {
         compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
 
-        compose.onAllNodes(hasText("Arm protection")).assertCountEquals(1)
-        compose.onAllNodes(hasText("Disarm protection")).assertCountEquals(0)
-        compose.onNodeWithText("Arm protection").assertHeightIsAtLeast(48.dp)
+        compose.onAllNodes(hasText("เปิดระบบป้องกัน")).assertCountEquals(1)
+        compose.onAllNodes(hasText("ปิดระบบป้องกัน")).assertCountEquals(0)
+        compose.onNodeWithText("เปิดระบบป้องกัน").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun protectionStartsWithMotoGuardHeaderAndOutcomeCard() {
+        compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
+
+        compose.onNodeWithText("Moto Guard").assertIsDisplayed()
+        compose.onNodeWithText("สถานะการปกป้อง").assertIsDisplayed()
+        compose.onNodeWithText("การป้องกันปิดอยู่").assertIsDisplayed()
+        compose.onAllNodes(hasText("เปิดระบบป้องกัน")).assertCountEquals(1)
+    }
+
+    @Test
+    fun powerSetupOffersCalibrationBesideTheDisabledArmAction() {
+        var commissioningStarts = 0
+        val state = baseState(ProtectionState.SETUP_REQUIRED).copy(
+            profile = ProtectionProfileUiState(
+                selectedProfile = com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER,
+                setupState = com.example.motorcycleantitheftsensor.protection.ProfileSetupState.SETUP_REQUIRED,
+            ),
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                state,
+                fakeActions().copy(powerStartCommissioning = { commissioningStarts++ }),
+            )
+        }
+
+        compose.onNodeWithText("ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน").assertIsDisplayed()
+        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").performClick()
+
+        compose.runOnIdle {
+            assertEquals(1, commissioningStarts)
+        }
+    }
+
+    @Test
+    fun setupRequiredArmActionLetsTheCoordinatorRecheckCurrentReadiness() {
+        var armCalls = 0
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.SETUP_REQUIRED),
+                fakeActions().copy(arm = { armCalls++ }),
+            )
+        }
+
+        compose.onNodeWithText("เปิดระบบป้องกัน").performClick()
+
+        compose.runOnIdle {
+            assertEquals(1, armCalls)
+        }
+    }
+
+    @Test
+    fun heroShowsOutcomeFirstThaiCopyWithoutEnglishFragmentsForEachState() {
+        var displayedState by mutableStateOf(baseState(ProtectionState.DISARMED_ONLINE))
+        compose.setContent { ProtectionAppScreen(displayedState, fakeActions()) }
+
+        listOf(
+            ProtectionState.DISARMED_ONLINE to "การป้องกันปิดอยู่",
+            ProtectionState.ARMING to "กำลังเปิดการป้องกัน",
+            ProtectionState.ARMED_HEALTHY to "การป้องกันทำงานปกติ",
+            ProtectionState.ARMED_DEGRADED to "การป้องกันทำงานแบบจำกัด",
+            ProtectionState.ALERT_ACTIVE to "กำลังส่งสัญญาณเตือนภัย",
+            ProtectionState.OFFLINE to "ระบบออฟไลน์",
+        ).forEach { (protectionState, expectedHeroTitle) ->
+            compose.runOnIdle {
+                displayedState = baseState(protectionState)
+            }
+
+            compose.onNodeWithText(expectedHeroTitle).assertExists()
+            compose.onAllNodes(hasText("(Arm)", substring = true)).assertCountEquals(0)
+            compose.onAllNodes(hasText("(Disarm)", substring = true)).assertCountEquals(0)
+            compose.onAllNodes(hasText("Armed in", substring = true)).assertCountEquals(0)
+        }
     }
 
     @Test
@@ -115,32 +187,40 @@ class ProtectionAppScreenTest {
     fun everySelectedDestinationHasStableVisibleLabelAndIconBounds() {
         showWithLocalNavigation(healthyState())
 
-        listOf("Protection", "Events", "Settings").forEach { label ->
-            val labelTag = "primary_destination_label_${label.uppercase()}"
+        listOf(
+            "PROTECTION" to "แท็บปกป้อง",
+            "EVENTS" to "แท็บเหตุการณ์",
+            "SETTINGS" to "แท็บตั้งค่า",
+        ).forEach { (enumName, contentDescription) ->
+            val labelTag = "primary_destination_label_$enumName"
             compose.onNodeWithTag(labelTag, useUnmergedTree = true).performClick()
-            compose.onNodeWithContentDescription("$label destination")
+            compose.onNodeWithContentDescription(contentDescription)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(80.dp)
             compose.onNodeWithTag(labelTag, useUnmergedTree = true)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(16.dp)
             compose.onNodeWithTag(
-                "primary_destination_icon_${label.uppercase()}",
+                "primary_destination_icon_$enumName",
                 useUnmergedTree = true,
             ).assertHeightIsEqualTo(24.dp)
         }
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Diagnostics"))
-        listOf("Protection", "Events", "Settings").forEach { label ->
-            compose.onNodeWithContentDescription("$label destination")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("การวินิจฉัยขั้นสูง"))
+        listOf(
+            "PROTECTION" to "แท็บปกป้อง",
+            "EVENTS" to "แท็บเหตุการณ์",
+            "SETTINGS" to "แท็บตั้งค่า",
+        ).forEach { (enumName, contentDescription) ->
+            compose.onNodeWithContentDescription(contentDescription)
                 .assertIsDisplayed()
                 .assertHeightIsAtLeast(48.dp)
             compose.onNodeWithTag(
-                "primary_destination_label_${label.uppercase()}",
+                "primary_destination_label_$enumName",
                 useUnmergedTree = true,
             ).assertIsDisplayed()
             compose.onNodeWithTag(
-                "primary_destination_icon_${label.uppercase()}",
+                "primary_destination_icon_$enumName",
                 useUnmergedTree = true,
             ).assertIsDisplayed()
         }
@@ -162,11 +242,11 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText(
-            "Microphone access is missing. Noise detection will be unavailable.",
+            "ยังไม่ได้ให้สิทธิ์ไมโครโฟน การตรวจจับเสียงผิดปกติจะใช้ไม่ได้",
         ).assertExists()
-        compose.onNodeWithText("Reduced sensor coverage").assertExists()
-        compose.onNodeWithText("Protection blockers").assertDoesNotExist()
-        compose.onNodeWithText("Review permissions").performClick()
+        compose.onNodeWithText("การตรวจจับที่ลดลง").assertExists()
+        compose.onNodeWithText("สิ่งที่ยังขาดก่อนป้องกันได้").assertDoesNotExist()
+        compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.runOnIdle {
             assertEquals(ProtectionDestination.SETTINGS, selectedDestination)
         }
@@ -186,18 +266,22 @@ class ProtectionAppScreenTest {
             ),
         )
         compose.setContent { ProtectionAppScreen(state, fakeActions()) }
+        openSettingsPage("ความต่อเนื่องของระบบ")
 
-        compose.onNodeWithText("Reduced coverage: Microphone").assertExists()
-        compose.onNodeWithText("Blocks protection: Notifications").assertExists()
+        compose.onNodeWithText("ปิดกั้นการทำงานหลัก").assertExists()
+        compose.onNodeWithText("การแจ้งเตือน").assertExists()
+        compose.onNodeWithText("ลดความครอบคลุม").assertExists()
+        compose.onNodeWithText("ไมโครโฟน").assertExists()
     }
 
     @Test
     fun settingsNeverDisplaysStoredCredential() {
         showWithLocalNavigation(configuredSettingsState())
 
-        openSettings()
+        openSettingsOverview()
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
 
-        compose.onNodeWithText("Token configured").assertExists()
+        compose.onNode(hasText("ตั้งค่าแล้ว", substring = true)).assertExists()
         compose.onNodeWithText(TEST_ONLY_TOKEN).assertDoesNotExist()
     }
 
@@ -206,17 +290,22 @@ class ProtectionAppScreenTest {
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
             ProtectionAppScreen(
-                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                configuredSettingsState().copy(destination = ProtectionDestination.SETTINGS),
                 fakeActions(),
             )
         }
 
-        val tokenField = hasSetTextAction() and hasText("Bot token")
-        compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
-        compose.onNode(hasScrollAction()).performScrollToNode(
-            hasText("Replacement encryption key"),
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
+
+        val tokenField = hasSetTextAction() and hasText("เปลี่ยน Bot Token ใหม่")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("เปลี่ยน Bot Token ใหม่"),
         )
-        val smsKeyField = hasSetTextAction() and hasText("Replacement encryption key")
+        compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("คีย์เข้ารหัส SMS (Encryption Key)"),
+        )
+        val smsKeyField = hasSetTextAction() and hasText("คีย์เข้ารหัส SMS (Encryption Key)")
         compose.onNode(smsKeyField).performTextInput(UNSAVED_SMS_KEY)
 
         restoration.emulateSavedInstanceStateRestore()
@@ -229,14 +318,19 @@ class ProtectionAppScreenTest {
     fun savingBotTokenClearsTextFieldFocus() {
         compose.setContent {
             ProtectionAppScreen(
-                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                configuredSettingsState().copy(destination = ProtectionDestination.SETTINGS),
                 fakeActions(),
             )
         }
 
-        val tokenField = hasSetTextAction() and hasText("Bot token")
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
+
+        val tokenField = hasSetTextAction() and hasText("เปลี่ยน Bot Token ใหม่")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("เปลี่ยน Bot Token ใหม่"),
+        )
         compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
-        compose.onNodeWithText("Save bot token").performClick()
+        compose.onNodeWithText("บันทึก Bot Token").performClick()
 
         compose.onNode(tokenField).assertIsNotFocused()
     }
@@ -250,9 +344,11 @@ class ProtectionAppScreenTest {
             )
         }
 
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
+
         val copy =
-            "SMS fallback is eligible only for real critical incidents after confirmed Telegram failure."
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText(copy))
+            "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)"
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(hasText(copy))
         compose.onNodeWithText(copy).assertExists()
     }
 
@@ -263,10 +359,28 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(historyState(), actions)
 
         openEvents()
-        compose.onNodeWithText("Clear history").performClick()
+        compose.onNodeWithText("ล้างประวัติ").performClick()
         assertEquals(0, clearCalls)
-        compose.onNodeWithText("Confirm clear").performClick()
+        compose.onNodeWithText("ยืนยันการล้างประวัติ").assertExists()
+        compose.onNodeWithText("ยกเลิก").performClick()
+        assertEquals(0, clearCalls)
+        compose.onNodeWithText("ล้างประวัติ").performClick()
+        compose.onNodeWithText("ยืนยัน").performClick()
         assertEquals(1, clearCalls)
+    }
+
+    @Test
+    fun populatedEventsShowTimelineHeadingWithoutEmojiTitles() {
+        compose.setContent {
+            ProtectionAppScreen(
+                historyState().copy(destination = ProtectionDestination.EVENTS),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("เหตุการณ์ล่าสุด").assertIsDisplayed()
+        compose.onNodeWithText("รถอาจถูกเคลื่อนย้าย").assertIsDisplayed()
+        compose.onAllNodes(hasText("🚨", substring = true)).assertCountEquals(0)
     }
 
     @Test
@@ -292,7 +406,8 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNodeWithText("Loading events").assertExists()
+        compose.onNodeWithText("กำลังโหลดเหตุการณ์").assertExists()
+        compose.onAllNodes(hasText("Loading events", substring = true)).assertCountEquals(0)
     }
 
     @Test
@@ -307,7 +422,7 @@ class ProtectionAppScreenTest {
             )
         }
         compose.onNodeWithText("History unavailable").assertExists()
-        compose.onNodeWithText("Retry").assertExists()
+        compose.onNodeWithText("ลองใหม่").assertExists()
     }
 
     @Test
@@ -323,8 +438,8 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNodeWithText("Loading settings").assertExists()
-        compose.onNodeWithText("Token not configured").assertDoesNotExist()
+        compose.onNodeWithText("กำลังโหลดการตั้งค่า...").assertExists()
+        compose.onNodeWithText("ยังไม่ตั้งค่า ⚠️").assertDoesNotExist()
     }
 
     @Test
@@ -342,7 +457,7 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText("Settings unavailable").assertExists()
-        compose.onNodeWithText("Retry settings").performClick()
+        compose.onNodeWithText("ลองใหม่อีกครั้ง").performClick()
         compose.runOnIdle { assertEquals(1, retrySettingsCalls) }
     }
 
@@ -356,10 +471,14 @@ class ProtectionAppScreenTest {
             )
         }
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Reset pairing"))
-        compose.onNodeWithText("Reset pairing").performClick()
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("รีเซ็ตการจับคู่เจ้าของ (Reset Pairing)"),
+        )
+        compose.onNodeWithText("รีเซ็ตการจับคู่เจ้าของ (Reset Pairing)").performClick()
         compose.runOnIdle { assertEquals(0, resetPairingCalls) }
-        compose.onNodeWithText("Confirm reset").performClick()
+        compose.onNodeWithText("ยืนยันรีเซ็ต").performClick()
         compose.runOnIdle { assertEquals(1, resetPairingCalls) }
     }
 
@@ -401,15 +520,17 @@ class ProtectionAppScreenTest {
                 fakeActions(),
             )
         }
-        compose.onNode(hasText("No protection events") and isHeading()).assertExists()
+        compose.onNode(hasText("ยังไม่มีเหตุการณ์") and isHeading()).assertExists()
+        compose.onNodeWithText("เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้").assertExists()
     }
 
     @Test
     fun disarmedStateShowsLiveSamplesAfterArming() {
         compose.setContent { ProtectionAppScreen(disarmedState(), fakeActions()) }
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
-        compose.onAllNodes(hasText("Live samples begin after arming"))[0].assertHeightIsAtLeast(10.dp)
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("การสั่นสะเทือน"))
+        compose.onAllNodes(hasText("การวัดสดจะเริ่มหลังเปิดระบบ"))[0].assertHeightIsAtLeast(10.dp)
     }
 
     @Test
@@ -426,9 +547,45 @@ class ProtectionAppScreenTest {
             )
         )
         compose.setContent { ProtectionAppScreen(armedState, fakeActions()) }
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Vibration"))
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Acceleration: 9.8 m/s²"))
         compose.onNodeWithText("Acceleration: 9.8 m/s²").assertExists()
+    }
+
+    @Test
+    fun eventCardsRenderThaiLabelsWithoutRawEnumsOrEnglishPrefixes() {
+        compose.setContent {
+            ProtectionAppScreen(
+                historyState().copy(destination = ProtectionDestination.EVENTS),
+                fakeActions(),
+            )
+        }
+
+        compose.onNodeWithText("รถอาจถูกเคลื่อนย้าย").assertExists()
+        compose.onNodeWithText("แหล่งข้อมูล: เหตุการณ์จริง").assertExists()
+        compose.onNodeWithText("ความรุนแรง: เตือนภัย").assertExists()
+        compose.onNodeWithText("สถานะเหตุการณ์: สิ้นสุดแล้ว").assertExists()
+        compose.onNodeWithText("หลักฐาน: ตรวจพบแรงสั่นต่อเนื่อง (2.5 m/s²)").assertExists()
+        compose.onNodeWithText("การแจ้งเตือน: ส่งสำเร็จ").assertExists()
+        listOf(
+            "OPEN",
+            "CLOSED",
+            "INTERRUPTED",
+            "PENDING",
+            "SENT",
+            "FAILED",
+            "NOT_ELIGIBLE",
+            "Source:",
+            "Severity:",
+            "Lifecycle:",
+            "Evidence:",
+            "Time:",
+            "Delivery:",
+            "REAL",
+        ).forEach { fragment ->
+            compose.onAllNodes(hasText(fragment, substring = true)).assertCountEquals(0)
+        }
     }
 
     @Test
@@ -437,7 +594,7 @@ class ProtectionAppScreenTest {
         compose.setContent { ProtectionAppScreen(state, fakeActions()) }
 
         compose.onNodeWithText(
-            "Time: ${formatProtectionTimestamp(TEST_TIMESTAMP_MS)}",
+            "เวลา: ${formatProtectionTimestamp(TEST_TIMESTAMP_MS)}",
         ).assertExists()
         compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
             .assertCountEquals(0)
@@ -446,6 +603,7 @@ class ProtectionAppScreenTest {
     @Test
     fun protectionUsesReadableLocalTimestampInsteadOfRawEpochMillis() {
         compose.setContent { ProtectionAppScreen(healthyState(), fakeActions()) }
+        openAdvancedDiagnostics()
 
         compose.onNodeWithText(formatProtectionTimestamp(TEST_TIMESTAMP_MS)).assertExists()
         compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
@@ -461,8 +619,10 @@ class ProtectionAppScreenTest {
             )
         }
 
+        openSettingsPage("การวินิจฉัยขั้นสูง")
+
         val timestamp = formatProtectionTimestamp(TEST_TIMESTAMP_MS)
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText(timestamp))
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(hasText(timestamp))
         compose.onNodeWithText(timestamp).assertExists()
         compose.onAllNodes(hasText(TEST_TIMESTAMP_MS.toString(), substring = true))
             .assertCountEquals(0)
@@ -473,14 +633,21 @@ class ProtectionAppScreenTest {
         var changedSensitivity: Int? = null
         compose.setContent {
             ProtectionAppScreen(
-                healthyState().copy(destination = ProtectionDestination.SETTINGS),
+                healthyState().copy(
+                    destination = ProtectionDestination.SETTINGS,
+                    profile = ProtectionProfileUiState(
+                        selectedProfile = com.example.motorcycleantitheftsensor.protection.ProtectionProfile.VEHICLE,
+                    ),
+                ),
                 fakeActions().copy(changeSensitivity = { changedSensitivity = it }),
             )
         }
 
+        openSettingsPage("การปกป้อง")
+
         val slider = hasTestTag("sensitivity_slider") and
-            hasContentDescription("Protection sensitivity, 5 out of 10")
-        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("sensitivity_slider"))
+            hasContentDescription("ระดับการตรวจจับ 5 เต็ม 10")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(hasTestTag("sensitivity_slider"))
         val sliderNode = compose.onNode(slider)
         val semanticsNode = sliderNode.fetchSemanticsNode()
         val density = compose.activity.resources.displayMetrics.density
@@ -523,9 +690,10 @@ class ProtectionAppScreenTest {
             ),
         )
         showWithLocalNavigation(state)
+        openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Microphone detected"))
-        compose.onNodeWithText("Microphone detected").assertExists()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ไมโครโฟนพร้อมใช้งาน"))
+        compose.onNodeWithText("ไมโครโฟนพร้อมใช้งาน").assertExists()
     }
 
     @Test
@@ -538,22 +706,189 @@ class ProtectionAppScreenTest {
             ),
         )
         showWithLocalNavigation(state)
+        openAdvancedDiagnostics()
 
+        compose.onNode(hasScrollAction()).performScrollToNode(
+            hasTestTag(com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG),
+        )
         compose.onNodeWithTag(com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG).assertExists()
-        compose.onNodeWithText("listening", substring = true, ignoreCase = true).assertExists()
+        compose.onNodeWithText("กำลังฟังเสียง").assertExists()
+        compose.onAllNodes(hasText("listening", substring = true, ignoreCase = true))
+            .assertCountEquals(0)
+    }
+
+    @Test
+    fun diagnosticsStayBehindSingleAdvancedDisclosureUntilExpanded() {
+        compose.setContent { ProtectionAppScreen(baseState(ProtectionState.DISARMED_ONLINE), fakeActions()) }
+
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performScrollTo()
+        compose.onNodeWithText("สถานะระบบ").assertDoesNotExist()
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG,
+        ).assertDoesNotExist()
+
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performClick()
+
+        compose.onNodeWithText("สถานะระบบ").assertExists()
     }
 
     @Test
     fun settingsHasAutomaticAudioDiagnosticsButNoManualMicrophoneTest() {
         showWithLocalNavigation(configuredSettingsState())
-        openSettings()
+        openSettingsOverview()
+        openSettingsPage("การวินิจฉัยขั้นสูง")
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Audio Threat Detection"))
-        compose.onNodeWithText("Audio Threat Detection").assertExists()
-        compose.onNodeWithText("Audio Runtime").assertExists()
-        compose.onNodeWithText("Last Sample Age").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(hasText("การวิเคราะห์เสียงคุกคาม"))
+        compose.onNodeWithText("การวิเคราะห์เสียงคุกคาม").assertExists()
+        compose.onNodeWithText("สถานะ Audio Runtime").assertExists()
+        compose.onNodeWithText("โมเดลจำแนกเสียง (YamNet)").assertExists()
         compose.onAllNodes(hasText("Test Microphone", substring = true)).assertCountEquals(0)
         compose.onAllNodes(hasText("Last Self-Test", substring = true)).assertCountEquals(0)
+    }
+
+    @Test
+    fun remoteReadinessChecklistShowsTelegramSetupFirstAndOpensDeliverySecurity() {
+        val unreadyRemoteState = baseState(ProtectionState.ARMED_HEALTHY).copy(
+            protection = baseState(ProtectionState.ARMED_HEALTHY).protection.copy(
+                permissionBlockers = setOf("notification"),
+            ),
+        )
+        showWithLocalNavigation(unreadyRemoteState)
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithTag("remote_control_readiness").assertExists()
+        compose.onNodeWithTag("readiness_bot").assertExists()
+        compose.onNodeWithTag("readiness_pairing").assertExists()
+        compose.onNodeWithTag("readiness_permissions").assertExists()
+        compose.onNode(hasText("เจ้าของ") and hasAnyAncestor(hasTestTag("readiness_pairing"))).assertExists()
+        compose.onNode(hasText("สิทธิ์") and hasAnyAncestor(hasTestTag("readiness_permissions"))).assertExists()
+        compose.onNodeWithText("ยังไม่ได้ตั้งค่า").assertExists()
+        compose.onNodeWithText("ยังไม่ได้จับคู่").assertExists()
+        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
+        compose.onNodeWithText("ตั้งค่า Telegram").performClick()
+        compose.onNodeWithTag("ui.settings.DELIVERY_SECURITY_HEADER").assertExists()
+    }
+
+    @Test
+    fun remoteReadinessChecklistRoutesPermissionRemediationToContinuity() {
+        val readyRemoteState = configuredSettingsState().copy(
+            settings = configuredSettingsState().settings.copy(
+                missingPermissions = setOf("android.permission.POST_NOTIFICATIONS"),
+            ),
+        )
+        showWithLocalNavigation(readyRemoteState)
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
+        compose.onNodeWithTag("ui.settings.CONTINUITY_HEADER").assertExists()
+        compose.onNodeWithText("ขอสิทธิการเข้าถึงที่ขาด").assertExists()
+    }
+
+    @Test
+    fun remoteReadinessChecklistShowsReadyStateWithoutPrimaryAction() {
+        val readyRemoteState = configuredSettingsState().copy(
+            protection = configuredSettingsState().protection.copy(
+                permissionBlockers = setOf("runtime sensor unavailable"),
+            ),
+        )
+        showWithLocalNavigation(readyRemoteState)
+        openSettingsOverview()
+
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasTestTag("remote_control_readiness"),
+        )
+        compose.onNodeWithText("ตั้งค่าแล้ว").assertExists()
+        compose.onNodeWithText("จับคู่แล้ว (1 เครื่อง)").assertExists()
+        compose.onNodeWithText("พร้อมใช้งาน").assertExists()
+        compose.onAllNodes(hasTestTag("readiness_primary_action")).assertCountEquals(0)
+    }
+
+    @Test
+    fun settingsCategoryPagesOpenAndReturnToOverview() {
+        showWithLocalNavigation(configuredSettingsState())
+        openSettingsOverview()
+
+        listOf(
+            "การปกป้อง" to "ui.settings.PROTECTION_HEADER",
+            "การแจ้งเตือนและความปลอดภัย" to "ui.settings.DELIVERY_SECURITY_HEADER",
+            "ความต่อเนื่องของระบบ" to "ui.settings.CONTINUITY_HEADER",
+            "การวินิจฉัยขั้นสูง" to "ui.settings.ADVANCED_HEADER",
+        ).forEach { (category, headerTag) ->
+            openSettingsPage(category)
+            compose.onNodeWithTag(headerTag).assertExists()
+            compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
+        }
+
+        openSettingsPage("การปกป้อง")
+        compose.waitForIdle()
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        compose.onNodeWithText("การแจ้งเตือนและความปลอดภัย").assertExists()
+    }
+
+    @Test
+    fun deliveryAndContinuityPagesKeepTheirExistingControlsReachable() {
+        val state = configuredSettingsState()
+        showWithLocalNavigation(
+            state.copy(
+                settings = state.settings.copy(
+                    missingPermissions = setOf("android.permission.POST_NOTIFICATIONS"),
+                ),
+            ),
+        )
+        openSettingsOverview()
+
+        openSettingsPage("การแจ้งเตือนและความปลอดภัย")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("Telegram Bot", substring = true),
+        )
+        compose.onNodeWithText("เปลี่ยน Bot Token ใหม่").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("SMS Fallback", substring = true),
+        )
+        compose.onNodeWithText("บันทึกการตั้งค่า SMS").assertExists()
+
+        compose.onNodeWithText("กลับไปหน้าตั้งค่า").performClick()
+        openSettingsPage("ความต่อเนื่องของระบบ")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("สิทธิการเข้าถึงของระบบ", substring = true),
+        )
+        compose.onNodeWithText("ขอสิทธิการเข้าถึงที่ขาด").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("Keep-Alive", substring = true),
+        )
+        compose.onNodeWithText("Keep-Alive", substring = true).assertExists()
+    }
+
+    @Test
+    fun advancedControlsRequireTheAdvancedPageAndItsDisclosure() {
+        showWithLocalNavigation(configuredSettingsState())
+        openSettingsOverview()
+
+        openSettingsPage("การวินิจฉัยขั้นสูง")
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("แสดงการวินิจฉัยขั้นสูง"),
+        )
+        compose.onNodeWithText("แสดงการวินิจฉัยขั้นสูง").performClick()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("รูปแบบการทำงาน (Preset):"),
+        )
+        compose.onNodeWithText("รูปแบบการทำงาน (Preset):").assertExists()
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText("สถานะการทำงานของระบบ", substring = true),
+        )
+        compose.onNodeWithText("สถานะการทำงานของระบบ", substring = true).assertExists()
     }
 
     private fun showWithLocalNavigation(
@@ -575,11 +910,32 @@ class ProtectionAppScreenTest {
     }
 
     private fun openEvents() {
-        compose.onNodeWithText("Events").performClick()
+        compose.onNodeWithText("เหตุการณ์").performClick()
     }
 
     private fun openSettings() {
-        compose.onNodeWithText("Settings").performClick()
+        openSettingsOverview()
+        openSettingsPage("การปกป้อง")
+    }
+
+    private fun openSettingsOverview() {
+        compose.onNodeWithText("ตั้งค่า").performClick()
+    }
+
+    private fun openSettingsPage(pageTitle: String) {
+        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
+            hasText(pageTitle),
+        )
+        compose.onNodeWithText(pageTitle).performClick()
+    }
+
+    private fun openAdvancedDiagnostics() {
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performScrollTo()
+        compose.onNodeWithTag(
+            com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
+        ).performClick()
     }
 }
 
@@ -612,7 +968,7 @@ private fun historyState(): ProtectionUiState =
                 type = IncidentType.VIBRATION,
                 severity = IncidentSeverity.WARNING,
                 lifecycle = IncidentLifecycle.CLOSED,
-                evidenceSummary = "VIBRATION: movement",
+                evidenceSummary = "ตรวจพบแรงสั่นต่อเนื่อง (2.5 m/s²)",
                 updatedAtMs = TEST_TIMESTAMP_MS,
                 deliveryState = DeliveryState.SENT,
             ),
@@ -672,6 +1028,16 @@ private const val UNSAVED_TOKEN = "123456:UNSAVED_TEST_TOKEN"
 private const val UNSAVED_SMS_KEY = "UNSAVED_SMS_KEY"
 private const val TEST_TIMESTAMP_MS = 1_725_000_000_000L
 private const val OPAQUE_ALPHA = 0.95f
-private const val CHANNEL_TOLERANCE = 0.02f
-private const val NEAR_BLACK = 0.10f
 private const val NEAR_WHITE = 0.90f
+private const val NAVY_RED = 0.086f
+private const val NAVY_GREEN = 0.196f
+private const val NAVY_BLUE = 0.310f
+private const val NAVY_CHANNEL_TOLERANCE = 0.06f
+
+private fun isCloseToNavy(color: Color): Boolean =
+    kotlin.math.abs(color.red - NAVY_RED) <= NAVY_CHANNEL_TOLERANCE &&
+        kotlin.math.abs(color.green - NAVY_GREEN) <= NAVY_CHANNEL_TOLERANCE &&
+        kotlin.math.abs(color.blue - NAVY_BLUE) <= NAVY_CHANNEL_TOLERANCE
+
+private fun isNearWhite(color: Color): Boolean =
+    color.red >= NEAR_WHITE && color.green >= NEAR_WHITE && color.blue >= NEAR_WHITE

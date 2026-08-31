@@ -1086,11 +1086,11 @@ data class ProtectionStatusProjection(
             }
 
             val powerSourceTh = when (charging) {
-                ChargingState.CHARGING -> "🔌 แหล่งจ่ายไฟ: กำลังชาร์จ"
+                ChargingState.CHARGING -> "🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ"
                 ChargingState.DISCHARGING,
-                ChargingState.NOT_CHARGING -> "🔌 แหล่งจ่ายไฟ: ไม่ได้ชาร์จ"
-                ChargingState.FULL -> "🔌 แหล่งจ่ายไฟ: แบตเตอรี่เต็ม"
-                ChargingState.UNKNOWN -> "🔌 แหล่งจ่ายไฟ: ยังไม่มีข้อมูล"
+                ChargingState.NOT_CHARGING -> "🔌 สายชาร์จ: ไม่ได้เสียบ"
+                ChargingState.FULL -> "🔌 สายชาร์จ: เสียบอยู่ | แบตเตอรี่เต็ม"
+                ChargingState.UNKNOWN -> "🔌 สายชาร์จ: ยังไม่มีข้อมูล"
             }
 
             return BatteryPowerProjection(
@@ -1161,7 +1161,7 @@ data class ProtectionStatusProjection(
             sensors.sensors.values.forEach { sensor ->
                 sensor.issueRecommendation?.let { issues.add(it) }
                 if (sensor.isHardwareUnsupported) {
-                    informationalNotices.add("⚠️ ${sensor.kind.name.lowercase().replaceFirstChar { it.uppercase() }}: เครื่องนี้ไม่รองรับฮาร์ดแวร์")
+                    informationalNotices.add("⚠️ ${sensorKindThaiName(sensor.kind)}: เครื่องนี้ไม่รองรับฮาร์ดแวร์")
                 }
             }
 
@@ -1180,6 +1180,15 @@ data class ProtectionStatusProjection(
                 issues = issues,
                 informationalNotices = informationalNotices,
             )
+        }
+
+        /** Thai hardware-kind name so notices never render raw enum identifiers (Task 8). */
+        private fun sensorKindThaiName(kind: SensorKind): String = when (kind) {
+            SensorKind.VIBRATION -> "การสั่นสะเทือน"
+            SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+            SensorKind.POWER_THERMAL -> "ไฟและอุณหภูมิ"
+            SensorKind.MICROPHONE -> "ไมโครโฟน"
+            SensorKind.LOCATION -> "ตำแหน่ง"
         }
     }
 }

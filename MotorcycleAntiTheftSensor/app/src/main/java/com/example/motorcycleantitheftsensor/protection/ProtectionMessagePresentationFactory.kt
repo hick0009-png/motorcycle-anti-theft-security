@@ -10,15 +10,8 @@ object ProtectionMessagePresentationFactory {
         telegramOk: Boolean = true,
         lastIncident: SecurityIncident? = null,
     ): ProtectionMessagePresentation {
-        val headline = when (state) {
-            ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าระบบเริ่มต้นก่อนใช้งาน"
-            ProtectionState.DISARMED_ONLINE -> "ระบบปิดการป้องกันอยู่"
-            ProtectionState.ARMING -> "กำลังเปิดระบบและปรับเทียบเซ็นเซอร์..."
-            ProtectionState.ARMED_HEALTHY -> "ระบบป้องกันทำงานสมบูรณ์ทุกเซ็นเซอร์"
-            ProtectionState.ARMED_DEGRADED -> "ระบบป้องกันทำงานแบบจำกัด"
-            ProtectionState.ALERT_ACTIVE -> "ตรวจพบเหตุการณ์ผิดปกติ!"
-            ProtectionState.OFFLINE -> "ระบบอยู่ในสถานะออฟไลน์"
-        }
+        // Shared catalog semantics keep Telegram status wording identical to the app UI.
+        val headline = PresentationTextCatalog.protectionStateLabel(state)
 
         val outcome = PresentationTextCatalog.protectionStateLabel(state)
 
@@ -47,7 +40,7 @@ object ProtectionMessagePresentationFactory {
             }
         }
 
-        val serviceSummary = if (state == ProtectionState.DISARMED_ONLINE || state == ProtectionState.SETUP_REQUIRED) "Service หยุดทำงาน" else "Foreground Service กำลังทำงาน"
+        val serviceSummary = if (state == ProtectionState.DISARMED_ONLINE || state == ProtectionState.SETUP_REQUIRED) "บริการหลักหยุดทำงาน" else "บริการพื้นหน้ากำลังทำงาน"
         val telegramSummary = if (telegramOk) "Telegram เชื่อมต่อปกติ" else "Telegram ไม่พร้อมใช้งาน"
         val batterySummary = batteryPercent?.let { "แบตเตอรี่ $it%" } ?: "แบตเตอรี่ปกติ"
         val lastIncidentSummary = lastIncident?.let {
