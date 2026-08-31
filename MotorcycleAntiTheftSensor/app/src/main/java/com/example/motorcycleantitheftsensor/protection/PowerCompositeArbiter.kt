@@ -36,8 +36,9 @@ sealed interface PowerArbiterVerdict {
  * its own continuous debounce window: entering dual loss restarts its 10 s timer
  * from zero and never inherits elapsed time from a preceding one-signal condition.
  * All state changes stay inside one episode (`POWER-<n>` per armed session) until
- * both signals have been healthy for the 30-second close window. Stale or ambiguous
- * evidence degrades honestly instead of concluding anything.
+ * both signals have been healthy for the 10-second close window. Guard-band samples
+ * may reuse only a conclusive witness reading from the current evidence continuity;
+ * stale or unknown evidence invalidates that fallback.
  */
 class PowerCompositeArbiter(
     private val model: PowerWitnessModel,
@@ -50,6 +51,7 @@ class PowerCompositeArbiter(
         val episodeId: String? = null,
         val episodeCounter: Int = 0,
         val currentSemantic: SemanticState? = null,
+        val lastConclusiveWitnessLit: Boolean? = null,
         val streakStartMs: Long? = null,
         val streakFired: Boolean = false,
         val healthySinceMs: Long? = null,
@@ -61,28 +63,49 @@ class PowerCompositeArbiter(
     fun initialState(): State = State()
 
     fun evaluate(state: State, sample: PowerSignalSample): Pair<PowerArbiterVerdict?, State> {
-        // Gate 1: evidence quality. Stale, unknown, or guard-band-ambiguous samples
-        // can never advance any window nor conclude an outage.
+        // Stale or unknown evidence breaks continuity. A later guard-band reading
+        // must not inherit a witness conclusion from before that gap.
         if (!sample.fresh || sample.chargingConnected == null || sample.witnessLux == null) {
-            return null to resetWindows(state)
+            return null to invalidateEvidenceContinuity(state)
         }
-        val witnessLit = when {
-            sample.witnessLux <= model.darkMaxLux -> false
-            sample.witnessLux >= model.litMinLux -> true
-            else -> return null to resetWindows(state)
+        val conclusiveWitnessLit = when {
+            sample.witnessLux <= model.witnessDarkThresholdLux -> false
+            sample.witnessLux >= model.witnessLitThresholdLux -> true
+            else -> null
         }
+        val evidenceState = if (conclusiveWitnessLit != null) {
+            state.copy(lastConclusiveWitnessLit = conclusiveWitnessLit)
+        } else {
+            state
+        }
+        val witnessLit = conclusiveWitnessLit ?: evidenceState.lastConclusiveWitnessLit
         val semantic = when {
-            sample.chargingConnected && witnessLit -> SemanticState.HEALTHY_DUAL
-            !sample.chargingConnected && witnessLit -> SemanticState.CHARGING_LOST
-            sample.chargingConnected && !witnessLit -> SemanticState.WITNESS_LOST
-            else -> SemanticState.DUAL_LOST
+            sample.chargingConnected && witnessLit == true -> SemanticState.HEALTHY_DUAL
+            !sample.chargingConnected && witnessLit == false -> SemanticState.DUAL_LOST
+            !sample.chargingConnected -> SemanticState.CHARGING_LOST
+            witnessLit == false -> SemanticState.WITNESS_LOST
+            else -> return null to resetWindows(evidenceState)
         }
 
-        if (semantic != state.currentSemantic) {
-            return onSemanticChange(state, semantic, sample.timestampMs)
+        if (semantic != evidenceState.currentSemantic) {
+            return onSemanticChange(evidenceState, semantic, sample.timestampMs)
         }
-        return onSameSemantic(state, semantic, sample.timestampMs)
+        if (
+            semantic == SemanticState.CHARGING_LOST &&
+            state.lastConclusiveWitnessLit == null &&
+            conclusiveWitnessLit == true &&
+            evidenceState.confirmedLossOpen &&
+            evidenceState.episodeId != null
+        ) {
+            return PowerArbiterVerdict.PartialRecovery(evidenceState.episodeId) to evidenceState
+        }
+        return onSameSemantic(evidenceState, semantic, sample.timestampMs)
     }
+
+    /** Clears evidence that must never cross a stale/unknown or sensor-generation gap. */
+    internal fun invalidateEvidenceContinuity(state: State): State = resetWindows(state).copy(
+        lastConclusiveWitnessLit = null,
+    )
 
     private fun onSemanticChange(
         state: State,
@@ -91,11 +114,16 @@ class PowerCompositeArbiter(
     ): Pair<PowerArbiterVerdict?, State> {
         // Leaving confirmed dual loss toward a one-signal state is partial recovery:
         // the dashboard updates but the episode stays open without a close message.
+        val witnessRecoveryIsConclusive = when (semantic) {
+            SemanticState.CHARGING_LOST -> state.lastConclusiveWitnessLit == true
+            SemanticState.WITNESS_LOST -> true
+            else -> false
+        }
         val partial = if (
             state.currentSemantic == SemanticState.DUAL_LOST &&
             state.confirmedLossOpen &&
             state.episodeId != null &&
-            semantic != SemanticState.HEALTHY_DUAL
+            witnessRecoveryIsConclusive
         ) {
             PowerArbiterVerdict.PartialRecovery(state.episodeId)
         } else {
@@ -137,6 +165,15 @@ class PowerCompositeArbiter(
         timestampMs: Long,
     ): Pair<PowerArbiterVerdict?, State> {
         val marked = state.copy(streakFired = true, healthySinceMs = null)
+        if (
+            semantic == SemanticState.CHARGING_LOST &&
+            state.lastConclusiveWitnessLit == null &&
+            state.confirmedLossOpen
+        ) {
+            // A known cable loss with unclear witness evidence cannot downgrade or
+            // reconfirm an already-open dual-loss incident.
+            return null to marked
+        }
         if (semantic == SemanticState.DUAL_LOST) {
             val existing = state.episodeId
             if (existing == null) {

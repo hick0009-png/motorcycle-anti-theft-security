@@ -25,19 +25,25 @@ class IncidentMessageFormatter(
             is IncidentUpdate.Closed -> GuidanceCode.INCIDENT_CLOSED
             IncidentUpdate.Ignored -> GuidanceCode.INCIDENT_OPENED
         }
-        val template = UserGuidanceCatalog.content(code).telegramTh
+        val template = UserGuidanceCatalog.content(
+            code,
+            GuidanceDetail.IncidentTypeValue(incident.type),
+        ).telegramTh
             ?: when (update) {
                 is IncidentUpdate.Escalated -> "🚨 เหตุยกระดับเป็นวิกฤต: {incidentType}"
                 is IncidentUpdate.Closed -> "ℹ️ เหตุการณ์สิ้นสุดแล้ว"
                 else -> "🚨 ตรวจพบ {incidentType}"
             }
-        var message = template.replace("{incidentType}", incident.type.name)
+        var message = template.replace(
+            "{incidentType}",
+            PresentationTextCatalog.incidentTypeLabel(incident.type),
+        )
 
         if (update !is IncidentUpdate.Closed && incident.lifecycle != IncidentLifecycle.CLOSED) {
             val details = mutableListOf<String>()
 
             if (update is IncidentUpdate.Escalated) {
-                details.add("⚠️ ระดับความรุนแรง: วิกฤต (CRITICAL)")
+                details.add("⚠️ ระดับความรุนแรง: วิกฤต")
             }
 
             if (incident.evidence.isNotEmpty()) {
@@ -55,13 +61,12 @@ class IncidentMessageFormatter(
                             SensorKind.MICROPHONE -> "เสียง"
                             SensorKind.LOCATION -> "พิกัด"
                         }
-                        val diag = ev.diagnostic ?: "N/A"
                         val verb = when (ev.kind) {
                             SensorKind.LIGHT -> "ตรวจพบความสว่างเปลี่ยนไป"
                             SensorKind.VIBRATION -> "ตรวจพบการเอียง/สั่น"
                             else -> "ตรวจพบค่าเปลี่ยนไป"
                         }
-                        details.add("• $kindName ($diag): $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
+                        details.add("• $kindName: $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
                     }
                 }
             }
@@ -106,19 +111,25 @@ class IncidentMessageFormatter(
             is IncidentUpdate.Closed -> GuidanceCode.INCIDENT_CLOSED
             IncidentUpdate.Ignored -> GuidanceCode.INCIDENT_OPENED
         }
-        val template = UserGuidanceCatalog.content(code).telegramTh
+        val template = UserGuidanceCatalog.content(
+            code,
+            GuidanceDetail.IncidentTypeValue(incident.type),
+        ).telegramTh
             ?: when (update) {
                 is IncidentUpdate.Escalated -> "🚨 เหตุยกระดับเป็นวิกฤต: {incidentType}"
                 is IncidentUpdate.Closed -> "ℹ️ เหตุการณ์สิ้นสุดแล้ว"
                 else -> "🚨 ตรวจพบ {incidentType}"
             }
-        var message = template.replace("{incidentType}", incident.type.name)
+        var message = template.replace(
+            "{incidentType}",
+            PresentationTextCatalog.incidentTypeLabel(incident.type),
+        )
 
         if (update !is IncidentUpdate.Closed && incident.lifecycle != IncidentLifecycle.CLOSED) {
             val details = mutableListOf<String>()
 
             if (update is IncidentUpdate.Escalated) {
-                details.add("⚠️ ระดับความรุนแรง: วิกฤต (CRITICAL)")
+                details.add("⚠️ ระดับความรุนแรง: วิกฤต")
             }
 
             if (incident.evidence.isNotEmpty()) {
@@ -133,15 +144,14 @@ class IncidentMessageFormatter(
                             SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
-                            else -> ev.kind.name
+                            else -> ev.kind.thaiName()
                         }
-                        val diag = ev.diagnostic ?: "N/A"
                         val verb = when (ev.kind) {
                             SensorKind.LIGHT -> "ตรวจพบความสว่างเปลี่ยนไป"
                             SensorKind.VIBRATION -> "ตรวจพบการเอียง/สั่น"
                             else -> "ตรวจพบค่าเปลี่ยนไป"
                         }
-                        details.add("• $kindName ($diag): $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
+                        details.add("• $kindName: $verb Δ ${"%.2f".format(Locale.US, ev.baselineDelta)}")
                     }
                 }
             }
@@ -168,11 +178,11 @@ class IncidentMessageFormatter(
     fun formatProgress(incident: SecurityIncident): String {
         val latestEvidence = incident.evidence.maxByOrNull { it.wallClockMs }
         val latestDescription = latestEvidence?.let { evidence ->
-            val source = evidence.diagnostic ?: evidence.kind.thaiName()
+            val source = evidence.kind.thaiName()
             "ตรวจพบล่าสุด: $source"
         } ?: "กำลังติดตามหลักฐานเพิ่มเติม"
         return "⚠️ เหตุการณ์ยังดำเนินอยู่\n" +
-            "ประเภท: ${incident.type.name}\n" +
+            "ประเภท: ${PresentationTextCatalog.incidentTypeLabel(incident.type)}\n" +
             "$latestDescription\n" +
             "หลักฐานที่ยืนยันแล้ว: ${incident.evidence.size} รายการ\n" +
             "ระบบจะปิดเหตุเมื่อไม่พบหลักฐานใหม่ต่อเนื่อง 30 วินาที"
@@ -181,7 +191,7 @@ class IncidentMessageFormatter(
     fun formatContinuation(incident: SecurityIncident): String =
         "⚠️ เหตุการณ์ยังดำเนินอยู่\n" +
             "เหตุยังตรวจพบต่อเนื่องเกิน 1 นาที\n" +
-            "ประเภท: ${incident.type.name}\n" +
+            "ประเภท: ${PresentationTextCatalog.incidentTypeLabel(incident.type)}\n" +
             "หลักฐานที่ยืนยันแล้ว: ${incident.evidence.size} รายการ\n" +
             "ตรวจสอบรถและตำแหน่งล่าสุดทันที"
 
@@ -229,7 +239,7 @@ class IncidentMessageFormatter(
                 if (update is IncidentUpdate.Closed) {
                     "ประตูปิดและนิ่งแล้ว"
                 } else {
-                    "🚨 ตรวจพบ ${incident.type.name}"
+                    "🚨 ตรวจพบ ${PresentationTextCatalog.incidentTypeLabel(incident.type)}"
                 }
         }
     }
@@ -249,9 +259,12 @@ class IncidentMessageFormatter(
      */
     private fun powerMessage(update: IncidentUpdate, incident: SecurityIncident): String {
         val latest = incident.evidence.lastOrNull {
-            it.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true
+            it.diagnostic == CHARGER_DISCONNECTED ||
+                it.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true
         }
         return when (latest?.diagnostic) {
+            CHARGER_DISCONNECTED ->
+                "ตรวจพบว่าสายชาร์จถูกถอดออก"
             POWER_CHARGING_HEALTH ->
                 "การชาร์จโทรศัพท์หยุด ตรวจสอบสายชาร์จ ที่ชาร์จ หรือพอร์ตชาร์จของโทรศัพท์"
             POWER_WITNESS_DARK ->
@@ -264,7 +277,7 @@ class IncidentMessageFormatter(
                 if (update is IncidentUpdate.Closed) {
                     "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
                 } else {
-                    "🚨 ตรวจพบ ${incident.type.name}"
+                    "🚨 ตรวจพบ ${PresentationTextCatalog.incidentTypeLabel(incident.type)}"
                 }
         }
     }
@@ -280,6 +293,7 @@ class IncidentMessageFormatter(
         const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
+        val CHARGER_DISCONNECTED = ProtectionDiagnostics.CHARGER_DISCONNECTED
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
         val POWER_WITNESS_DARK = ProtectionDiagnostics.POWER_WITNESS_DARK
         val POWER_CONFIRMED_LOSS = ProtectionDiagnostics.POWER_CONFIRMED_LOSS

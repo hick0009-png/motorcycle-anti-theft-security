@@ -1086,11 +1086,11 @@ data class ProtectionStatusProjection(
             }
 
             val powerSourceTh = when (charging) {
-                ChargingState.CHARGING -> "🔌 แหล่งจ่ายไฟ: กำลังชาร์จ"
+                ChargingState.CHARGING -> "🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ"
                 ChargingState.DISCHARGING,
-                ChargingState.NOT_CHARGING -> "🔌 แหล่งจ่ายไฟ: ไม่ได้ชาร์จ"
-                ChargingState.FULL -> "🔌 แหล่งจ่ายไฟ: แบตเตอรี่เต็ม"
-                ChargingState.UNKNOWN -> "🔌 แหล่งจ่ายไฟ: ยังไม่มีข้อมูล"
+                ChargingState.NOT_CHARGING -> "🔌 สายชาร์จ: ไม่ได้เสียบ"
+                ChargingState.FULL -> "🔌 สายชาร์จ: เสียบอยู่ | แบตเตอรี่เต็ม"
+                ChargingState.UNKNOWN -> "🔌 สายชาร์จ: ยังไม่มีข้อมูล"
             }
 
             return BatteryPowerProjection(

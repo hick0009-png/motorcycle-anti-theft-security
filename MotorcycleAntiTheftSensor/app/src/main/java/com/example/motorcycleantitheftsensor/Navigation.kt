@@ -140,6 +140,7 @@ fun MainNavigation(
             entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,
             powerStartCommissioning = protectionViewModel::startPowerCommissioning,
             powerCancelCommissioning = protectionViewModel::cancelPowerCommissioning,
+            powerResetCalibration = protectionViewModel::resetPowerCalibration,
             powerMarkChallengePassed = protectionViewModel::markPowerChallengePassed,
         ),
     )

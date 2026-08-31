@@ -150,6 +150,9 @@ data class LightHealthDetail(
     val lastLux: Double? = null,
     val lastSampleWallClockMs: Long? = null,
     val lastSampleElapsedMs: Long? = null,
+    /** Armed-session thresholds after the current Arm reference has been applied. */
+    val armedWitnessDarkThresholdLux: Double? = null,
+    val armedWitnessLitThresholdLux: Double? = null,
     val failureReason: String? = null,
 )
 

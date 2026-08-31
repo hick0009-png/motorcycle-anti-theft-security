@@ -58,10 +58,9 @@ class PowerWitnessCommissioningPolicyTest {
         assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, commissioned.phase)
         val model = commissioned.model
         assertNotNull(model)
-        assertEquals(2.0, model!!.darkMinLux, 0.001)
-        assertEquals(4.0, model.darkMaxLux, 0.001)
-        assertEquals(120.0, model.litMinLux, 0.001)
-        assertEquals(123.0, model.litMaxLux, 0.001)
+        assertTrue(model!!.darkMinLux < model.darkMaxLux)
+        assertTrue(model.litMinLux < model.litMaxLux)
+        assertTrue(model.darkMaxLux < model.litMinLux)
         assertEquals("light#1", model.sensorIdentity)
         assertEquals("hood-A", model.hoodSignature)
     }
@@ -70,22 +69,76 @@ class PowerWitnessCommissioningPolicyTest {
     fun overlappingDarkAndLitRangesAreRejected() {
         val p = policy(guardBandLux = 20.0)
         val darkDone = darkSamples(p)
-        // Lit range overlaps the dark range: separation is far below the guard band.
-        val rejected = litSamples(p, darkDone, lux = 10.0)
+        // Lit range overlaps the dark range, so the lamp change is indistinguishable.
+        val rejected = litSamples(p, darkDone, lux = 2.0)
         assertEquals(PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW, rejected.phase)
         assertEquals("ranges-not-separated-by-guard-band", rejected.rejectionReason)
         assertNull(rejected.model)
     }
 
     @Test
-    fun rangesInsideGuardBandAreRejected() {
+    fun separatedRangesAboveObservedNoiseCommission() {
         val p = policy(guardBandLux = 20.0)
         val darkDone = darkSamples(p)
-        // Positive but insufficient separation: lit 20..23 minus darkMax 4 = 16 < 20.
-        val rejected = litSamples(p, darkDone, lux = 20.0)
-        assertEquals(PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW, rejected.phase)
-        assertEquals("ranges-not-separated-by-guard-band", rejected.rejectionReason)
-        assertNull(rejected.model)
+        // The 16-lux change is much larger than both observed ranges, despite the old
+        // fixed 20-lux guard band.
+        val commissioned = litSamples(p, darkDone, lux = 20.0)
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, commissioned.phase)
+        assertNotNull(commissioned.model)
+    }
+
+    @Test
+    fun smallStableLightContrastCommissionsWithoutAStaticLuxGuardBand() {
+        val p = policy(guardBandLux = 20.0)
+        var state = p.start()
+        for (t in 0L..3_000L step 500L) {
+            state = p.onSample(state, PowerWitnessSample(lux = 100.0, timestampMs = t, fresh = true))
+        }
+        for (t in 4_000L..7_000L step 500L) {
+            state = p.onSample(state, PowerWitnessSample(lux = 104.0, timestampMs = t, fresh = true))
+        }
+
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, state.phase)
+        assertNotNull(state.model)
+    }
+
+    @Test
+    fun isolatedOutliersDoNotRejectSeparatedBrightAmbientWindows() {
+        val p = policy(maxSpanLux = 5.0)
+        var state = p.start()
+        val darkLux = listOf(100.0, 100.2, 450.0, 99.9, 100.1, 100.0, 100.2)
+        darkLux.forEachIndexed { index, lux ->
+            state = p.onSample(
+                state,
+                PowerWitnessSample(lux = lux, timestampMs = index * 500L, fresh = true),
+            )
+        }
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.LIT_WINDOW, state.phase)
+
+        val litLux = listOf(104.0, 104.2, 0.0, 103.9, 104.1, 104.0, 104.2)
+        litLux.forEachIndexed { index, lux ->
+            state = p.onSample(
+                state,
+                PowerWitnessSample(lux = lux, timestampMs = 4_000L + index * 500L, fresh = true),
+            )
+        }
+
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, state.phase)
+        val model = requireNotNull(state.model)
+        assertTrue(model.darkMaxLux < model.litMinLux)
+    }
+
+    @Test
+    fun elapsedWindowAdvancesWhenOnChangeSensorDoesNotRepeatStableValue() {
+        val p = policy()
+        var state = p.start()
+        state = p.onSample(state, PowerWitnessSample(lux = 10.0, timestampMs = 0L, fresh = true))
+        state = p.onTick(state, timestampMs = 3_000L)
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.LIT_WINDOW, state.phase)
+
+        state = p.onSample(state, PowerWitnessSample(lux = 20.0, timestampMs = 4_000L, fresh = true))
+        state = p.onTick(state, timestampMs = 7_000L)
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, state.phase)
     }
 
     @Test
@@ -99,17 +152,41 @@ class PowerWitnessCommissioningPolicyTest {
     }
 
     @Test
-    fun excessiveVarianceRestartsCurrentWindow() {
+    fun isolatedSpikeIsRetainedForRobustFilteringWithoutRestart() {
         val p = policy(maxSpanLux = 5.0)
         var state = p.start()
         state = p.onSample(state, PowerWitnessSample(lux = 2.0, timestampMs = 0L, fresh = true))
         state = p.onSample(state, PowerWitnessSample(lux = 2.5, timestampMs = 500L, fresh = true))
-        // A spike beyond the allowed span restarts the current window at this sample.
+        // Robust statistics need the complete window so they can classify this spike.
         state = p.onSample(state, PowerWitnessSample(lux = 60.0, timestampMs = 1_000L, fresh = true))
         assertEquals(PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW, state.phase)
         assertEquals(60.0, state.windowMaxLux!!, 0.001)
-        assertEquals(60.0, state.windowMinLux!!, 0.001)
-        assertEquals(1_000L, state.windowStartMs)
+        assertEquals(2.0, state.windowMinLux!!, 0.001)
+        assertEquals(0L, state.windowStartMs)
+        assertEquals(3, state.windowSamplesLux.size)
+    }
+
+    @Test
+    fun fluctuatingLitWindowIsCapturedInsteadOfRestarted() {
+        val p = policy(maxSpanLux = 5.0)
+        val darkDone = darkSamples(p)
+        var state = darkDone
+        val fluctuatingLux = listOf(40.0, 60.0, 45.0, 55.0, 50.0, 58.0, 52.0)
+        fluctuatingLux.forEachIndexed { index, lux ->
+            state = p.onSample(
+                state,
+                PowerWitnessSample(
+                    lux = lux,
+                    timestampMs = 4_000L + index * 500L,
+                    fresh = true,
+                ),
+            )
+        }
+
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.COMMISSIONED, state.phase)
+        val model = requireNotNull(state.model)
+        assertTrue(model.litMinLux < 52.0)
+        assertTrue(model.litMaxLux > 52.0)
     }
 
     @Test

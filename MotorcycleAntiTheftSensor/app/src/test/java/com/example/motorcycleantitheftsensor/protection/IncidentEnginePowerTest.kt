@@ -104,6 +104,27 @@ class IncidentEnginePowerTest {
     }
 
     @Test
+    fun recoveredClosureCarriesRecoveryEvidenceForTelegramCopy() {
+        engine.accept(
+            powerObservation("power_witness_dark", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        val update = engine.accept(
+            powerObservation("power_recovered", 40_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue(update is IncidentUpdate.Closed)
+        update as IncidentUpdate.Closed
+        assertEquals("power_recovered", update.incident.evidence.last().diagnostic)
+        assertEquals(
+            "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว",
+            IncidentMessageFormatter().formatTelegram(update),
+        )
+    }
+
+    @Test
     fun recoveredWithoutPowerIncidentIsIgnored() {
         val update = engine.accept(
             powerObservation("power_recovered", 1_000L),
@@ -111,6 +132,53 @@ class IncidentEnginePowerTest {
         )
         assertEquals(IncidentUpdate.Ignored, update)
         assertFalse(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun restoredPowerIncidentTreatsTheSameConditionAsAnUpdateNotANewOpening() {
+        val opened = engine.accept(
+            powerObservation("power_witness_dark", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        ) as IncidentUpdate.Opened
+        val restored = IncidentEngine(
+            idGenerator = IncidentIdGenerator { "must-not-open-another-incident" },
+            correlationWindowMs = 15_000L,
+            restoredActiveIncident = opened.incident,
+            restoredAtElapsedMs = 5_000L,
+        )
+
+        val update = restored.accept(
+            powerObservation("power_witness_dark", 6_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue(update is IncidentUpdate.Updated)
+        update as IncidentUpdate.Updated
+        assertEquals("power-incident-test", update.incident.id)
+    }
+
+    @Test
+    fun recoveredSignalClosesAPowerIncidentRestoredAfterProcessRestart() {
+        val opened = engine.accept(
+            powerObservation("power_witness_dark", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        ) as IncidentUpdate.Opened
+        val restored = IncidentEngine(
+            idGenerator = IncidentIdGenerator { "must-not-open-another-incident" },
+            correlationWindowMs = 15_000L,
+            restoredActiveIncident = opened.incident,
+            restoredAtElapsedMs = 5_000L,
+        )
+
+        val update = restored.accept(
+            powerObservation("power_recovered", 35_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue(update is IncidentUpdate.Closed)
+        update as IncidentUpdate.Closed
+        assertEquals("power-incident-test", update.incident.id)
+        assertEquals("power_recovered", update.incident.evidence.last().diagnostic)
     }
 
     @Test

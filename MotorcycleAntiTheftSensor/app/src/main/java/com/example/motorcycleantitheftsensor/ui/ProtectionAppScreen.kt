@@ -50,6 +50,7 @@ data class ProtectionAppActions(
     val entryCancelCommissioning: () -> Unit = {},
     val powerStartCommissioning: () -> Unit = {},
     val powerCancelCommissioning: () -> Unit = {},
+    val powerResetCalibration: () -> Unit = {},
     val powerMarkChallengePassed: () -> Unit = {},
     val arm: () -> Unit,
     val disarm: () -> Unit,

@@ -36,6 +36,7 @@ fun PowerGuardSection(
     actions: ProtectionAppActions,
 ) {
     val commissioning = profile.powerCommissioning
+    val canConfigureWitness = profile.armedProfile == null
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -48,12 +49,12 @@ fun PowerGuardSection(
                 modifier = Modifier.semantics { heading() },
             )
 
-            if (commissioning != null) {
+            if (commissioning != null && canConfigureWitness) {
                 val phaseText = when (commissioning.phase) {
                     PowerCommissioningPhase.DARK_WINDOW ->
-                        "ขั้นที่ 1/2: ปิดไฟยืนยันทิ้งไว้ 5 วินาที (โทรศัพท์ต้องเสียบชาร์จอยู่)"
+                        "ขั้นที่ 1/2: ปิดไฟยืนยันทิ้งไว้ 10 วินาที (โทรศัพท์ต้องเสียบชาร์จอยู่)"
                     PowerCommissioningPhase.LIT_WINDOW ->
-                        "ขั้นที่ 2/2: เปิดไฟยืนยันทิ้งไว้ 5 วินาที"
+                        "ขั้นที่ 2/2: เปิดไฟยืนยันทิ้งไว้ 10 วินาที ในสภาพใช้งานจริง"
                     PowerCommissioningPhase.COMMISSIONED -> "ปรับเทียบสำเร็จ"
                     PowerCommissioningPhase.FAILED -> "ปรับเทียบไม่สำเร็จ กรุณาลองใหม่"
                 }
@@ -78,7 +79,7 @@ fun PowerGuardSection(
                 ) {
                     Text("ยกเลิกการปรับเทียบ")
                 }
-            } else if (profile.setupState == ProfileSetupState.SETUP_REQUIRED) {
+            } else if (profile.setupState == ProfileSetupState.SETUP_REQUIRED && canConfigureWitness) {
                 Text("ปรับเทียบไฟยืนยันก่อนเริ่มใช้งาน")
                 Text(
                     text = "เสียบที่ชาร์จไว้ แล้วทำตามคำแนะนำการปิด/เปิดไฟยืนยัน",
@@ -122,6 +123,11 @@ fun PowerGuardSection(
                             "ไฟยืนยัน: ไม่พบแสง",
                             MaterialTheme.colorScheme.error,
                         )
+                        WitnessRowState.AMBIGUOUS -> Triple(
+                            "⚠",
+                            "ไฟยืนยัน: แสงอยู่ระหว่างเกณฑ์",
+                            MaterialTheme.colorScheme.tertiary,
+                        )
                         WitnessRowState.UNAVAILABLE -> Triple(
                             "▲",
                             "ไฟยืนยัน: ใช้งานไม่ได้",
@@ -133,7 +139,16 @@ fun PowerGuardSection(
                         RecoveryHint("ตรวจสอบสายชาร์จและแหล่งจ่ายไฟ")
                     }
                     SignalRow(glyph = witness.first, text = witness.second, tint = witness.third)
-                    if (summary.witness != WitnessRowState.DETECTED) {
+                    if (summary.requiresWitnessPlacementRevalidation) {
+                        RecoveryHint("ยังไม่ได้ยืนยันตำแหน่งไฟก่อน arm: ปิด-เปิดไฟยืนยัน แล้วกดปุ่มยืนยัน")
+                    }
+                    summary.lastLux?.let { lux ->
+                        Text(
+                            text = "ค่าที่วัดล่าสุด %.0f lux".format(lux),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (summary.witness != WitnessRowState.DETECTED && canConfigureWitness) {
                         RecoveryHint("ตรวจสอบหลอดไฟ ตำแหน่งฝาครอบ หรือปรับเทียบใหม่")
                     }
                     Text(
@@ -142,19 +157,35 @@ fun PowerGuardSection(
                     )
                 }
 
+                if (canConfigureWitness) {
                 OutlinedButton(
                     onClick = actions.powerMarkChallengePassed,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                 ) {
-                    Text("ยืนยันตำแหน่งไฟ (ปิด-เปิดไฟยืนยันแล้ว)")
+                    Text(
+                        if (profile.powerWitnessPlacementConfirmed) {
+                            "✓ ยืนยันตำแหน่งไฟสำเร็จ"
+                        } else {
+                            "ยืนยันตำแหน่งไฟ (ปิด-เปิดไฟยืนยันแล้ว)"
+                        },
+                    )
+                }
+                OutlinedButton(
+                    onClick = actions.powerResetCalibration,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text("ปรับเทียบไฟยืนยันใหม่")
+                }
                 }
                 if (profile.setupState == ProfileSetupState.READY &&
-                    profile.powerSummary?.witness == WitnessRowState.UNAVAILABLE
+                    profile.powerSummary?.requiresWitnessPlacementRevalidation == true
                 ) {
                     Text(
-                        text = "เปิดระบบแบบเฝ้าระวังลดระดับ: ตำแหน่งไฟยืนยันไม่ได้รับการยืนยัน",
+                        text = "ระบบอยู่โหมดเฝ้าระวังลดระดับ: ยังไม่ได้ยืนยันตำแหน่งไฟสำหรับรอบ arm นี้",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }

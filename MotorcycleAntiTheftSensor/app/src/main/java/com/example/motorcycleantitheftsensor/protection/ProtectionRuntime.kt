@@ -128,6 +128,14 @@ interface ProtectionRuntime {
     fun clearPowerSession() {
     }
 
+    /** Starts presentation-only Power Guard status monitoring while the profile is visible. */
+    fun startPowerStatusMonitoring() {
+    }
+
+    /** Stops presentation-only Power Guard status monitoring when the profile is hidden. */
+    fun stopPowerStatusMonitoring() {
+    }
+
     /**
      * Commissioning-time witness stream: registers the ambient-light source without an
      * armed session so the guided lamp off/on flow can observe live samples.

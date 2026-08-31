@@ -113,7 +113,7 @@ data class EntryProfileSettings(
 ) : ProfileSpecificSettings
 data class PowerProfileSettings(
     val lossConfirmationMs: Long = 10_000L,
-    val recoveryConfirmationMs: Long = 30_000L,
+    val recoveryConfirmationMs: Long = 10_000L,
 ) : ProfileSpecificSettings
 
 data class SensorCapabilityProfileOverrides(
@@ -183,7 +183,7 @@ Implement `ProtectionProfilePolicy` with these exact rules:
 - Power recommended configuration makes ambient light primary and motion/orientation off by default; charging remains a typed runtime observation added by the Power plan.
 - Entry and Power start as `SETUP_REQUIRED`; Vehicle starts `READY` only after the existing runtime readiness passes.
 - Validate Entry angle `5..90`, open confirmation `250..3_000`, fixed close threshold `3`, and fixed close confirmation `5_000`.
-- Validate Power loss `10_000` and recovery `30_000` for this release.
+- Validate Power loss `10_000` and recovery `10_000` for this release.
 - Resolve only explicit field-level overrides on top of the current profile preset, then pass the resolved sensor configuration through `SensorConfigurationPolicy.validateForSave`.
 
 - [x] **Step 4: Run the focused test and confirm GREEN**

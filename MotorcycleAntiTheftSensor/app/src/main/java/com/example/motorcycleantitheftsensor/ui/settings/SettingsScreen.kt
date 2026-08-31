@@ -388,6 +388,7 @@ fun SettingsScreen(
                             when (rows?.witness) {
                                 WitnessRowState.DETECTED -> "พบ"
                                 WitnessRowState.DARK -> "ไม่พบ"
+                                WitnessRowState.AMBIGUOUS -> "อยู่ระหว่างเกณฑ์"
                                 WitnessRowState.UNAVAILABLE, null -> "ใช้งานไม่ได้"
                             },
                         )

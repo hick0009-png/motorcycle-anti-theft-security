@@ -409,7 +409,10 @@ object UserGuidanceCatalog {
         val seconds = (detail as? GuidanceDetail.ArmingSeconds)?.seconds?.toString() ?: "0"
         val level = (detail as? GuidanceDetail.SensitivityLevel)?.level?.toString() ?: "0"
         val state = (detail as? GuidanceDetail.ProtectionStateValue)?.state?.name ?: ""
-        val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)?.incidentType?.name ?: ""
+        val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)
+            ?.incidentType
+            ?.let(PresentationTextCatalog::incidentTypeLabel)
+            ?: ""
         val sensorName = (detail as? GuidanceDetail.SensorKindValue)?.sensorKind?.name ?: ""
         val safeReason = (detail as? GuidanceDetail.SafeReason)?.reason?.name ?: ""
         val permissionName = "Permission"

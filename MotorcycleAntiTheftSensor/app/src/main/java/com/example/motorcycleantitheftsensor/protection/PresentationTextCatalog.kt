@@ -197,6 +197,16 @@ object PresentationTextCatalog {
         IncidentType.ENTRY_DOOR -> "🚪 ตรวจพบประตูเปิด"
     }
 
+    /** Compact incident wording for sentences and external messages; never expose enum names. */
+    fun incidentTypeLabel(type: IncidentType): String = when (type) {
+        IncidentType.VIBRATION -> "การเคลื่อนไหวผิดปกติ"
+        IncidentType.TAMPER -> "การงัดแงะหรือเปิดเบาะ"
+        IncidentType.POWER -> "แหล่งจ่ายไฟผิดปกติ"
+        IncidentType.THERMAL -> "อุณหภูมิผิดปกติ"
+        IncidentType.AUDIO -> "เสียงผิดปกติบริเวณจุดติดตั้ง"
+        IncidentType.ENTRY_DOOR -> "ประตูเปิด"
+    }
+
     fun severityLabel(severity: IncidentSeverity): String = when (severity) {
         IncidentSeverity.WARNING -> "เตือนภัย"
         IncidentSeverity.CRITICAL -> "วิกฤต"

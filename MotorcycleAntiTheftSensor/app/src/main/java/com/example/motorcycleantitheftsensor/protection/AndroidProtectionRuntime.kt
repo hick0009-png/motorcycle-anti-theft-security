@@ -37,6 +37,59 @@ private val POWER_WITNESS_DARK_DIAGNOSTIC = ProtectionDiagnostics.POWER_WITNESS_
 private val POWER_CONFIRMED_LOSS_DIAGNOSTIC = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
 private val POWER_RECOVERED_DIAGNOSTIC = ProtectionDiagnostics.POWER_RECOVERED
 
+internal fun powerConfirmationDelayMs(deadlineMs: Long?, nowMs: Long): Long? =
+    deadlineMs?.minus(nowMs)?.takeIf { it > 0L }
+
+internal fun powerWitnessIsFreshForGeneration(
+    witnessLux: Double?,
+    witnessGeneration: Long?,
+    currentGeneration: Long,
+): Boolean = witnessLux != null && witnessGeneration == currentGeneration
+
+internal data class CachedPowerWitness(
+    val lux: Double,
+    val generation: Long,
+)
+
+internal class PowerWitnessContinuityCache {
+    @Volatile
+    private var cached: CachedPowerWitness? = null
+
+    fun record(lux: Double, generation: Long): CachedPowerWitness =
+        CachedPowerWitness(lux = lux, generation = generation).also { cached = it }
+
+    fun latest(): CachedPowerWitness? = cached
+
+    fun endListenerContinuity() {
+        cached = null
+    }
+}
+
+/**
+ * Keeps the most recent witness reading visible when the armed detector set stops but
+ * the presentation-only Power Guard listener remains registered. The device light
+ * sensor is on-change, so waiting for another callback would incorrectly clear it.
+ */
+internal fun powerLightHealthAfterDetectorStop(
+    hasLightSensor: Boolean,
+    powerStatusMonitoringActive: Boolean,
+    lastWitnessLux: Double?,
+): SensorHealth {
+    val retainWitness = hasLightSensor && powerStatusMonitoringActive && lastWitnessLux != null
+    return SensorHealth(
+        state = when {
+            retainWitness -> SensorHealthState.HEALTHY
+            hasLightSensor -> SensorHealthState.AVAILABLE
+            else -> SensorHealthState.UNAVAILABLE
+        },
+        lightDetail = LightHealthDetail(
+            hardwareSupported = hasLightSensor,
+            isRegistered = powerStatusMonitoringActive,
+            lastLux = lastWitnessLux.takeIf { retainWitness },
+        ),
+    )
+}
+
 interface AndroidDetectorSet {
     val audioTelemetry: StateFlow<AudioTelemetry> get() = MutableStateFlow(AudioTelemetry.off())
     val sensorHealth: StateFlow<Map<SensorKind, SensorHealth>> get() = MutableStateFlow(emptyMap())
@@ -99,6 +152,14 @@ interface AndroidDetectorSet {
     fun clearPowerSession() {
     }
 
+    /** Starts presentation-only Power Guard status monitoring while the profile is visible. */
+    fun startPowerStatusMonitoring() {
+    }
+
+    /** Stops presentation-only Power Guard status monitoring when the profile is hidden. */
+    fun stopPowerStatusMonitoring() {
+    }
+
     /** Registers the ambient-light witness source for the guided commissioning flow. */
     fun startPowerCommissioningStream() {
     }
@@ -127,6 +188,8 @@ class AndroidProtectionRuntime(
     private val incidentConsumer: (IncidentObservationBatch) -> Unit,
 ) : ProtectionRuntime {
     private val detectors = detectorFactory(::handleObservation)
+    @Volatile
+    private var powerSessionActive = false
 
     override val audioTelemetry: StateFlow<AudioTelemetry>
         get() = detectors.audioTelemetry
@@ -190,11 +253,26 @@ class AndroidProtectionRuntime(
         detectors.entryOrientationSamples()
 
     override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
-        detectors.beginPowerSession(sessionId, model, settings)
+        powerSessionActive = true
+        try {
+            detectors.beginPowerSession(sessionId, model, settings)
+        } catch (error: Throwable) {
+            powerSessionActive = false
+            throw error
+        }
     }
 
     override fun clearPowerSession() {
+        powerSessionActive = false
         detectors.clearPowerSession()
+    }
+
+    override fun startPowerStatusMonitoring() {
+        detectors.startPowerStatusMonitoring()
+    }
+
+    override fun stopPowerStatusMonitoring() {
+        detectors.stopPowerStatusMonitoring()
     }
 
     override fun startPowerCommissioningStream() {
@@ -211,6 +289,15 @@ class AndroidProtectionRuntime(
 
     private fun handleObservation(observation: SensorObservation) {
         val nowElapsedMs = elapsedClock.nowMs()
+        if (
+            powerSessionActive &&
+            observation.kind == SensorKind.POWER_THERMAL &&
+            observation.diagnostic == ProtectionDiagnostics.CHARGER_DISCONNECTED
+        ) {
+            // The physical cable callback remains health telemetry in POWER mode.
+            // Only a stable verdict from PowerCompositeArbiter may own an incident.
+            return
+        }
         if (observation.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true) {
             // Entry verdicts are fully evaluated by the armed-session policy upstream;
             // deliver them straight through the existing incident pipeline without
@@ -352,6 +439,7 @@ class PlatformAndroidDetectorSet(
         sensorManager = context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager,
         handlerOwner = handlerOwner,
     ),
+    resumedPowerSemantic: PowerCompositeArbiter.SemanticState? = null,
 ) : AndroidDetectorSet {
     private val applicationContext = context.applicationContext
     private val sensorManager = applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -374,7 +462,7 @@ class PlatformAndroidDetectorSet(
             val previous = lastChargingConnected
             lastChargingConnected = connected
             if (connected != previous && powerSession.isActive) {
-                evaluatePowerArbiter(lastWitnessLux, SystemClock.elapsedRealtime())
+                evaluatePowerArbiter(powerWitnessContinuity.latest(), SystemClock.elapsedRealtime())
             }
             publishHealth(
                 SensorKind.POWER_THERMAL,
@@ -460,17 +548,23 @@ class PlatformAndroidDetectorSet(
 
     /** Armed-session Power Guard state; inactive unless a Power session begins. */
     private val powerSession = PowerArmedSessionController()
+    private var pendingResumedPowerSemantic = resumedPowerSemantic
     private val powerSampleFlow = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
     private var powerCommissioningStreamActive = false
+    private var powerStatusMonitoringActive = false
     private var powerLightListener: android.hardware.SensorEventListener? = null
+    private val powerConfirmationRunnable = Runnable {
+        if (powerSession.isActive) {
+            evaluatePowerArbiter(powerWitnessContinuity.latest(), SystemClock.elapsedRealtime())
+        }
+    }
 
     /** Latest typed charging observation feeding the armed-session arbiter. */
     @Volatile
     private var lastChargingConnected: Boolean? = null
 
-    /** Latest witness lux delivered by the dedicated ambient-light listener. */
-    @Volatile
-    private var lastWitnessLux: Double? = null
+    /** Latest witness evidence inside the current dedicated-listener continuity. */
+    private val powerWitnessContinuity = PowerWitnessContinuityCache()
 
     init {
         val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -649,6 +743,7 @@ class PlatformAndroidDetectorSet(
     override fun stop() {
         synchronized(lifecycleLock) {
             running = false
+            handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
             controller.stop()
             vibration.stopListening()
             val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -666,24 +761,17 @@ class PlatformAndroidDetectorSet(
             val hasLight = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null
             publishHealth(
                 SensorKind.LIGHT,
-                SensorHealth(
-                    state = if (hasLight) SensorHealthState.AVAILABLE else SensorHealthState.UNAVAILABLE,
-                    lightDetail = LightHealthDetail(
-                        hardwareSupported = hasLight,
-                        isRegistered = false,
-                    ),
+                powerLightHealthAfterDetectorStop(
+                    hasLightSensor = hasLight,
+                    powerStatusMonitoringActive = powerStatusMonitoringActive,
+                    lastWitnessLux = powerWitnessContinuity.latest()?.lux,
                 ),
             )
-            powerThermal.stopMonitoring()
-            audio.stopListening()
-            powerLightListener?.let { listener ->
-                try {
-                    sensorManager?.unregisterListener(listener)
-                } catch (_: RuntimeException) {
-                    // Listener already detached; nothing to recover.
-                }
+            if (!powerStatusMonitoringActive) {
+                powerThermal.stopMonitoring()
             }
-            powerLightListener = null
+            audio.stopListening()
+            unregisterPowerLightSource()
         }
     }
 
@@ -757,13 +845,39 @@ class PlatformAndroidDetectorSet(
     }
 
     override fun beginPowerSession(sessionId: String, model: PowerWitnessModel, settings: PowerProfileSettings) {
-        powerSession.begin(controller.currentGenerationId(), model, settings)
+        val resumedSemantic = synchronized(lifecycleLock) {
+            pendingResumedPowerSemantic.also { pendingResumedPowerSemantic = null }
+        }
+        powerSession.begin(controller.currentGenerationId(), model, settings, resumedSemantic)
         registerPowerLightSource()
     }
 
     override fun clearPowerSession() {
+        synchronized(lifecycleLock) {
+            pendingResumedPowerSemantic = null
+        }
         powerSession.end()
+        clearArmedWitnessThresholds()
+        handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
         unregisterPowerLightSource()
+    }
+
+    override fun startPowerStatusMonitoring() {
+        synchronized(lifecycleLock) {
+            powerStatusMonitoringActive = true
+            powerThermal.startMonitoring()
+            registerPowerLightSource()
+        }
+    }
+
+    override fun stopPowerStatusMonitoring() {
+        synchronized(lifecycleLock) {
+            powerStatusMonitoringActive = false
+            if (!running) {
+                powerThermal.stopMonitoring()
+            }
+            unregisterPowerLightSource()
+        }
     }
 
     /**
@@ -791,8 +905,9 @@ class PlatformAndroidDetectorSet(
      * pipeline as typed `power_*` diagnostics.
      */
     private fun registerPowerLightSource() {
-        val manager = sensorManager ?: return
         if (powerLightListener != null) return
+        powerWitnessContinuity.endListenerContinuity()
+        val manager = sensorManager ?: return
         val sensor = manager.getDefaultSensor(Sensor.TYPE_LIGHT) ?: return
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(event: android.hardware.SensorEvent) {
@@ -800,11 +915,29 @@ class PlatformAndroidDetectorSet(
                 val lux = event.values[0].toDouble()
                 if (!lux.isFinite()) return
                 val nowElapsedMs = SystemClock.elapsedRealtime()
-                lastWitnessLux = lux
+                val witness = powerWitnessContinuity.record(
+                    lux = lux,
+                    generation = controller.currentGenerationId(),
+                )
+                val nowWallClockMs = System.currentTimeMillis()
+                publishHealth(
+                    SensorKind.LIGHT,
+                    SensorHealth(
+                        state = SensorHealthState.HEALTHY,
+                        lastSampleAtMs = nowWallClockMs,
+                        lightDetail = LightHealthDetail(
+                            hardwareSupported = true,
+                            isRegistered = true,
+                            lastLux = lux,
+                            lastSampleWallClockMs = nowWallClockMs,
+                            lastSampleElapsedMs = nowElapsedMs,
+                        ),
+                    ),
+                )
                 powerSampleFlow.tryEmit(
                     PowerWitnessSample(lux = lux, timestampMs = nowElapsedMs, fresh = true),
                 )
-                evaluatePowerArbiter(lux, nowElapsedMs)
+                evaluatePowerArbiter(witness, nowElapsedMs)
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -814,18 +947,22 @@ class PlatformAndroidDetectorSet(
             manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI, handlerOwner.handler)
         } catch (_: RuntimeException) {
             powerLightListener = null
+            powerWitnessContinuity.endListenerContinuity()
         }
     }
 
     private fun unregisterPowerLightSource() {
-        if (powerCommissioningStreamActive || powerSession.isActive) return
-        val listener = powerLightListener ?: return
-        try {
-            sensorManager?.unregisterListener(listener)
-        } catch (_: RuntimeException) {
-            // Listener already detached; nothing to recover.
+        if (powerCommissioningStreamActive || powerStatusMonitoringActive || powerSession.isActive) return
+        val listener = powerLightListener
+        if (listener != null) {
+            try {
+                sensorManager?.unregisterListener(listener)
+            } catch (_: RuntimeException) {
+                // Listener already detached; nothing to recover.
+            }
         }
         powerLightListener = null
+        powerWitnessContinuity.endListenerContinuity()
     }
 
     /**
@@ -833,18 +970,81 @@ class PlatformAndroidDetectorSet(
      * records every produced verdict as a typed `power_*` observation so the existing
      * incident pipeline owns delivery.
      */
-    private fun evaluatePowerArbiter(witnessLux: Double?, timestampMs: Long) {
+    private fun evaluatePowerArbiter(witness: CachedPowerWitness?, timestampMs: Long) {
         if (!powerSession.isActive) return
+        val currentGeneration = controller.currentGenerationId()
         val sample = PowerSignalSample(
             chargingConnected = lastChargingConnected,
-            witnessLux = witnessLux,
-            fresh = witnessLux != null,
+            witnessLux = witness?.lux,
+            fresh = powerWitnessIsFreshForGeneration(
+                witnessLux = witness?.lux,
+                witnessGeneration = witness?.generation,
+                currentGeneration = currentGeneration,
+            ),
             timestampMs = timestampMs,
         )
-        val verdicts = powerSession.onSample(sample, controller.currentGenerationId())
+        val verdicts = powerSession.onSample(sample, currentGeneration)
+        publishArmedWitnessThresholds()
         verdicts.forEach { verdict ->
             powerVerdictObservation(verdict, sample)?.let(::record)
         }
+        schedulePowerConfirmation()
+    }
+
+    /** Mirrors the exact armed-session witness thresholds into the health snapshot for the UI. */
+    private fun publishArmedWitnessThresholds() {
+        val activeModel = powerSession.activeWitnessModel() ?: return
+        val current = synchronized(healthLock) { health[SensorKind.LIGHT] } ?: return
+        val detail = current.lightDetail ?: return
+        if (
+            detail.armedWitnessDarkThresholdLux == activeModel.witnessDarkThresholdLux &&
+            detail.armedWitnessLitThresholdLux == activeModel.witnessLitThresholdLux
+        ) {
+            return
+        }
+        publishHealth(
+            SensorKind.LIGHT,
+            current.copy(
+                lightDetail = detail.copy(
+                    armedWitnessDarkThresholdLux = activeModel.witnessDarkThresholdLux,
+                    armedWitnessLitThresholdLux = activeModel.witnessLitThresholdLux,
+                ),
+            ),
+        )
+    }
+
+    /** Restores display-only thresholds to the saved calibration after the armed session ends. */
+    private fun clearArmedWitnessThresholds() {
+        val current = synchronized(healthLock) { health[SensorKind.LIGHT] } ?: return
+        val detail = current.lightDetail ?: return
+        if (
+            detail.armedWitnessDarkThresholdLux == null &&
+            detail.armedWitnessLitThresholdLux == null
+        ) {
+            return
+        }
+        publishHealth(
+            SensorKind.LIGHT,
+            current.copy(
+                lightDetail = detail.copy(
+                    armedWitnessDarkThresholdLux = null,
+                    armedWitnessLitThresholdLux = null,
+                ),
+            ),
+        )
+    }
+
+    /**
+     * Drives the arbiter at its exact debounce deadline when an on-change light sensor
+     * remains stable and therefore emits no second callback.
+     */
+    private fun schedulePowerConfirmation() {
+        handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
+        val delayMs = powerConfirmationDelayMs(
+            deadlineMs = powerSession.nextConfirmationAtMs(),
+            nowMs = SystemClock.elapsedRealtime(),
+        ) ?: return
+        handlerOwner.handler.postDelayed(powerConfirmationRunnable, delayMs)
     }
 
     private fun powerVerdictObservation(

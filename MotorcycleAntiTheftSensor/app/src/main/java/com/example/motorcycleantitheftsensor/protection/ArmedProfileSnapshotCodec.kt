@@ -131,6 +131,7 @@ class ArmedProfileSnapshotCodec(
                 obj.put("kind", CalibrationKinds.POWER)
                 obj.put("generation", calibration.generation)
                 obj.put("modelFingerprint", calibration.modelFingerprint)
+                obj.put("witnessPlacementValidated", calibration.witnessPlacementValidated)
             }
         }
         return obj
@@ -174,6 +175,11 @@ class ArmedProfileSnapshotCodec(
                 PowerArmedCalibrationSnapshot(
                     generation = generation,
                     modelFingerprint = modelFingerprint,
+                    witnessPlacementValidated = if (obj.has("witnessPlacementValidated")) {
+                        obj.getBoolean("witnessPlacementValidated")
+                    } else {
+                        false
+                    },
                 )
             }
         }

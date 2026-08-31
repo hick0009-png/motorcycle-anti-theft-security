@@ -58,6 +58,19 @@ object ProtectionRuntimeGraph {
             maxRecords = 200,
             secureKeyManager = secureKeyManager,
         )
+        val startupRecoveryState = runCatching { snapshotStore.loadForRecovery() }.getOrNull()
+        val shouldResumePowerRuntime = startupRecoveryState?.let { recovery ->
+            recovery.continuityValid &&
+                recovery.continuityIntent.desiredProtection == DesiredProtection.ARMED &&
+                recovery.liveSnapshot.armedProfileSnapshot?.profile == ProtectionProfile.POWER
+        } == true
+        val restoredPowerRuntime = if (shouldResumePowerRuntime) {
+            runCatching { restorePowerRuntimeState(repository.listNewestFirst()) }
+                .onFailure { error -> Log.w(TAG, "Unable to restore open Power incident", error) }
+                .getOrNull()
+        } else {
+            null
+        }
         val preferences = EncryptedPrefsManager(context)
         val statePersistence = ProtectionStatePersistenceArbiter(
             writeCompatibilityArmed = { armed ->
@@ -147,6 +160,8 @@ object ProtectionRuntimeGraph {
         val incidentEngine = IncidentEngine(
             idGenerator = IncidentIdGenerator { UUID.randomUUID().toString() },
             correlationWindowMs = 15_000L,
+            restoredActiveIncident = restoredPowerRuntime?.incident,
+            restoredAtElapsedMs = elapsedClock.nowMs(),
         )
         val deliveryPolicy = IncidentUpdateDeliveryPolicy()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -437,6 +452,7 @@ object ProtectionRuntimeGraph {
                     onAudioCandidatesReset = onAudioCandidatesReset,
                     handlerOwner = sensorHandlerOwner,
                     controller = sensorController,
+                    resumedPowerSemantic = restoredPowerRuntime?.semantic,
                 )
             },
             observationProcessor = processor,
@@ -498,6 +514,13 @@ object ProtectionRuntimeGraph {
                 )
             },
             powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
+            recoveredPowerIntegrityChallenge = {
+                val calibration = startupRecoveryState
+                    ?.liveSnapshot
+                    ?.armedProfileSnapshot
+                    ?.armedCalibrationSnapshot as? PowerArmedCalibrationSnapshot
+                calibration?.witnessPlacementValidated
+            },
         )
         runtime.applySensitivity(configuredSensitivity)
         coordinator.recordSensorHealthSnapshot(runtime.currentSensorHealth())
@@ -568,4 +591,34 @@ object ProtectionRuntimeGraph {
 
     private const val INCIDENT_QUIET_WINDOW_MS = 30_000L
     private const val TAG = "ProtectionRuntime"
+}
+
+internal data class RestoredPowerRuntimeState(
+    val incident: SecurityIncident,
+    val semantic: PowerCompositeArbiter.SemanticState,
+)
+
+internal fun restorePowerRuntimeState(
+    incidents: List<SecurityIncident>,
+): RestoredPowerRuntimeState? = incidents
+    .asSequence()
+    .filter { incident ->
+        incident.type == IncidentType.POWER && incident.lifecycle == IncidentLifecycle.OPEN
+    }
+    .sortedByDescending(SecurityIncident::updatedAtMs)
+    .mapNotNull { incident ->
+        val semantic = incident.evidence.asReversed()
+            .mapNotNull(IncidentEvidence::diagnostic)
+            .firstNotNullOfOrNull(::powerSemanticForDiagnostic)
+        semantic?.let { RestoredPowerRuntimeState(incident, it) }
+    }
+    .firstOrNull()
+
+private fun powerSemanticForDiagnostic(
+    diagnostic: String,
+): PowerCompositeArbiter.SemanticState? = when (diagnostic) {
+    ProtectionDiagnostics.POWER_CHARGING_HEALTH -> PowerCompositeArbiter.SemanticState.CHARGING_LOST
+    ProtectionDiagnostics.POWER_WITNESS_DARK -> PowerCompositeArbiter.SemanticState.WITNESS_LOST
+    ProtectionDiagnostics.POWER_CONFIRMED_LOSS -> PowerCompositeArbiter.SemanticState.DUAL_LOST
+    else -> null
 }

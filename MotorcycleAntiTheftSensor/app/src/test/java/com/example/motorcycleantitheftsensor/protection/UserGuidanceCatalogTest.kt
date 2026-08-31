@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UserGuidanceCatalogTest {
+    @Test
+    fun incidentGuidanceUsesLocalizedTypeInsteadOfEnumName() {
+        val content = UserGuidanceCatalog.content(
+            GuidanceCode.INCIDENT_OPENED,
+            GuidanceDetail.IncidentTypeValue(IncidentType.TAMPER),
+        )
+
+        assertTrue(content.titleTh.contains("การงัดแงะหรือเปิดเบาะ"))
+        assertTrue(content.telegramTh.orEmpty().contains("การงัดแงะหรือเปิดเบาะ"))
+        assertFalse(content.titleTh.contains("TAMPER"))
+        assertFalse(content.telegramTh.orEmpty().contains("TAMPER"))
+    }
 
     @Test
     fun `Verify catalog negative cases for secrets`() {

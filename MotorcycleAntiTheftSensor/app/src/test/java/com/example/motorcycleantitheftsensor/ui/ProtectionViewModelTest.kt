@@ -10,6 +10,8 @@ import com.example.motorcycleantitheftsensor.protection.ChargingState
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
+import com.example.motorcycleantitheftsensor.protection.PowerArmChallengeRegistry
+import com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
@@ -22,6 +24,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
+import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
 import com.example.motorcycleantitheftsensor.protection.ProtectionClock
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -60,6 +63,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -894,7 +898,7 @@ class ProtectionViewModelTest {
 
         val eventRow = viewModel.uiState.value.events.first()
         assertEquals(IncidentLifecycle.INTERRUPTED, eventRow.lifecycle)
-        assertEquals("TAMPER", eventRow.evidenceSummary)
+        assertEquals("การงัดแงะหรือเปิดเบาะ", eventRow.evidenceSummary)
     }
 
     @Test
@@ -1115,7 +1119,10 @@ class ProtectionViewModelTest {
         scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
         state: ProtectionState = ProtectionState.DISARMED_ONLINE,
         powerIntegrityChallenge: (() -> Boolean)? = null,
-    ): Triple<ProtectionViewModel, ViewModelProfileRepositoryFake, FakePowerSampleRuntime> {
+        powerArmChallenge: PowerArmChallengeRegistry? = null,
+        ticker: Flow<Unit> = emptyFlow(),
+        elapsedNowMs: () -> Long = { scheduler.currentTime },
+    ): PowerViewModelFixture {
         val dispatcher = StandardTestDispatcher(scheduler)
         val repository = ViewModelProfileRepositoryFake(
             ProtectionProfilePolicy(nowMs = { 1_000L })
@@ -1123,36 +1130,110 @@ class ProtectionViewModelTest {
                 .copy(selectedProfile = ProtectionProfile.POWER),
         )
         val runtime = FakePowerSampleRuntime()
-        val viewModel = ProtectionViewModel(
-            coordinator = fakeCoordinator(
+        val coordinator = fakeCoordinator(
                 state = state,
                 profileRepository = repository,
                 powerIntegrityChallenge = powerIntegrityChallenge,
-            ),
+            )
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
             incidents = FakeIncidentRepository(emptyList()),
             settings = FakeProtectionSettingsGateway(),
             profileRepository = repository,
             powerRuntime = runtime,
+            powerArmChallenge = powerArmChallenge,
             nowMs = { 1_000L },
-            ticker = emptyFlow(),
+            ticker = ticker,
             dispatcher = dispatcher,
             callbackDispatcher = dispatcher,
+            elapsedNowMs = elapsedNowMs,
         )
-        return Triple(viewModel, repository, runtime)
+        return PowerViewModelFixture(viewModel, repository, runtime, coordinator)
     }
 
     /** Continuous dark window (lux≈5) then lit window (lux≈200) inside the policy limits. */
     private fun darkThenLitWitnessSamples(): List<PowerWitnessSample> = buildList {
         var t = 0L
-        while (t <= 5_000L) {
+        while (t <= 10_000L) {
             add(PowerWitnessSample(lux = 5.0, timestampMs = t, fresh = true))
             t += 1_000L
         }
-        t = 6_000L
-        while (t <= 11_000L) {
-            add(PowerWitnessSample(lux = 200.0, timestampMs = t, fresh = true))
+        t = 11_000L
+        while (t <= 21_000L) {
+            val lux = if (t % 2_000L == 0L) 140.0 else 200.0
+            add(PowerWitnessSample(lux = lux, timestampMs = t, fresh = true))
             t += 1_000L
         }
+    }
+
+    @Test
+    fun powerCommissioningObservesEachLightStateForTenSeconds() = runTest {
+        val (viewModel, _, runtime) = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+        viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        (0L..9_000L step 1_000L).forEach { t ->
+            runtime.emit(PowerWitnessSample(lux = 5.0, timestampMs = t, fresh = true))
+        }
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.DARK_WINDOW,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        runtime.emit(PowerWitnessSample(lux = 5.0, timestampMs = 10_000L, fresh = true))
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.LIT_WINDOW,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        (11_000L..20_000L step 1_000L).forEach { t ->
+            runtime.emit(PowerWitnessSample(lux = 200.0, timestampMs = t, fresh = true))
+        }
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.LIT_WINDOW,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        runtime.emit(PowerWitnessSample(lux = 200.0, timestampMs = 21_000L, fresh = true))
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.profile.powerCommissioning)
+    }
+
+    @Test
+    fun powerCommissioningClockAdvancesWhenStableOnChangeSensorDoesNotRepeat() = runTest {
+        val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        var elapsedMs = 0L
+        val (viewModel, repository, runtime) = powerViewModelFixture(
+            scheduler = testScheduler,
+            ticker = ticks,
+            elapsedNowMs = { elapsedMs },
+        )
+        advanceUntilIdle()
+        viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        runtime.emit(PowerWitnessSample(lux = 10.0, timestampMs = 0L, fresh = true))
+        advanceUntilIdle()
+        elapsedMs = 10_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.LIT_WINDOW,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        runtime.emit(PowerWitnessSample(lux = 20.0, timestampMs = 11_000L, fresh = true))
+        advanceUntilIdle()
+        elapsedMs = 21_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+
+        assertEquals(ProfileSetupState.READY, repository.load().profiles.getValue(ProtectionProfile.POWER).setupState)
+        assertNull(viewModel.uiState.value.profile.powerCommissioning)
     }
 
     @Test
@@ -1176,6 +1257,62 @@ class ProtectionViewModelTest {
         assertEquals(ProfileSetupState.READY, viewModel.uiState.value.profile.setupState)
         assertNull(viewModel.uiState.value.profile.powerCommissioning)
         assertTrue(runtime.streamStopped)
+    }
+
+    @Test
+    fun powerCommissioningShowsFailureWhenWitnessModelCannotBePersisted() = runTest {
+        val (viewModel, repository, runtime) = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+        repository.failUpdates = true
+
+        viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+        darkThenLitWitnessSamples().forEach(runtime::emit)
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.POWER)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, stored.setupState)
+        assertNull(stored.powerWitnessModel)
+        assertEquals(
+            PowerCommissioningPhase.FAILED,
+            viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+        assertEquals(
+            "save-failed",
+            viewModel.uiState.value.profile.powerCommissioning?.failureReason,
+        )
+        assertTrue(runtime.streamStopped)
+    }
+
+    @Test
+    fun resetPowerCalibrationClearsOnlyTheWitnessModelAndRequiresRecommissioning() = runTest {
+        val (viewModel, repository, _) = powerViewModelFixture(testScheduler)
+        val policy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        repository.update {
+            policy.commissionPower(
+                it,
+                PowerWitnessModel(
+                    darkMinLux = 5.0,
+                    darkMaxLux = 8.0,
+                    litMinLux = 200.0,
+                    litMaxLux = 220.0,
+                    guardBandLux = 10.0,
+                    algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+                    sensorIdentity = "test-sensor",
+                    hoodSignature = "hood-test",
+                ),
+            )
+        }
+        advanceUntilIdle()
+
+        viewModel.resetPowerCalibration()
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.POWER)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, stored.setupState)
+        assertNull(stored.powerWitnessModel)
+        assertEquals(ProtectionProfile.POWER, repository.load().selectedProfile)
+        assertEquals(ProfileSetupState.SETUP_REQUIRED, viewModel.uiState.value.profile.setupState)
     }
 
     @Test
@@ -1206,21 +1343,60 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
+        assertEquals(ProtectionProfile.POWER, viewModel.uiState.value.profile.armedProfile)
         val summary = viewModel.uiState.value.profile.powerSummary
         assertNotNull(summary)
         assertEquals(WitnessRowState.UNAVAILABLE, summary?.witness)
     }
 
     @Test
-    fun powerSummaryRowsDeriveIndependentlyFromEachSignal() {
-        // Charger connected while the witness is degraded: both rows stay independent.
-        val connectedWitnessDown = powerSummaryRows(
+    fun powerWitnessConfirmationIsShownAndKeepsTheNextArmHealthy() = runTest {
+        val challenge = PowerArmChallengeRegistry()
+        val (viewModel, repository, _) = powerViewModelFixture(
+            testScheduler,
+            powerIntegrityChallenge = { challenge.isSatisfied(1_000L) },
+            powerArmChallenge = challenge,
+        )
+        val policy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        repository.update {
+            policy.commissionPower(
+                it,
+                PowerWitnessModel(
+                    darkMinLux = 5.0,
+                    darkMaxLux = 8.0,
+                    litMinLux = 200.0,
+                    litMaxLux = 220.0,
+                    guardBandLux = 10.0,
+                    algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+                    sensorIdentity = "test-sensor",
+                    hoodSignature = "hood-test",
+                ),
+            )
+        }
+        advanceUntilIdle()
+
+        viewModel.markPowerChallengePassed()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.profile.powerWitnessPlacementConfirmed)
+
+        viewModel.arm()
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.ARMED_HEALTHY, viewModel.uiState.value.protection.state)
+    }
+
+    @Test
+    fun powerSummaryRowsKeepLiveWitnessStatusSeparateFromPlacementRevalidation() {
+        // A skipped per-arm placement check does not make a working light sensor unavailable.
+        val connectedWitnessNotRevalidated = powerSummaryRows(
             chargingState = ChargingState.CHARGING,
             degradationReasons = setOf(POWER_CHALLENGE_DEGRADED),
             lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
         )
-        assertEquals(ChargingRowState.CONNECTED, connectedWitnessDown.charging)
-        assertEquals(WitnessRowState.UNAVAILABLE, connectedWitnessDown.witness)
+        assertEquals(ChargingRowState.CONNECTED, connectedWitnessNotRevalidated.charging)
+        assertEquals(WitnessRowState.DETECTED, connectedWitnessNotRevalidated.witness)
+        assertTrue(connectedWitnessNotRevalidated.requiresWitnessPlacementRevalidation)
 
         // Charger lost while the witness still sees the lamp: never an outage claim.
         val chargerGoneWitnessUp = powerSummaryRows(
@@ -1243,6 +1419,125 @@ class ProtectionViewModelTest {
         assertEquals(
             ChargingRowState.CONNECTED,
             powerSummaryRows(ChargingState.FULL, emptySet(), null).charging,
+        )
+    }
+
+    @Test
+    fun powerSummaryShowsWitnessDarkFromTheLiveLuxValueAndCalibration() {
+        val model = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 1,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+
+        val summary = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = LightHealthDetail(lastLux = 3.0),
+            ),
+            witnessModel = model,
+        )
+
+        assertEquals(WitnessRowState.DARK, summary.witness)
+        assertEquals(3.0, summary.lastLux)
+    }
+
+    @Test
+    fun powerSummaryUsesArmedWitnessThresholdsWhenTheyDifferFromCalibration() {
+        val calibratedModel = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 1,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+
+        val summary = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = LightHealthDetail(
+                    lastLux = 90.0,
+                    armedWitnessDarkThresholdLux = 100.0,
+                    armedWitnessLitThresholdLux = 180.0,
+                ),
+            ),
+            witnessModel = calibratedModel,
+        )
+
+        assertEquals(WitnessRowState.DARK, summary.witness)
+    }
+
+    @Test
+    fun powerSummaryDoesNotCallARealButBelowCalibrationLightUnavailable() {
+        val model = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 1,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+
+        val summary = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = LightHealthDetail(lastLux = 60.0),
+            ),
+            witnessModel = model,
+        )
+
+        assertNotEquals(WitnessRowState.UNAVAILABLE, summary.witness)
+    }
+
+    @Test
+    fun powerProfileStartsLiveStatusMonitoringAndStopsItWhenAnotherProfileIsSelected() = runTest {
+        val (viewModel, _, runtime) = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        assertTrue(runtime.statusMonitoringStarted)
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        assertTrue(runtime.statusMonitoringStopped)
+    }
+
+    @Test
+    fun powerSummaryUpdatesWhenChargingStateChangesWhileDisarmed() = runTest {
+        val fixture = powerViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        fixture.coordinator.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                SensorHealthState.HEALTHY,
+                powerThermalDetail = PowerThermalHealthDetail(
+                    isRegistered = true,
+                    chargingState = ChargingState.DISCHARGING,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            ChargingRowState.DISCONNECTED,
+            fixture.viewModel.uiState.value.profile.powerSummary?.charging,
         )
     }
 
@@ -1298,6 +1593,10 @@ private class FakePowerSampleRuntime : ProtectionRuntime {
         private set
     var streamStopped = false
         private set
+    var statusMonitoringStarted = false
+        private set
+    var statusMonitoringStopped = false
+        private set
 
     fun emit(sample: PowerWitnessSample) {
         samples.tryEmit(sample)
@@ -1322,6 +1621,14 @@ private class FakePowerSampleRuntime : ProtectionRuntime {
 
     override fun stopPowerCommissioningStream() {
         streamStopped = true
+    }
+
+    override fun startPowerStatusMonitoring() {
+        statusMonitoringStarted = true
+    }
+
+    override fun stopPowerStatusMonitoring() {
+        statusMonitoringStopped = true
     }
 }
 
@@ -1373,6 +1680,13 @@ private data class ViewModelFixture(
     val settings: FakeProtectionSettingsGateway,
 )
 
+private data class PowerViewModelFixture(
+    val viewModel: ProtectionViewModel,
+    val repository: ViewModelProfileRepositoryFake,
+    val runtime: FakePowerSampleRuntime,
+    val coordinator: ProtectionCoordinator,
+)
+
 private fun fakeCoordinator(
     state: ProtectionState,
     blockers: Set<String> = emptySet(),
@@ -1390,6 +1704,8 @@ private fun fakeCoordinator(
 private class ViewModelProfileRepositoryFake(
     private var state: ProtectionProfileStoreState,
 ) : ProtectionProfileRepository {
+    var failUpdates: Boolean = false
+
     override fun load(): ProtectionProfileStoreState = state
 
     override fun save(state: ProtectionProfileStoreState): Result<Unit> {
@@ -1400,6 +1716,7 @@ private class ViewModelProfileRepositoryFake(
     override fun update(
         transform: (ProtectionProfileStoreState) -> ProtectionProfileStoreState,
     ): Result<ProtectionProfileStoreState> {
+        if (failUpdates) return Result.failure(IllegalStateException("simulated profile write failure"))
         this.state = transform(this.state)
         return Result.success(this.state)
     }

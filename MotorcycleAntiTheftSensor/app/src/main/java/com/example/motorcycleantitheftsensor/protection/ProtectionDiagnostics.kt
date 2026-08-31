@@ -7,6 +7,8 @@ package com.example.motorcycleantitheftsensor.protection
  * never silently desynchronize the pipeline.
  */
 internal object ProtectionDiagnostics {
+    const val CHARGER_DISCONNECTED = "charger_disconnected"
+
     const val ENTRY_PREFIX = "entry_"
     const val ENTRY_DOOR_OPEN = "entry_door_open"
     const val ENTRY_DOOR_STILL_OPEN = "entry_door_still_open"

@@ -35,6 +35,7 @@ import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.ProtectionValueFormatter
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
@@ -69,8 +70,15 @@ fun ProtectionScreen(
         protection.state == ProtectionState.ARMED_HEALTHY ||
         protection.state == ProtectionState.ARMED_DEGRADED ||
         protection.state == ProtectionState.ALERT_ACTIVE
-    val actionEnabled = (!state.protectionOperationInFlight && protection.state == ProtectionState.DISARMED_ONLINE) ||
+    val actionEnabled = (!state.protectionOperationInFlight && protection.state in setOf(
+        ProtectionState.DISARMED_ONLINE,
+        ProtectionState.SETUP_REQUIRED,
+    )) ||
         disarmAction
+    val powerCalibrationRequired = state.profile.selectedProfile == ProtectionProfile.POWER &&
+        state.profile.setupState == ProfileSetupState.SETUP_REQUIRED &&
+        state.profile.powerCommissioning == null &&
+        state.profile.armedProfile == null
     val blockingPermissionIssues = protection.permissionBlockers
         .map(::friendlyPermissionExplanation)
         .distinct()
@@ -155,6 +163,21 @@ fun ProtectionScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
+                    }
+                    if (powerCalibrationRequired) {
+                        Text(
+                            text = "ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Button(
+                            onClick = actions.powerStartCommissioning,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp),
+                        ) {
+                            Text("เริ่มปรับเทียบไฟยืนยัน")
+                        }
                     }
                     Button(
                         onClick = if (disarmAction) actions.disarm else actions.arm,

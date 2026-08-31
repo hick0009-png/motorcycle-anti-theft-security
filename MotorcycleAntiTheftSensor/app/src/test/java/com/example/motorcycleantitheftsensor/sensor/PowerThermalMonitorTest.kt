@@ -80,12 +80,12 @@ class PowerThermalMonitorTest {
     }
 
     @Test
-    fun resolveChargingState_unpluggedFull_returnsFull() {
+    fun resolveChargingState_unpluggedFull_returnsNotCharging() {
         val state = PowerThermalMonitor.resolveChargingState(
             rawStatus = BatteryManager.BATTERY_STATUS_FULL,
             plugged = 0,
             batteryPercent = 100,
         )
-        assertEquals(ChargingState.FULL, state)
+        assertEquals(ChargingState.NOT_CHARGING, state)
     }
 }

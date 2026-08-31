@@ -108,6 +108,47 @@ class ProtectionAppScreenTest {
     }
 
     @Test
+    fun powerSetupOffersCalibrationBesideTheDisabledArmAction() {
+        var commissioningStarts = 0
+        val state = baseState(ProtectionState.SETUP_REQUIRED).copy(
+            profile = ProtectionProfileUiState(
+                selectedProfile = com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER,
+                setupState = com.example.motorcycleantitheftsensor.protection.ProfileSetupState.SETUP_REQUIRED,
+            ),
+        )
+        compose.setContent {
+            ProtectionAppScreen(
+                state,
+                fakeActions().copy(powerStartCommissioning = { commissioningStarts++ }),
+            )
+        }
+
+        compose.onNodeWithText("ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน").assertIsDisplayed()
+        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").performClick()
+
+        compose.runOnIdle {
+            assertEquals(1, commissioningStarts)
+        }
+    }
+
+    @Test
+    fun setupRequiredArmActionLetsTheCoordinatorRecheckCurrentReadiness() {
+        var armCalls = 0
+        compose.setContent {
+            ProtectionAppScreen(
+                baseState(ProtectionState.SETUP_REQUIRED),
+                fakeActions().copy(arm = { armCalls++ }),
+            )
+        }
+
+        compose.onNodeWithText("เปิดระบบป้องกัน").performClick()
+
+        compose.runOnIdle {
+            assertEquals(1, armCalls)
+        }
+    }
+
+    @Test
     fun heroShowsOutcomeFirstThaiCopyWithoutEnglishFragmentsForEachState() {
         var displayedState by mutableStateOf(baseState(ProtectionState.DISARMED_ONLINE))
         compose.setContent { ProtectionAppScreen(displayedState, fakeActions()) }

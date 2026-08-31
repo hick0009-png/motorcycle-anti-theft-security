@@ -139,13 +139,22 @@ class PowerThermalMonitor(
 
         fun resolveChargingState(rawStatus: Int, plugged: Int, batteryPercent: Int?): ChargingState {
             val isPlugged = plugged > 0
-            return when {
-                rawStatus == BatteryManager.BATTERY_STATUS_FULL -> ChargingState.FULL
-                isPlugged && batteryPercent != null && batteryPercent >= 95 -> ChargingState.FULL
-                rawStatus == BatteryManager.BATTERY_STATUS_CHARGING -> ChargingState.CHARGING
-                isPlugged -> ChargingState.CHARGING
-                rawStatus == BatteryManager.BATTERY_STATUS_DISCHARGING -> ChargingState.DISCHARGING
-                rawStatus == BatteryManager.BATTERY_STATUS_NOT_CHARGING -> ChargingState.NOT_CHARGING
+            if (isPlugged) {
+                return if (
+                    rawStatus == BatteryManager.BATTERY_STATUS_FULL ||
+                    batteryPercent != null && batteryPercent >= 95
+                ) {
+                    ChargingState.FULL
+                } else {
+                    ChargingState.CHARGING
+                }
+            }
+
+            return when (rawStatus) {
+                BatteryManager.BATTERY_STATUS_DISCHARGING -> ChargingState.DISCHARGING
+                BatteryManager.BATTERY_STATUS_NOT_CHARGING,
+                BatteryManager.BATTERY_STATUS_CHARGING,
+                BatteryManager.BATTERY_STATUS_FULL -> ChargingState.NOT_CHARGING
                 else -> ChargingState.UNKNOWN
             }
         }

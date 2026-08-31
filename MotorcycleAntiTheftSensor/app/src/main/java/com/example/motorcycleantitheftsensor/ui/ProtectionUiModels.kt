@@ -106,6 +106,8 @@ data class ProtectionProfileUiState(
     val entryRequiresControlledRearm: Boolean = false,
     val commissioning: EntryCommissioningUiState? = null,
     val powerCommissioning: PowerCommissioningUiState? = null,
+    /** True while the owner-confirmed Power witness placement remains valid for the next Arm. */
+    val powerWitnessPlacementConfirmed: Boolean = false,
     /** Two independent POWER signal rows; null for non-POWER profiles. */
     val powerSummary: PowerSummaryRows? = null,
 )
@@ -146,11 +148,13 @@ data class PowerCommissioningUiState(
  */
 enum class ChargingRowState { CONNECTED, DISCONNECTED, UNKNOWN }
 
-enum class WitnessRowState { DETECTED, DARK, UNAVAILABLE }
+enum class WitnessRowState { DETECTED, DARK, AMBIGUOUS, UNAVAILABLE }
 
 data class PowerSummaryRows(
     val charging: ChargingRowState = ChargingRowState.UNKNOWN,
     val witness: WitnessRowState = WitnessRowState.UNAVAILABLE,
+    val lastLux: Double? = null,
+    val requiresWitnessPlacementRevalidation: Boolean = false,
 )
 
 data class ProtectionStatusUiState(

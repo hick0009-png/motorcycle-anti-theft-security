@@ -123,7 +123,7 @@ class ProtectionStatusFormatterTest {
             "",
             "🔋 แบตเตอรี่: 100%",
             "🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): 32.0°C",
-            "🔌 แหล่งจ่ายไฟ: กำลังชาร์จ",
+            "🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ",
             "",
             "🚨 เหตุการณ์ล่าสุด",
             "ประเภท: ตรวจพบการสั่น",
@@ -380,6 +380,6 @@ class ProtectionStatusFormatterTest {
         assertTrue(output.contains("❌ Telegram: ขาดการเชื่อมต่อ"))
         assertTrue(output.contains("🔋 แบตเตอรี่: ยังไม่มีข้อมูล"))
         assertTrue(output.contains("🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): ยังไม่มีข้อมูล"))
-        assertTrue(output.contains("🔌 แหล่งจ่ายไฟ: ยังไม่มีข้อมูล"))
+        assertTrue(output.contains("🔌 สายชาร์จ: ยังไม่มีข้อมูล"))
     }
 }

@@ -156,7 +156,8 @@ class ProtectionProfilePolicyTest {
     fun powerTimingOutsideApprovedContractIsRejected() {
         listOf(
             PowerProfileOverrides(lossConfirmationMs = 9_999L),
-            PowerProfileOverrides(recoveryConfirmationMs = 29_999L),
+            PowerProfileOverrides(recoveryConfirmationMs = 9_999L),
+            PowerProfileOverrides(recoveryConfirmationMs = 30_000L),
         ).forEach { invalidOverrides ->
             val initial = policy.newStoreState()
             val power = initial.profiles.getValue(ProtectionProfile.POWER).copy(
@@ -167,6 +168,21 @@ class ProtectionProfilePolicyTest {
                 policy.updateProfile(initial, power)
             }
         }
+    }
+
+    @Test
+    fun powerRecoveryTimingAcceptsTenSecondContract() {
+        val initial = policy.newStoreState()
+        val power = initial.profiles.getValue(ProtectionProfile.POWER).copy(
+            specificOverrides = PowerProfileOverrides(recoveryConfirmationMs = 10_000L),
+        )
+
+        val updated = policy.updateProfile(initial, power)
+
+        assertEquals(
+            PowerProfileSettings(recoveryConfirmationMs = 10_000L),
+            policy.resolve(updated, ProtectionProfile.POWER).specificSettings,
+        )
     }
 
     @Test
