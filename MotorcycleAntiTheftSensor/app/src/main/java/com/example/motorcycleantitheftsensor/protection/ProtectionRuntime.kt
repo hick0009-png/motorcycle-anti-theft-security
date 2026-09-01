@@ -62,6 +62,7 @@ interface ProtectionRuntime {
     fun startDetectors(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
+        usedSensorKinds: Set<SensorKind> = SensorKind.entries.toSet(),
     ): DetectorStartResult = startDetectors(armedSessionId)
 
     fun stopDetectors()

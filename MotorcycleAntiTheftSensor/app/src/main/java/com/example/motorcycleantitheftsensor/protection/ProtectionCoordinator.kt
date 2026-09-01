@@ -308,7 +308,11 @@ class ProtectionCoordinator(
                 frozenSnapshotRef.set(armedSnapshot)
                 currentArmedSessionId.set(sessionId)
                 frozenConfiguration = armedSnapshot.effectiveConfiguration
-                val startResult = runtime.startDetectors(sessionId, armedSnapshot.effectiveConfiguration)
+                val startResult = runtime.startDetectors(
+                    sessionId,
+                    armedSnapshot.effectiveConfiguration,
+                    ProtectionProfilePolicy.usedSensorKinds(selectedProfile),
+                )
                 if (!startResult.started) {
                     currentArmedSessionId.set(null)
                     armingEpoch.incrementAndGet()
@@ -446,7 +450,12 @@ class ProtectionCoordinator(
             }
 
             val finalDegradations = armingDegradations +
-                unhealthySensorReasons(health) +
+                unhealthySensorReasons(
+                    health = health,
+                    usedSensorKinds = frozenSnapshotRef.get()?.profile
+                        ?.let(ProtectionProfilePolicy::usedSensorKinds)
+                        ?: SensorKind.entries.toSet(),
+                ) +
                 telegramDegradationReasons(snapshot.value) +
                 persistenceDegradations()
             val finalState = if (finalDegradations.isEmpty()) {
@@ -1143,7 +1152,12 @@ class ProtectionCoordinator(
                 emptySet()
             }
             val sensorDegradations = if (liveState in ARMED_STATES || liveState == ProtectionState.ARMING) {
-                unhealthySensorReasons(evaluatedSensors)
+                unhealthySensorReasons(
+                    health = evaluatedSensors,
+                    usedSensorKinds = current.armedProfileSnapshot?.profile
+                        ?.let(ProtectionProfilePolicy::usedSensorKinds)
+                        ?: SensorKind.entries.toSet(),
+                )
             } else {
                 emptySet()
             }
@@ -1257,16 +1271,6 @@ class ProtectionCoordinator(
         ProtectionState.ARMED_DEGRADED
     }
 
-    private fun unhealthySensorReasons(
-        health: Map<SensorKind, SensorHealth>,
-    ): Set<String> = health
-        .filterValues { item ->
-            item.state == SensorHealthState.UNAVAILABLE ||
-                item.state == SensorHealthState.STALE ||
-                item.state == SensorHealthState.FAILED
-        }
-        .keys
-        .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
 
     private fun hasReadyPrimary(primarySources: Set<SensorSource>): Boolean =
         primarySources.any { source -> runtime.sourceHealth(source) == SensorHealthState.HEALTHY }
@@ -1302,3 +1306,23 @@ class ProtectionCoordinator(
         )
     }
 }
+
+/**
+ * A sensor the armed profile does not detect with must never degrade the armed state.
+ * Power Guard deliberately runs on the light sensor and the charging signal alone, so
+ * counting the microphone, location or movement there produced a permanent
+ * "limited" state that also masked degradations that do matter.
+ */
+internal fun unhealthySensorReasons(
+    health: Map<SensorKind, SensorHealth>,
+    usedSensorKinds: Set<SensorKind>,
+): Set<String> = health
+    .filterKeys { kind -> kind in usedSensorKinds }
+    .filterValues { item ->
+        item.state == SensorHealthState.UNAVAILABLE ||
+            item.state == SensorHealthState.STALE ||
+            item.state == SensorHealthState.FAILED
+    }
+    .keys
+    .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+

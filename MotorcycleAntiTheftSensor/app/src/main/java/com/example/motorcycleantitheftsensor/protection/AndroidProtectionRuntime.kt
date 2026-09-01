@@ -124,6 +124,14 @@ interface AndroidDetectorSet {
 
     fun start(armedSessionId: String): DetectorStartResult = start()
 
+    /**
+     * [usedSensorKinds] carries the kinds the armed profile actually detects with. The
+     * microphone and location are not [SensorSource]s, so the fusion configuration
+     * cannot switch them off; only this set can.
+     */
+    fun start(armedSessionId: String, usedSensorKinds: Set<SensorKind>): DetectorStartResult =
+        start(armedSessionId)
+
     fun stop()
 
     fun applySensitivity(level: Int)
@@ -233,6 +241,22 @@ class AndroidProtectionRuntime(
     override fun startDetectors(armedSessionId: String): DetectorStartResult {
         observationProcessor.resetSession()
         return detectors.start(armedSessionId)
+    }
+
+    /**
+     * Frozen-configuration entry point. The default body in [ProtectionRuntime] drops
+     * the configuration, so the armed snapshot's promise that late Settings edits cannot
+     * change running detectors was never kept, and a profile that switches sensors off
+     * kept registering them. Apply the frozen configuration before starting anything.
+     */
+    override fun startDetectors(
+        armedSessionId: String,
+        configuration: SensorFusionConfiguration,
+        usedSensorKinds: Set<SensorKind>,
+    ): DetectorStartResult {
+        observationProcessor.resetSession()
+        detectors.applySensorConfiguration(configuration)
+        return detectors.start(armedSessionId, usedSensorKinds)
     }
 
     override fun stopDetectors() {
@@ -691,7 +715,13 @@ class PlatformAndroidDetectorSet(
 
     override fun start(): DetectorStartResult = start(java.util.UUID.randomUUID().toString())
 
-    override fun start(armedSessionId: String): DetectorStartResult {
+    override fun start(armedSessionId: String): DetectorStartResult =
+        start(armedSessionId, SensorKind.entries.toSet())
+
+    override fun start(
+        armedSessionId: String,
+        usedSensorKinds: Set<SensorKind>,
+    ): DetectorStartResult {
         val initialLocationObs: SensorObservation?
         synchronized(lifecycleLock) {
             if (running) return DetectorStartResult(started = true)
@@ -748,15 +778,21 @@ class PlatformAndroidDetectorSet(
                     } else false
                 }
                 startOptional(SensorKind.POWER_THERMAL, powerThermal::startMonitoring)
-                startOptional(SensorKind.MICROPHONE) {
-                    packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) &&
-                        hasAudioPermission() &&
-                        audio.startListening(armedSessionId)
+                if (SensorKind.MICROPHONE in usedSensorKinds) {
+                    startOptional(SensorKind.MICROPHONE) {
+                        packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE) &&
+                            hasAudioPermission() &&
+                            audio.startListening(armedSessionId)
+                    }
                 }
-                initialLocationObs = try {
-                    location.currentObservation()
-                } catch (error: RuntimeException) {
-                    markFailed(SensorKind.LOCATION, error)
+                initialLocationObs = if (SensorKind.LOCATION in usedSensorKinds) {
+                    try {
+                        location.currentObservation()
+                    } catch (error: RuntimeException) {
+                        markFailed(SensorKind.LOCATION, error)
+                        null
+                    }
+                } else {
                     null
                 }
             } catch (error: RuntimeException) {

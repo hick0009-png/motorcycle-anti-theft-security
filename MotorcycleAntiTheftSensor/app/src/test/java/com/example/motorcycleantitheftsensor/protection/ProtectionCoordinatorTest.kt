@@ -1140,6 +1140,10 @@ class ProtectionCoordinatorTest {
         assertEquals(expectedConfig, armed.effectiveConfiguration)
         assertEquals(expectedConfig, runtime.startedConfiguration)
         assertEquals(armed.armedSessionId, runtime.startedSessionId)
+        assertEquals(
+            ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.VEHICLE),
+            runtime.startedSensorKinds,
+        )
 
         // Editing the stored profile after Arm must not change the frozen snapshot.
         profileRepository.save(
@@ -1874,6 +1878,46 @@ class ProtectionCoordinatorTest {
             assertTrue(verdicts.isEmpty())
         }
     }
+
+    /**
+     * D2: Power Guard runs on the light sensor and the charging signal by design, so a
+     * silent microphone or location there is not a fault. Counting them made the armed
+     * state permanently "limited" and buried the degradations that do matter.
+     */
+    @Test
+    fun sensorsTheArmedProfileDoesNotUseNeverDegradeTheArmedState() {
+        val health = mapOf(
+            SensorKind.LIGHT to SensorHealth(SensorHealthState.HEALTHY),
+            SensorKind.POWER_THERMAL to SensorHealth(SensorHealthState.HEALTHY),
+            SensorKind.VIBRATION to SensorHealth(SensorHealthState.UNAVAILABLE),
+            SensorKind.MICROPHONE to SensorHealth(SensorHealthState.UNAVAILABLE),
+            SensorKind.LOCATION to SensorHealth(SensorHealthState.FAILED),
+        )
+
+        assertEquals(
+            emptySet<String>(),
+            unhealthySensorReasons(
+                health = health,
+                usedSensorKinds = ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+            ),
+        )
+    }
+
+    @Test
+    fun aSensorTheArmedProfileUsesStillDegradesTheArmedState() {
+        val health = mapOf(
+            SensorKind.LIGHT to SensorHealth(SensorHealthState.FAILED),
+            SensorKind.POWER_THERMAL to SensorHealth(SensorHealthState.HEALTHY),
+        )
+
+        assertEquals(
+            setOf("LIGHT not healthy"),
+            unhealthySensorReasons(
+                health = health,
+                usedSensorKinds = ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+            ),
+        )
+    }
 }
 
 private class InMemoryProtectionProfileRepository(
@@ -1986,6 +2030,7 @@ private class FakeRuntime(
     var startedSessionId: String? = null
         private set
     var startedConfiguration: SensorFusionConfiguration? = null
+    var startedSensorKinds: Set<SensorKind>? = null
         private set
     val appliedConfigurations = mutableListOf<SensorFusionConfiguration>()
 
@@ -1999,9 +2044,11 @@ private class FakeRuntime(
     override fun startDetectors(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
+        usedSensorKinds: Set<SensorKind>,
     ): DetectorStartResult {
         startedSessionId = armedSessionId
         startedConfiguration = configuration
+        startedSensorKinds = usedSensorKinds
         return startDetectors(armedSessionId)
     }
 
@@ -2053,4 +2100,5 @@ private class FakeRuntime(
     override fun clearPowerSession() {
         powerClearCalls += 1
     }
+
 }

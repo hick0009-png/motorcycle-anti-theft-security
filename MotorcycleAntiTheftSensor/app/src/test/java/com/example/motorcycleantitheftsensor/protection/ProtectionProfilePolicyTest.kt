@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProtectionProfilePolicyTest {
@@ -260,6 +261,30 @@ class ProtectionProfilePolicyTest {
         val resolved = policy.resolve(customised, ProtectionProfile.ENTRY).sensorConfiguration
 
         assertEquals(SensorRole.PRIMARY, resolved.source(SensorSource.ACCELEROMETER).role)
+    }
+
+
+    /**
+     * Selecting a profile must switch off every sensor it does not use, including the
+     * ones the fusion configuration cannot express: the microphone and location are not
+     * SensorSources, so a profile has to declare them separately or they keep running.
+     */
+    @Test
+    fun powerProfileUsesNeitherMicrophoneNorLocation() {
+        assertEquals(
+            setOf(SensorKind.LIGHT, SensorKind.POWER_THERMAL),
+            ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+        )
+    }
+
+    @Test
+    fun vehicleAndEntryProfilesStillUseTheAuxiliarySensors() {
+        listOf(ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY).forEach { profile ->
+            val used = ProtectionProfilePolicy.usedSensorKinds(profile)
+            assertTrue("$profile must keep the microphone", SensorKind.MICROPHONE in used)
+            assertTrue("$profile must keep location", SensorKind.LOCATION in used)
+            assertTrue("$profile must keep movement", SensorKind.VIBRATION in used)
+        }
     }
 
 }

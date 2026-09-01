@@ -295,4 +295,27 @@ class ProtectionProfilePolicy(
             },
         )
     }
+
+    companion object {
+        /**
+         * Sensor kinds a profile actually detects with.
+         *
+         * The fusion configuration can only express motion, orientation, magnetic,
+         * light and proximity sources, so the microphone and location would keep
+         * running for every profile. Power Guard watches one lamp and one charging
+         * signal; recording audio and taking location fixes for it costs battery and
+         * privacy, and their absence must not read as a degraded system either.
+         */
+        fun usedSensorKinds(profile: ProtectionProfile): Set<SensorKind> = when (profile) {
+            ProtectionProfile.POWER -> setOf(SensorKind.LIGHT, SensorKind.POWER_THERMAL)
+            ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> setOf(
+                SensorKind.VIBRATION,
+                SensorKind.LIGHT,
+                SensorKind.MICROPHONE,
+                SensorKind.LOCATION,
+                SensorKind.POWER_THERMAL,
+            )
+        }
+    }
+
 }
