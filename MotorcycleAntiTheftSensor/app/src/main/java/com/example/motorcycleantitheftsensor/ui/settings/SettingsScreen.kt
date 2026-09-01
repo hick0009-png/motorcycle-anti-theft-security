@@ -46,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -72,12 +73,15 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
+import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
+import com.example.motorcycleantitheftsensor.ui.SensorEditabilityUiModel
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
@@ -98,6 +102,14 @@ import kotlin.math.roundToInt
  * WCAG AA (≥4.5:1) on white.
  */
 private val RowSurface = Color(0xFFF2F2F0)   // inner rows / chips
+
+/**
+ * Dimming for controls a profile has locked. Matches the M3 disabled-content alpha.
+ * Only controls carry it: the lock chip and its reason stay at full contrast, because
+ * they are the text that explains the dimming (WCAG AA exempts disabled controls, not
+ * the explanation next to them).
+ */
+private const val LockedContentAlpha = 0.38f
 private val BorderNeutral = Color(0xFFC9C9C6) // borders / inactive tracks
 private val ActionBlue = Color(0xFF1D4ED8)    // actions/links on white (6.3:1)
 private val StatusGreen = Color(0xFF047857)   // armed/healthy text (5.2:1)
@@ -447,10 +459,22 @@ fun SettingsScreen(
         item(key = "sensor-fusion-settings") {
             var showAdvancedDialog by rememberSaveable { mutableStateOf(false) }
             var showNoPrimaryWarningDialog by rememberSaveable { mutableStateOf(false) }
+            var lockedSourcesExpanded by rememberSaveable { mutableStateOf(false) }
             val configPolicy = remember { SensorConfigurationPolicy() }
             val currentConfig = state.settings.sensorConfiguration
                 ?: remember { configPolicy.forPreset(SensorPreset.BALANCED) }
             val displayPreset = state.settings.sensorDisplayPreset ?: configPolicy.displayPreset(currentConfig)
+            val editability = state.sensorEditability
+            // Defense in depth. The domain pins these sources OFF when it resolves the
+            // profile anyway, but a configuration restored from an older version could
+            // still carry a raised role, and this screen must never write one back.
+            val saveConfiguration: (SensorFusionConfiguration) -> Unit = { requested ->
+                actions.updateSensorConfiguration(
+                    editability.lockedSources.fold(requested) { config, source ->
+                        configPolicy.withSourceRole(config, source, SensorRole.OFF)
+                    },
+                )
+            }
 
             SettingsCard(title = "เซ็นเซอร์ขั้นสูงและบทบาทการตรวจจับ") {
                 Text(
@@ -458,6 +482,14 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                val lockNotice = editability.notice
+                if (editability.anyLocked && lockNotice != null) {
+                    SensorLockBanner(
+                        notice = lockNotice,
+                        onChangeUse = { actions.selectDestination(ProtectionDestination.PROTECTION) },
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -469,6 +501,14 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                 )
+                if (!editability.presetSelectable) {
+                    // A profile that pins the roles itself can never match a preset, so the
+                    // three buttons would only produce a configuration it overrides again.
+                    LockChip(
+                        label = editability.presetNotice ?: PresentationTextCatalog.SENSOR_LOCK_CHIP,
+                        modifier = Modifier.testTag(SENSOR_PRESET_LOCKED_TAG),
+                    )
+                } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -485,7 +525,7 @@ fun SettingsScreen(
                             Button(
                                 onClick = {
                                     val newConfig = configPolicy.forPreset(preset)
-                                    actions.updateSensorConfiguration(newConfig)
+                                    saveConfiguration(newConfig)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -506,7 +546,7 @@ fun SettingsScreen(
                             OutlinedButton(
                                 onClick = {
                                     val newConfig = configPolicy.forPreset(preset)
-                                    actions.updateSensorConfiguration(newConfig)
+                                    saveConfiguration(newConfig)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -526,8 +566,12 @@ fun SettingsScreen(
                         }
                     }
                 }
+                }
 
-                if (displayPreset == com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay.CUSTOM) {
+                // CUSTOM would latch forever under a role-pinning profile and read as a fault.
+                if (editability.presetSelectable &&
+                    displayPreset == com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay.CUSTOM
+                ) {
                     Text(
                         text = "รูปแบบ: กำหนดเอง",
                         style = MaterialTheme.typography.labelSmall.copy(
@@ -544,6 +588,7 @@ fun SettingsScreen(
                 SensorCapability.entries.forEach { capability ->
                     val capName = PresentationTextCatalog.capabilityName(capability)
                     val capConfig = currentConfig.capability(capability)
+                    val capabilityLocked = editability.isLocked(capability)
                     var sliderValue by remember(capConfig.sensitivity) { mutableIntStateOf(capConfig.sensitivity) }
 
                     Card(
@@ -551,7 +596,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = RowSurface.copy(alpha = 0.5f),
+                            containerColor = RowSurface.copy(alpha = if (capabilityLocked) 0.28f else 0.5f),
                         ),
                         border = BorderStroke(1.dp, BorderNeutral.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(12.dp),
@@ -560,15 +605,33 @@ fun SettingsScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(
-                                text = capName,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = capName,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                )
+                                if (capabilityLocked) LockChip()
+                            }
+                            // Full contrast: this is the text that explains the dimming.
+                            val capabilityReason = editability.rowReason
+                            if (capabilityLocked && capabilityReason != null) {
+                                Text(
+                                    text = capabilityReason,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (capabilityLocked) LockedContentAlpha else 1f),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -599,11 +662,21 @@ fun SettingsScreen(
                                 },
                                 onValueChangeFinished = {
                                     val updatedConfig = configPolicy.withGroupSensitivity(currentConfig, capability, sliderValue)
-                                    actions.updateSensorConfiguration(updatedConfig)
+                                    saveConfiguration(updatedConfig)
                                 },
-                                enabled = !state.settingsOperationInFlight,
-                                sliderContentDescription = "ระดับการตรวจจับ $sliderValue เต็ม 10",
-                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.settingsOperationInFlight && !capabilityLocked,
+                                sliderContentDescription = if (capabilityLocked) {
+                                    PresentationTextCatalog.sensorLockedContentDescription(
+                                        capName,
+                                        requireNotNull(editability.profile),
+                                    )
+                                } else {
+                                    "ระดับการตรวจจับ $sliderValue เต็ม 10"
+                                },
+                                testTag = sensorCapabilitySliderTag(capability),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (capabilityLocked) LockedContentAlpha else 1f),
                             )
                         }
                     }
@@ -638,113 +711,82 @@ fun SettingsScreen(
                         )
                     },
                     text = {
+                        val editableSources = editability.editableSources
+                        val lockedSources = editability.lockedSourceList
+                        val onSelectRole: (SensorSource, SensorRole) -> Unit = { source, role ->
+                            val updatedConfig = configPolicy.withSourceRole(currentConfig, source, role)
+                            val hasPrimary = configPolicy.armEligibility(updatedConfig) is
+                                com.example.motorcycleantitheftsensor.protection.SensorArmEligibility.Eligible
+                            if (!hasPrimary) {
+                                showNoPrimaryWarningDialog = true
+                            } else {
+                                saveConfiguration(updatedConfig)
+                            }
+                        }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 440.dp),
+                                .heightIn(max = 440.dp)
+                                .testTag(SENSOR_ROLE_LIST_TAG),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(SensorSource.entries.size) { index ->
-                                val source = SensorSource.entries[index]
-                                val srcConfig = currentConfig.source(source)
-                                val srcName = PresentationTextCatalog.sourceName(source)
-                                val capName = PresentationTextCatalog.capabilityName(source.capability)
-
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = RowSurface.copy(alpha = 0.7f),
-                                    ),
-                                    border = BorderStroke(1.dp, BorderNeutral),
-                                    shape = RoundedCornerShape(10.dp),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                            if (editability.anyLocked) {
+                                item {
+                                    SensorGroupHeading(
+                                        "เซ็นเซอร์ที่โหมดนี้ใช้ (${editableSources.size})",
+                                    )
+                                }
+                            }
+                            items(editableSources.size) { index ->
+                                val source = editableSources[index]
+                                SensorRoleRow(
+                                    source = source,
+                                    role = currentConfig.source(source).role,
+                                    locked = false,
+                                    lockReason = null,
+                                    lockedContentDescription = null,
+                                    onSelectRole = { role -> onSelectRole(source, role) },
+                                )
+                            }
+                            if (lockedSources.isNotEmpty()) {
+                                item {
+                                    // Collapsed by default: present and inspectable, not in the way.
+                                    OutlinedButton(
+                                        onClick = { lockedSourcesExpanded = !lockedSourcesExpanded },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag(SENSOR_LOCKED_GROUP_TOGGLE_TAG),
+                                        border = BorderStroke(1.dp, BorderNeutral),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
                                     ) {
                                         Text(
-                                            text = srcName,
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
+                                            text = "${if (lockedSourcesExpanded) "ซ่อน" else "แสดง"} " +
+                                                "🔒 ถูกล็อกในโหมดนี้ (${lockedSources.size})",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
                                             ),
                                         )
-                                        Text(
-                                            text = "กลุ่ม: $capName",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.outline,
+                                    }
+                                }
+                                if (lockedSourcesExpanded) {
+                                    items(lockedSources.size) { index ->
+                                        val source = lockedSources[index]
+                                        SensorRoleRow(
+                                            source = source,
+                                            role = currentConfig.source(source).role,
+                                            locked = true,
+                                            lockReason = editability.rowReason,
+                                            lockedContentDescription =
+                                                PresentationTextCatalog.sensorLockedContentDescription(
+                                                    PresentationTextCatalog.sourceName(source),
+                                                    requireNotNull(editability.profile),
+                                                ),
+                                            onSelectRole = { },
                                         )
-
-                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                        // Role Selector (Compact 3-button row with weight to prevent overflow)
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            val roles = listOf(
-                                                SensorRole.PRIMARY to "หลัก",
-                                                SensorRole.SUPPORTING to "ประกอบ",
-                                                SensorRole.OFF to "ปิด",
-                                            )
-
-                                            roles.forEach { (role, label) ->
-                                                val isSelected = srcConfig.role == role
-                                                if (isSelected) {
-                                                    Button(
-                                                        onClick = {},
-                                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .heightIn(min = 40.dp),
-                                                        colors = ButtonDefaults.buttonColors(
-                                                            containerColor = when (role) {
-                                                                SensorRole.PRIMARY -> StatusGreen
-                                                                SensorRole.SUPPORTING -> ActionBlue
-                                                                SensorRole.OFF -> StatusRed
-                                                            },
-                                                            contentColor = Color.White,
-                                                        ),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                    ) {
-                                                        Text(
-                                                            text = label,
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                fontWeight = FontWeight.Bold,
-                                                            ),
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                } else {
-                                                    OutlinedButton(
-                                                        onClick = {
-                                                            val updatedConfig = configPolicy.withSourceRole(currentConfig, source, role)
-                                                            val hasPrimary = configPolicy.armEligibility(updatedConfig) is com.example.motorcycleantitheftsensor.protection.SensorArmEligibility.Eligible
-                                                            if (!hasPrimary) {
-                                                                showNoPrimaryWarningDialog = true
-                                                            } else {
-                                                                actions.updateSensorConfiguration(updatedConfig)
-                                                            }
-                                                        },
-                                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .heightIn(min = 40.dp),
-                                                        border = BorderStroke(1.dp, BorderNeutral),
-                                                        colors = ButtonDefaults.outlinedButtonColors(
-                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        ),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                    ) {
-                                                        Text(
-                                                            text = label,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -1268,6 +1310,218 @@ private fun SettingsLoadState(
 }
 
 private const val SENSITIVITY_SLIDER_TAG = "sensitivity_slider"
+internal const val SENSOR_LOCK_BANNER_TAG = "ui.settings.sensor.LOCK_BANNER"
+internal const val SENSOR_PRESET_LOCKED_TAG = "ui.settings.sensor.PRESET_LOCKED"
+internal const val SENSOR_LOCKED_GROUP_TOGGLE_TAG = "ui.settings.sensor.LOCKED_GROUP_TOGGLE"
+internal const val SENSOR_ROLE_LIST_TAG = "ui.settings.sensor.ROLE_LIST"
+
+internal fun sensorCapabilitySliderTag(capability: SensorCapability): String =
+    "ui.settings.sensor.capability.${capability.name}.SLIDER"
+
+internal fun sensorSourceRoleTag(source: SensorSource, role: SensorRole): String =
+    "ui.settings.sensor.source.${source.name}.role.${role.name}"
+
+/**
+ * States, at full contrast, that the selected profile owns these sensors, and offers the
+ * only way out: changing the protection use.
+ */
+@Composable
+private fun SensorLockBanner(notice: String, onChangeUse: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .testTag(SENSOR_LOCK_BANNER_TAG),
+        colors = CardDefaults.cardColors(containerColor = RowSurface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "🔒 $notice",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(
+                onClick = onChangeUse,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .heightIn(min = 48.dp),
+            ) {
+                Text(
+                    text = PresentationTextCatalog.SENSOR_LOCK_CHANGE_USE,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = ActionBlue,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LockChip(
+    label: String = PresentationTextCatalog.SENSOR_LOCK_CHIP,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = RowSurface,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, BorderNeutral),
+    ) {
+        Text(
+            text = "🔒 $label",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SensorGroupHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.semantics { heading() },
+    )
+}
+
+/**
+ * One hardware source and its three role buttons.
+ *
+ * When [locked] the profile owns this source: every button is disabled, not merely
+ * unhandled, so TalkBack stops announcing them as actionable, and the reason keeps full
+ * contrast while the buttons dim.
+ */
+@Composable
+private fun SensorRoleRow(
+    source: SensorSource,
+    role: SensorRole,
+    locked: Boolean,
+    lockReason: String?,
+    lockedContentDescription: String?,
+    onSelectRole: (SensorRole) -> Unit,
+) {
+    val srcName = PresentationTextCatalog.sourceName(source)
+    val capName = PresentationTextCatalog.capabilityName(source.capability)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = RowSurface.copy(alpha = if (locked) 0.35f else 0.7f),
+        ),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = srcName,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                )
+                if (locked) LockChip()
+            }
+            Text(
+                text = "กลุ่ม: $capName",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            if (locked && lockReason != null) {
+                Text(
+                    text = lockReason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (locked) LockedContentAlpha else 1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                val roles = listOf(
+                    SensorRole.PRIMARY to "หลัก",
+                    SensorRole.SUPPORTING to "ประกอบ",
+                    SensorRole.OFF to "ปิด",
+                )
+                roles.forEach { (candidate, label) ->
+                    val isSelected = role == candidate
+                    val buttonModifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp)
+                        .testTag(sensorSourceRoleTag(source, candidate))
+                        .then(
+                            if (locked && lockedContentDescription != null) {
+                                Modifier.semantics { contentDescription = lockedContentDescription }
+                            } else {
+                                Modifier
+                            },
+                        )
+                    if (isSelected) {
+                        Button(
+                            onClick = {},
+                            enabled = !locked,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = buttonModifier,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = when (candidate) {
+                                    SensorRole.PRIMARY -> StatusGreen
+                                    SensorRole.SUPPORTING -> ActionBlue
+                                    SensorRole.OFF -> StatusRed
+                                },
+                                contentColor = Color.White,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onSelectRole(candidate) },
+                            enabled = !locked,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = buttonModifier,
+                            border = BorderStroke(1.dp, BorderNeutral),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun AccessibleSensitivitySlider(
@@ -1277,6 +1531,7 @@ private fun AccessibleSensitivitySlider(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     sliderContentDescription: String = "ระดับการตรวจจับ $value เต็ม 10",
+    testTag: String = SENSITIVITY_SLIDER_TAG,
 ) {
     val valueRange = 1f..10f
     val updateFromX: (Float, Float) -> Unit = { x, width ->
@@ -1309,7 +1564,7 @@ private fun AccessibleSensitivitySlider(
         Spacer(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag(SENSITIVITY_SLIDER_TAG)
+                .testTag(testTag)
                 .semantics {
                     contentDescription = sliderContentDescription
                     progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), valueRange, 8)

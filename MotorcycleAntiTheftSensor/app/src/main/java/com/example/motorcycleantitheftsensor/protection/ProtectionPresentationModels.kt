@@ -10,6 +10,16 @@ data class ProfilePresentation(
     val promise: String,
 )
 
+/**
+ * Owner-facing copy for sensors a profile pins OFF. All fields are null when the
+ * profile locks nothing, so a caller cannot render an empty lock banner by accident.
+ */
+data class SensorLockPresentation(
+    val notice: String? = null,
+    val reason: String? = null,
+    val presetNotice: String? = null,
+)
+
 data class CapabilityPresentation(
     val title: String,
     val explanation: String,

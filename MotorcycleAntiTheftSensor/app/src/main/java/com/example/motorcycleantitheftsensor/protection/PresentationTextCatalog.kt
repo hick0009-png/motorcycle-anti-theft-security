@@ -27,6 +27,24 @@ object PresentationTextCatalog {
         )
     }
 
+    /**
+     * Why a profile locks the sensors it does not use, in the owner's words.
+     *
+     * [SensorLockPresentation.notice] heads the advanced sensor card; [reason] repeats
+     * on each locked row. Both are null for a profile that locks nothing, and null when
+     * no profile is selected — an unselected state must not claim anything is locked.
+     */
+    fun sensorLock(profile: ProtectionProfile?): SensorLockPresentation = when (profile) {
+        null, ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> SensorLockPresentation()
+        ProtectionProfile.POWER -> SensorLockPresentation(
+            notice = "โหมดไฟเลี้ยงใช้เฉพาะเซ็นเซอร์แสง (ไฟยืนยัน) และสถานะการชาร์จ " +
+                "เซ็นเซอร์อื่นถูกล็อกไว้ในโหมดนี้ ปรับค่าไม่ได้",
+            reason = "โหมดไฟเลี้ยงไม่ใช้เซ็นเซอร์นี้ — การขยับตอนถอด/เสียบสายชาร์จ " +
+                "จะเปิดเหตุการณ์ซ้อนกับเหตุการณ์ไฟเลี้ยง",
+            presetNotice = "กำหนดโดยโหมดไฟเลี้ยง",
+        )
+    }
+
     /** Evidence-role labels approved by the spec (§3.3). */
     fun evidenceRoleLabel(role: SensorRole): String = when (role) {
         SensorRole.PRIMARY -> "ใช้ยืนยันหลัก"
@@ -153,6 +171,14 @@ object PresentationTextCatalog {
                 )
             }
         }
+
+    /** Fixed labels for the lock affordances, so the screen never invents its own. */
+    const val SENSOR_LOCK_CHIP = "ล็อกโดยโหมด"
+    const val SENSOR_LOCK_CHANGE_USE = "เปลี่ยนการใช้งาน"
+
+    /** "<source> ล็อกโดยโหมด... ตั้งค่าไม่ได้" for TalkBack, which cannot see dimming. */
+    fun sensorLockedContentDescription(name: String, profile: ProtectionProfile): String =
+        "$name ถูกล็อกในโหมด${profile(profile).name} ตั้งค่าไม่ได้"
 
     fun capabilityName(capability: SensorCapability): String = when (capability) {
         SensorCapability.MOVEMENT -> "การเคลื่อนไหว"

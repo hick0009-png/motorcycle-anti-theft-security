@@ -53,7 +53,7 @@ class ProtectionProfilePolicy(
             sensorConfiguration = resolveSensorConfiguration(
                 recommended.sensorConfiguration,
                 stored.sensorOverrides,
-                lockedOffSources = lockedOffSources(profile, recommended.sensorConfiguration),
+                lockedOffSources = lockedOffSources(profile),
             ),
             specificSettings = resolveSpecificSettings(
                 recommended.specificSettings,
@@ -210,15 +210,8 @@ class ProtectionProfilePolicy(
      * with the power episode for the engine's active-incident slot. Other profiles stay
      * fully customisable.
      */
-    private fun lockedOffSources(
-        profile: ProtectionProfile,
-        recommended: SensorFusionConfiguration,
-    ): Set<SensorSource> = when (profile) {
-        ProtectionProfile.POWER -> SensorSource.entries
-            .filter { source -> recommended.source(source).role == SensorRole.OFF }
-            .toSet()
-        ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> emptySet()
-    }
+    private fun lockedOffSources(profile: ProtectionProfile): Set<SensorSource> =
+        lockedSources(profile)
 
     private fun resolveSensorConfiguration(
         recommended: SensorFusionConfiguration,
@@ -297,6 +290,40 @@ class ProtectionProfilePolicy(
     }
 
     companion object {
+        /**
+         * Sources a profile pins OFF as part of its detection contract, exposed so the
+         * settings screen can state the same fact instead of inferring its own.
+         *
+         * This is the single definition; `resolve()` enforces it and the UI only reads
+         * it. `ProtectionProfilePolicyTest` pins it against the recommended roles, so a
+         * later change to the recommendation table cannot drift the two apart silently.
+         */
+        fun lockedSources(profile: ProtectionProfile): Set<SensorSource> = when (profile) {
+            ProtectionProfile.POWER -> SensorSource.entries.toSet() - SensorSource.AMBIENT_LIGHT
+            ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> emptySet()
+        }
+
+        /** Capabilities whose every source is locked, so the group slider is meaningless too. */
+        fun lockedCapabilities(profile: ProtectionProfile): Set<SensorCapability> {
+            val locked = lockedSources(profile)
+            if (locked.isEmpty()) return emptySet()
+            return SensorCapability.entries
+                .filter { capability ->
+                    SensorSource.entries
+                        .filter { it.capability == capability }
+                        .all { it in locked }
+                }
+                .toSet()
+        }
+
+        /**
+         * Presets describe a whole-device balance. A profile that pins roles itself can
+         * never match one, so offering the three preset buttons would only ever produce
+         * a configuration the profile immediately overrides.
+         */
+        fun presetSelectable(profile: ProtectionProfile): Boolean =
+            lockedSources(profile).isEmpty()
+
         /**
          * Sensor kinds a profile actually detects with.
          *

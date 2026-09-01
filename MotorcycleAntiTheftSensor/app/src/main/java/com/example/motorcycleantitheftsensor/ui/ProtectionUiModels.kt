@@ -12,6 +12,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
@@ -19,7 +20,9 @@ import com.example.motorcycleantitheftsensor.protection.SecurityIncident
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
+import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.SensorSource
 import kotlin.math.ceil
 
 enum class ProtectionDestination { PROTECTION, EVENTS, SETTINGS }
@@ -112,6 +115,52 @@ data class ProtectionProfileUiState(
     /** Two independent POWER signal rows; null for non-POWER profiles. */
     val powerSummary: PowerSummaryRows? = null,
 )
+
+/**
+ * What the advanced sensor screen may edit under the selected profile.
+ *
+ * Derived once from [ProtectionProfilePolicy] so Compose never decides for itself which
+ * sensors a profile uses ("readiness is never inferred in Compose"). A profile that
+ * locks nothing yields the default instance, which reads as fully editable.
+ */
+data class SensorEditabilityUiModel(
+    val profile: ProtectionProfile? = null,
+    val lockedSources: Set<SensorSource> = emptySet(),
+    val lockedCapabilities: Set<SensorCapability> = emptySet(),
+    val presetSelectable: Boolean = true,
+    val notice: String? = null,
+    val rowReason: String? = null,
+    val presetNotice: String? = null,
+) {
+    val anyLocked: Boolean get() = lockedSources.isNotEmpty()
+
+    fun isLocked(source: SensorSource): Boolean = source in lockedSources
+
+    fun isLocked(capability: SensorCapability): Boolean = capability in lockedCapabilities
+
+    /** Sources the selected profile still detects with, in declaration order. */
+    val editableSources: List<SensorSource>
+        get() = SensorSource.entries.filterNot(::isLocked)
+
+    val lockedSourceList: List<SensorSource>
+        get() = SensorSource.entries.filter(::isLocked)
+
+    companion object {
+        fun from(profile: ProtectionProfile?): SensorEditabilityUiModel {
+            if (profile == null) return SensorEditabilityUiModel()
+            val presentation = PresentationTextCatalog.sensorLock(profile)
+            return SensorEditabilityUiModel(
+                profile = profile,
+                lockedSources = ProtectionProfilePolicy.lockedSources(profile),
+                lockedCapabilities = ProtectionProfilePolicy.lockedCapabilities(profile),
+                presetSelectable = ProtectionProfilePolicy.presetSelectable(profile),
+                notice = presentation.notice,
+                rowReason = presentation.reason,
+                presetNotice = presentation.presetNotice,
+            )
+        }
+    }
+}
 
 /** Guided two-cycle commissioning progress for the เข็มทิศประตู flow (spec section 9). */
 enum class EntryCommissioningPhase {
@@ -255,6 +304,8 @@ data class ProtectionUiState(
     val activeSettingsOperation: SettingsOperation? = null,
     val audio: AudioUiTelemetry = AudioUiTelemetry(),
     val profile: ProtectionProfileUiState = ProtectionProfileUiState(),
+    /** Derived from [profile]; never assembled by the screen itself. */
+    val sensorEditability: SensorEditabilityUiModel = SensorEditabilityUiModel(),
 ) {
     companion object {
         fun from(
@@ -299,6 +350,7 @@ data class ProtectionUiState(
             activeSettingsOperation = activeSettingsOperation,
             audio = audio,
             profile = profile,
+            sensorEditability = SensorEditabilityUiModel.from(profile.selectedProfile),
         )
     }
 }

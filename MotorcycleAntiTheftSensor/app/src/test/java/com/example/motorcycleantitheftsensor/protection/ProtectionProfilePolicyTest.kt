@@ -12,6 +12,77 @@ class ProtectionProfilePolicyTest {
     private val policy = ProtectionProfilePolicy(nowMs = { 1_000L })
 
     @Test
+    fun powerProfileLocksEverySourceExceptTheWitnessLamp() {
+        val locked = ProtectionProfilePolicy.lockedSources(ProtectionProfile.POWER)
+
+        assertEquals(SensorSource.entries.size - 1, locked.size)
+        assertFalse(SensorSource.AMBIENT_LIGHT in locked)
+        assertTrue(SensorSource.ACCELEROMETER in locked)
+        assertTrue(SensorSource.GAME_ROTATION_VECTOR in locked)
+        assertTrue(SensorSource.PROXIMITY in locked)
+    }
+
+    @Test
+    fun fullyCustomisableProfilesLockNothing() {
+        assertEquals(emptySet<SensorSource>(), ProtectionProfilePolicy.lockedSources(ProtectionProfile.VEHICLE))
+        assertEquals(emptySet<SensorSource>(), ProtectionProfilePolicy.lockedSources(ProtectionProfile.ENTRY))
+        assertEquals(
+            emptySet<SensorCapability>(),
+            ProtectionProfilePolicy.lockedCapabilities(ProtectionProfile.VEHICLE),
+        )
+        assertTrue(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.VEHICLE))
+        assertTrue(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.ENTRY))
+    }
+
+    @Test
+    fun powerLocksEveryCapabilityWhoseSourcesAreAllLocked() {
+        val locked = ProtectionProfilePolicy.lockedCapabilities(ProtectionProfile.POWER)
+
+        assertEquals(
+            setOf(
+                SensorCapability.MOVEMENT,
+                SensorCapability.ROTATION,
+                SensorCapability.MAGNETIC,
+                SensorCapability.PROXIMITY,
+            ),
+            locked,
+        )
+        // LIGHT keeps an editable source, so its group control must stay live.
+        assertFalse(SensorCapability.LIGHT in locked)
+        assertFalse(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.POWER))
+    }
+
+    @Test
+    fun publishedLockedSourcesMatchWhatResolveActuallyPinsOff() {
+        // The settings screen reads lockedSources(); resolve() enforces it. If the
+        // recommendation table ever changes, this is where the two would drift apart.
+        ProtectionProfile.entries.forEach { profile ->
+            val recommendedOff = ProtectionProfilePolicy.lockedSources(profile)
+            val state = policy.newStoreState()
+            val stored = state.profiles.getValue(profile)
+            val raised = SensorSource.entries.associateWith {
+                SensorSourceProfileOverrides(role = SensorRole.PRIMARY)
+            }
+            val withOverrides = state.copy(
+                profiles = state.profiles + (
+                    profile to stored.copy(
+                        sensorOverrides = SensorFusionProfileOverrides(sources = raised),
+                    )
+                    ),
+            )
+            val resolved = policy.resolve(withOverrides, profile).sensorConfiguration
+
+            recommendedOff.forEach { source ->
+                assertEquals(
+                    "$profile must pin $source OFF even when an override raises it",
+                    SensorRole.OFF,
+                    resolved.source(source).role,
+                )
+            }
+        }
+    }
+
+    @Test
     fun newStoreHasEveryProfileWithoutImplicitCustomerSelection() {
         val state = policy.newStoreState()
 
