@@ -35,7 +35,12 @@ class IncidentUpdateDeliveryPolicy(
         }
         is IncidentUpdate.Updated -> {
             ensureTracked(update.incident.id, nowElapsedMs)
-            if (nowElapsedMs >= nextContinuationElapsedMs) {
+            if (update.ownerVisibleConditionChange) {
+                // The condition itself changed for the owner: coalescing it into a
+                // progress edit would hide the new meaning behind generic copy.
+                lastUpdatePersistedElapsedMs = nowElapsedMs
+                DeliveryAction.SEND
+            } else if (nowElapsedMs >= nextContinuationElapsedMs) {
                 lastUpdatePersistedElapsedMs = nowElapsedMs
                 lastProgressEditElapsedMs = nowElapsedMs
                 do {

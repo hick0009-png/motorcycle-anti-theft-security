@@ -92,6 +92,43 @@ class IncidentEnginePowerTest {
     }
 
     @Test
+    fun chargingBackWhileWitnessStaysDarkKeepsTheCriticalIncidentOpenAndTellsTheOwner() {
+        engine.accept(
+            powerObservation("power_confirmed_loss", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        val update = engine.accept(
+            powerObservation("power_partial_witness_dark", 12_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue(update is IncidentUpdate.Updated)
+        update as IncidentUpdate.Updated
+        assertTrue(update.ownerVisibleConditionChange)
+        // One signal is still lost, so the reached severity must not be walked back.
+        assertEquals(IncidentSeverity.CRITICAL, update.incident.severity)
+        assertEquals(IncidentLifecycle.OPEN, update.incident.lifecycle)
+        assertTrue(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun routineHealthAlertInsideAnOpenIncidentStaysASilentUpdate() {
+        engine.accept(
+            powerObservation("power_confirmed_loss", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        val update = engine.accept(
+            powerObservation("power_witness_dark", 12_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue(update is IncidentUpdate.Updated)
+        assertFalse((update as IncidentUpdate.Updated).ownerVisibleConditionChange)
+    }
+
+    @Test
     fun recoveredClosesOnlyTheOpenPowerIncident() {
         engine.accept(
             powerObservation("power_confirmed_loss", 1_000L),

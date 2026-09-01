@@ -633,5 +633,7 @@ private fun powerSemanticForDiagnostic(
     ProtectionDiagnostics.POWER_CHARGING_HEALTH -> PowerCompositeArbiter.SemanticState.CHARGING_LOST
     ProtectionDiagnostics.POWER_WITNESS_DARK -> PowerCompositeArbiter.SemanticState.WITNESS_LOST
     ProtectionDiagnostics.POWER_CONFIRMED_LOSS -> PowerCompositeArbiter.SemanticState.DUAL_LOST
+    ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK -> PowerCompositeArbiter.SemanticState.WITNESS_LOST
+    ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST -> PowerCompositeArbiter.SemanticState.CHARGING_LOST
     else -> null
 }

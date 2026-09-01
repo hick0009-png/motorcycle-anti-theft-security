@@ -271,6 +271,10 @@ class IncidentMessageFormatter(
                 "ไฟยืนยันไม่พบ ตรวจสอบหลอดไฟยืนยัน การวางตำแหน่ง และเส้นทางจ่ายไฟ"
             POWER_CONFIRMED_LOSS ->
                 "ยืนยันไฟเลี้ยงขาดในจุดที่เฝ้าระวัง"
+            POWER_PARTIAL_WITNESS_DARK ->
+                "สายชาร์จกลับมาแล้ว แต่ไฟยืนยันยังไม่มา — จุดที่เฝ้าระวังยังไม่มีไฟเลี้ยง ตรวจสอบเบรกเกอร์ หลอดไฟยืนยัน และเส้นทางจ่ายไฟ"
+            POWER_PARTIAL_CHARGING_LOST ->
+                "ไฟยืนยันกลับมาแล้ว แต่สายชาร์จยังไม่กลับมา — ตรวจสอบสายชาร์จ ที่ชาร์จ และพอร์ตชาร์จของโทรศัพท์"
             POWER_RECOVERED ->
                 "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
             else ->
@@ -297,6 +301,8 @@ class IncidentMessageFormatter(
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
         val POWER_WITNESS_DARK = ProtectionDiagnostics.POWER_WITNESS_DARK
         val POWER_CONFIRMED_LOSS = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+        val POWER_PARTIAL_WITNESS_DARK = ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK
+        val POWER_PARTIAL_CHARGING_LOST = ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST
         val POWER_RECOVERED = ProtectionDiagnostics.POWER_RECOVERED
     }
 }

@@ -35,6 +35,8 @@ private val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
 private val POWER_CHARGING_HEALTH_DIAGNOSTIC = ProtectionDiagnostics.POWER_CHARGING_HEALTH
 private val POWER_WITNESS_DARK_DIAGNOSTIC = ProtectionDiagnostics.POWER_WITNESS_DARK
 private val POWER_CONFIRMED_LOSS_DIAGNOSTIC = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+private val POWER_PARTIAL_WITNESS_DARK_DIAGNOSTIC = ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK
+private val POWER_PARTIAL_CHARGING_LOST_DIAGNOSTIC = ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST
 private val POWER_RECOVERED_DIAGNOSTIC = ProtectionDiagnostics.POWER_RECOVERED
 
 internal fun powerConfirmationDelayMs(deadlineMs: Long?, nowMs: Long): Long? =
@@ -1150,9 +1152,12 @@ class PlatformAndroidDetectorSet(
             is PowerArbiterVerdict.LossStillConfirmed,
             -> POWER_CONFIRMED_LOSS_DIAGNOSTIC
             is PowerArbiterVerdict.RecoveredClosed -> POWER_RECOVERED_DIAGNOSTIC
+            // A one-signal condition reached from another lost condition means the
+            // missing signal came back while the other stayed lost: partial recovery,
+            // which the owner must hear as such instead of a bare health alert.
             is PowerArbiterVerdict.ConditionChanged -> when (verdict.to) {
-                PowerCompositeArbiter.SemanticState.CHARGING_LOST -> POWER_CHARGING_HEALTH_DIAGNOSTIC
-                PowerCompositeArbiter.SemanticState.WITNESS_LOST -> POWER_WITNESS_DARK_DIAGNOSTIC
+                PowerCompositeArbiter.SemanticState.CHARGING_LOST -> POWER_PARTIAL_CHARGING_LOST_DIAGNOSTIC
+                PowerCompositeArbiter.SemanticState.WITNESS_LOST -> POWER_PARTIAL_WITNESS_DARK_DIAGNOSTIC
                 PowerCompositeArbiter.SemanticState.DUAL_LOST -> POWER_CONFIRMED_LOSS_DIAGNOSTIC
                 PowerCompositeArbiter.SemanticState.HEALTHY_DUAL -> POWER_RECOVERED_DIAGNOSTIC
             }

@@ -36,6 +36,23 @@ class IncidentUpdateDeliveryPolicyTest {
     }
 
     @Test
+    fun ownerVisibleConditionChangeSendsItsOwnMessageInsteadOfBeingCoalesced() {
+        val warning = warningIncident()
+
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Opened(warning), 1_000L))
+        // Inside the coalesce window a routine update stays silent...
+        assertEquals(DeliveryAction.NONE, policy.action(IncidentUpdate.Updated(warning), 1_100L))
+        // ...but a changed condition owns its own message.
+        assertEquals(
+            DeliveryAction.SEND,
+            policy.action(
+                IncidentUpdate.Updated(warning, ownerVisibleConditionChange = true),
+                1_200L,
+            ),
+        )
+    }
+
+    @Test
     fun activeIncidentEditsProgressEveryTenSecondsAndSendsContinuationAfterOneMinute() {
         val policy = IncidentUpdateDeliveryPolicy(
             updateCoalesceIntervalMs = 1_000L,

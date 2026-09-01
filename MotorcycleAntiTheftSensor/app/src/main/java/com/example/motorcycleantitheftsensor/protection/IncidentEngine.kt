@@ -634,7 +634,9 @@ class IncidentEngine(
         val active = activeIncident
         val isPowerIncident = active?.incident?.type == IncidentType.POWER
         return when (observation.diagnostic) {
-            POWER_CHARGING_HEALTH, POWER_WITNESS_DARK -> {
+            POWER_CHARGING_HEALTH, POWER_WITNESS_DARK,
+            POWER_PARTIAL_WITNESS_DARK, POWER_PARTIAL_CHARGING_LOST,
+            -> {
                 if (active == null || !isPowerIncident) {
                     openIncident(
                         Classification(IncidentType.POWER, IncidentSeverity.WARNING),
@@ -652,7 +654,14 @@ class IncidentEngine(
                         location = location ?: active.incident.location,
                     )
                     activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
-                    IncidentUpdate.Updated(updated)
+                    // Partial recovery leaves the reached severity untouched — one
+                    // signal is still lost — but it is a new condition for the owner,
+                    // so it must not be coalesced away as a silent update.
+                    IncidentUpdate.Updated(
+                        updated,
+                        ownerVisibleConditionChange =
+                            observation.diagnostic in POWER_PARTIAL_RECOVERY_DIAGNOSTICS,
+                    )
                 }
             }
             POWER_CONFIRMED_LOSS -> {
@@ -715,6 +724,12 @@ class IncidentEngine(
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
         val POWER_WITNESS_DARK = ProtectionDiagnostics.POWER_WITNESS_DARK
         val POWER_CONFIRMED_LOSS = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+        val POWER_PARTIAL_WITNESS_DARK = ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK
+        val POWER_PARTIAL_CHARGING_LOST = ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST
+        val POWER_PARTIAL_RECOVERY_DIAGNOSTICS = setOf(
+            POWER_PARTIAL_WITNESS_DARK,
+            POWER_PARTIAL_CHARGING_LOST,
+        )
         val POWER_RECOVERED = ProtectionDiagnostics.POWER_RECOVERED
 
         val ACTIVE_PROTECTION_STATES = setOf(

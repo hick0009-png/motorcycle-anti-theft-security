@@ -97,7 +97,13 @@ class PowerCompositeArbiter(
             evidenceState.confirmedLossOpen &&
             evidenceState.episodeId != null
         ) {
-            return PowerArbiterVerdict.PartialRecovery(evidenceState.episodeId) to evidenceState
+            // The witness became conclusive again after an evidence gap: restart the
+            // confirmation window so the surviving one-signal condition can still
+            // reach the owner as a condition change.
+            return PowerArbiterVerdict.PartialRecovery(evidenceState.episodeId) to evidenceState.copy(
+                streakStartMs = sample.timestampMs,
+                streakFired = false,
+            )
         }
         return onSameSemantic(evidenceState, semantic, sample.timestampMs)
     }

@@ -21,5 +21,13 @@ internal object ProtectionDiagnostics {
     const val POWER_CHARGING_HEALTH = "power_charging_health"
     const val POWER_WITNESS_DARK = "power_witness_dark"
     const val POWER_CONFIRMED_LOSS = "power_confirmed_loss"
+
+    /**
+     * Partial recovery of a confirmed outage: one signal came back while the other is
+     * still lost. The monitored point is not proven powered yet, so these are never
+     * recovery copy and never a second outage claim.
+     */
+    const val POWER_PARTIAL_WITNESS_DARK = "power_partial_witness_dark"
+    const val POWER_PARTIAL_CHARGING_LOST = "power_partial_charging_lost"
     const val POWER_RECOVERED = "power_recovered"
 }

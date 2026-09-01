@@ -90,7 +90,16 @@ sealed interface IncidentUpdate {
         val supersededIncident: SecurityIncident? = null,
     ) : IncidentUpdate
 
-    data class Updated(val incident: SecurityIncident) : IncidentUpdate
+    /**
+     * [ownerVisibleConditionChange] marks an update whose meaning changed for the
+     * owner while the incident stayed open — a Power Guard partial recovery, for
+     * example. Such an update owns its own message instead of being coalesced into
+     * the silent persist/progress path.
+     */
+    data class Updated(
+        val incident: SecurityIncident,
+        val ownerVisibleConditionChange: Boolean = false,
+    ) : IncidentUpdate
 
     data class Escalated(val incident: SecurityIncident) : IncidentUpdate
 
