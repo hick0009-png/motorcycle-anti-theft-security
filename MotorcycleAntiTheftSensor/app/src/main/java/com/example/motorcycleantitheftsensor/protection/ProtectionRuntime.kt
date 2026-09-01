@@ -140,9 +140,12 @@ interface ProtectionRuntime {
     /**
      * Commissioning-time witness stream: registers the ambient-light source without an
      * armed session so the guided lamp off/on flow can observe live samples.
+     *
+     * @return true when a live witness-light source was acquired. A runtime that cannot
+     * observe light must say so here; the guided flow has no other way to tell the
+     * difference between "waiting for the owner" and "waiting for nothing".
      */
-    fun startPowerCommissioningStream() {
-    }
+    fun startPowerCommissioningStream(): Boolean = false
 
     /** Stops the commissioning witness stream unless an armed session needs it. */
     fun stopPowerCommissioningStream() {

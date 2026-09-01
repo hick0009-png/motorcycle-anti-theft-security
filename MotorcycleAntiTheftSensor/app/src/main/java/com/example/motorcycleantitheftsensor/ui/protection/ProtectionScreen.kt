@@ -427,7 +427,7 @@ fun ProtectionScreen(
                                         Text("กำลังทำงาน: ${state.audio.state.thaiDisplayName()}")
                                     }
                                 } else if (protection.state == ProtectionState.DISARMED_ONLINE || protection.state == ProtectionState.SETUP_REQUIRED) {
-                                    Text("จะเริ่มอ่านค่าหลังเปิดการป้องกัน")
+                                    Text(com.example.motorcycleantitheftsensor.ui.idleSensorRowText(sensor, health))
                                 } else if (health == null) {
                                     Text("ไม่พร้อมใช้งาน")
                                 } else {

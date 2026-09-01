@@ -194,9 +194,12 @@ interface AndroidDetectorSet {
     fun stopPowerStatusMonitoring() {
     }
 
-    /** Registers the ambient-light witness source for the guided commissioning flow. */
-    fun startPowerCommissioningStream() {
-    }
+    /**
+     * Registers the ambient-light witness source for the guided commissioning flow.
+     *
+     * @return true when the source was acquired.
+     */
+    fun startPowerCommissioningStream(): Boolean = false
 
     /** Stops the commissioning witness stream. */
     fun stopPowerCommissioningStream() {
@@ -325,9 +328,8 @@ class AndroidProtectionRuntime(
         detectors.stopPowerStatusMonitoring()
     }
 
-    override fun startPowerCommissioningStream() {
+    override fun startPowerCommissioningStream(): Boolean =
         detectors.startPowerCommissioningStream()
-    }
 
     override fun stopPowerCommissioningStream() {
         detectors.stopPowerCommissioningStream()
@@ -959,9 +961,13 @@ class PlatformAndroidDetectorSet(
      * guided lamp off/on flow receives live lux via [powerWitnessSamples] even while the
      * detector set is not yet started for an armed session.
      */
-    override fun startPowerCommissioningStream() {
+    override fun startPowerCommissioningStream(): Boolean {
         powerCommissioningStreamActive = true
-        registerPowerLightSource()
+        val acquired = registerPowerLightSource()
+        if (!acquired) {
+            powerCommissioningStreamActive = false
+            return false
+        }
         // The guided window needs uninterrupted evidence, but an on-change light
         // sensor stays silent exactly while the owner holds the lamp steady.
         handlerOwner.handler.removeCallbacks(powerCommissioningRepeatRunnable)
@@ -969,6 +975,7 @@ class PlatformAndroidDetectorSet(
             powerCommissioningRepeatRunnable,
             POWER_COMMISSIONING_REPEAT_INTERVAL_MS,
         )
+        return true
     }
 
     override fun stopPowerCommissioningStream() {
@@ -986,11 +993,11 @@ class PlatformAndroidDetectorSet(
      * [PowerArmedSessionController], whose verdicts publish through the normal incident
      * pipeline as typed `power_*` diagnostics.
      */
-    private fun registerPowerLightSource() {
-        if (powerLightListener != null) return
+    private fun registerPowerLightSource(): Boolean {
+        if (powerLightListener != null) return true
         powerWitnessContinuity.endListenerContinuity()
-        val manager = sensorManager ?: return
-        val sensor = manager.getDefaultSensor(Sensor.TYPE_LIGHT) ?: return
+        val manager = sensorManager ?: return false
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_LIGHT) ?: return false
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(event: android.hardware.SensorEvent) {
                 if (event.values.isEmpty()) return
@@ -1025,11 +1032,12 @@ class PlatformAndroidDetectorSet(
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
         powerLightListener = listener
-        try {
+        return try {
             manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI, handlerOwner.handler)
         } catch (_: RuntimeException) {
             powerLightListener = null
             powerWitnessContinuity.endListenerContinuity()
+            false
         }
     }
 

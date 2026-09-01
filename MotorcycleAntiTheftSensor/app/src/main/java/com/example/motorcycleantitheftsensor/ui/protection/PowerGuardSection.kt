@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
+import com.example.motorcycleantitheftsensor.ui.powerCommissioningFailureText
 import com.example.motorcycleantitheftsensor.ui.ProtectionProfileUiState
 import com.example.motorcycleantitheftsensor.ui.PowerCommissioningPhase
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
@@ -74,7 +75,7 @@ fun PowerGuardSection(
                 Text(text = phaseText, style = MaterialTheme.typography.bodyLarge)
                 commissioning.failureReason?.let { reason ->
                     Text(
-                        text = "ช่วงแสงไม่แยกกันพอ — ตรวจสอบฝาครอบแล้วเริ่มใหม่",
+                        text = powerCommissioningFailureText(reason),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

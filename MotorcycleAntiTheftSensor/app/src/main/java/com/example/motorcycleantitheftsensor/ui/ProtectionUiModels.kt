@@ -16,6 +16,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
@@ -141,6 +142,45 @@ data class PowerCommissioningUiState(
     val liveLux: Double? = null,
     val failureReason: String? = null,
 )
+
+/** Stable identifiers for why a Power Guard calibration ended without a witness model. */
+object PowerCommissioningFailure {
+    const val NO_LIGHT_SENSOR = "no-light-sensor"
+    const val NO_LIGHT_SAMPLES = "no-light-samples"
+    const val SAVE_FAILED = "save-failed"
+}
+
+/**
+ * Thai explanation for a failed calibration. The copy follows the reason: telling an
+ * owner whose phone has no light sensor to inspect the lamp hood sends them to repair
+ * the wrong thing.
+ */
+internal fun powerCommissioningFailureText(reason: String?): String = when (reason) {
+    PowerCommissioningFailure.NO_LIGHT_SENSOR ->
+        "เครื่องนี้ไม่มีเซนเซอร์แสง — โหมดไฟเลี้ยงต้องใช้ไฟยืนยัน จึงใช้งานไม่ได้"
+    PowerCommissioningFailure.NO_LIGHT_SAMPLES ->
+        "ไม่ได้รับค่าแสงจากเซนเซอร์ — ลองรีสตาร์ทเครื่องแล้วปรับเทียบใหม่"
+    PowerCommissioningFailure.SAVE_FAILED ->
+        "บันทึกค่าปรับเทียบไม่สำเร็จ ลองใหม่อีกครั้ง"
+    PowerWitnessCommissioningPolicy.REJECTION_NOT_SEPARATED ->
+        "ช่วงแสงไม่แยกกันพอ — ตรวจสอบฝาครอบแล้วเริ่มใหม่"
+    else -> "ปรับเทียบไม่สำเร็จ กรุณาลองใหม่"
+}
+
+/**
+ * Thai sensor-row text while protection is off. A sensor the phone does not have will
+ * never start reading, so promising that it will is a lie the owner cannot check.
+ */
+internal fun idleSensorRowText(kind: SensorKind, health: SensorHealth?): String = when {
+    health == null -> IDLE_SENSOR_WAITING_TEXT
+    kind == SensorKind.LIGHT && health.lightDetail?.hardwareSupported == false ->
+        "ไม่พบเซนเซอร์แสงบนเครื่องนี้"
+    kind == SensorKind.VIBRATION && health.vibrationDetail?.hardwareAvailable == false ->
+        "ไม่พบเซนเซอร์ความเคลื่อนไหวบนเครื่องนี้"
+    else -> IDLE_SENSOR_WAITING_TEXT
+}
+
+private const val IDLE_SENSOR_WAITING_TEXT = "จะเริ่มอ่านค่าหลังเปิดการป้องกัน"
 
 /**
  * Independent POWER signal rows (spec sections 3.6/5): neither row alone may claim an

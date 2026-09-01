@@ -1217,6 +1217,82 @@ class ProtectionViewModelTest {
     }
 
     @Test
+    fun calibrationWithoutALightSourceFailsAtOnceInsteadOfWaitingForever() = runTest {
+        val fixture = powerViewModelFixture(testScheduler)
+        fixture.runtime.lightSourceAvailable = false
+        advanceUntilIdle()
+
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        // A phone with no ambient-light hardware can never finish the guided flow, so
+        // saying "step 1/2, switch the lamp off" would be a lie the owner acts on.
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.FAILED, commissioning?.phase)
+        assertEquals(PowerCommissioningFailure.NO_LIGHT_SENSOR, commissioning?.failureReason)
+        assertTrue(fixture.runtime.streamStopped)
+    }
+
+    @Test
+    fun calibrationThatNeverReceivesALightSampleGivesUp() = runTest {
+        val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        var elapsedMs = 0L
+        val fixture = powerViewModelFixture(
+            scheduler = testScheduler,
+            ticker = ticks,
+            elapsedNowMs = { elapsedMs },
+        )
+        advanceUntilIdle()
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        elapsedMs = 4_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.DARK_WINDOW,
+            fixture.viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        // The source was acquired but nothing ever arrived — a listener that died
+        // quietly, or hardware that vanished mid-session, as this device did once.
+        elapsedMs = 5_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.FAILED, commissioning?.phase)
+        assertEquals(PowerCommissioningFailure.NO_LIGHT_SAMPLES, commissioning?.failureReason)
+        assertTrue(fixture.runtime.streamStopped)
+    }
+
+    @Test
+    fun calibrationKeepsWaitingWhileTheSensorIsStillReporting() = runTest {
+        val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        var elapsedMs = 0L
+        val fixture = powerViewModelFixture(
+            scheduler = testScheduler,
+            ticker = ticks,
+            elapsedNowMs = { elapsedMs },
+        )
+        advanceUntilIdle()
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+        fixture.runtime.emit(PowerWitnessSample(lux = 5.0, timestampMs = 0L, fresh = true))
+        advanceUntilIdle()
+
+        // A steady lamp on an on-change sensor emits nothing after the first reading;
+        // the give-up rule must not mistake that for a dead source.
+        elapsedMs = 9_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.DARK_WINDOW, commissioning?.phase)
+        assertNull(commissioning?.failureReason)
+    }
+
+    @Test
     fun powerCommissioningObservesEachLightStateForTenSeconds() = runTest {
         val (viewModel, _, runtime) = powerViewModelFixture(testScheduler)
         advanceUntilIdle()
@@ -1737,6 +1813,7 @@ private class FakeEntrySampleRuntime : ProtectionRuntime {
 
 private class FakePowerSampleRuntime : ProtectionRuntime {
     private val samples = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
+    var lightSourceAvailable = true
     var streamStarted = false
         private set
     var streamStopped = false
@@ -1763,8 +1840,9 @@ private class FakePowerSampleRuntime : ProtectionRuntime {
 
     override fun powerWitnessSamples(): Flow<PowerWitnessSample> = samples
 
-    override fun startPowerCommissioningStream() {
+    override fun startPowerCommissioningStream(): Boolean {
         streamStarted = true
+        return lightSourceAvailable
     }
 
     override fun stopPowerCommissioningStream() {

@@ -121,6 +121,8 @@ class ProtectionViewModel(
     private var powerCommissioningPolicy: PowerWitnessCommissioningPolicy? = null
     private var powerCommissioningPolicyState = PowerWitnessCommissioningPolicy.State()
     private var powerCommissioningJob: kotlinx.coroutines.Job? = null
+    private var powerCommissioningWitnessSampleSeen = false
+    private var powerCommissioningStartedElapsedMs = 0L
 
     val audioTelemetry: StateFlow<AudioTelemetry> = coordinator.audioTelemetry
 
@@ -387,13 +389,25 @@ class ProtectionViewModel(
             sensorIdentity = EntryCommissioningEnvironment.sensorIdentity(),
             hoodSignature = PowerWitnessCommissioningPolicy.DEFAULT_HOOD_SIGNATURE,
         )
+        if (!runtime.startPowerCommissioningStream()) {
+            // Nothing can observe the lamp, so the guided flow would sit on step 1 for
+            // ever. Say why instead of pretending to wait for the owner.
+            runtime.stopPowerCommissioningStream()
+            powerCommissioningPolicy = null
+            powerCommissioningState.value = PowerCommissioningUiState(
+                phase = PowerCommissioningPhase.FAILED,
+                failureReason = PowerCommissioningFailure.NO_LIGHT_SENSOR,
+            )
+            return
+        }
         powerCommissioningPolicy = policy
         // start() enters DARK_WINDOW; a bare State() stays IDLE and drops every sample.
         powerCommissioningPolicyState = policy.start()
+        powerCommissioningWitnessSampleSeen = false
+        powerCommissioningStartedElapsedMs = elapsedNowMs()
         powerCommissioningState.value = PowerCommissioningUiState(
             phase = PowerCommissioningPhase.DARK_WINDOW,
         )
-        runtime.startPowerCommissioningStream()
         powerCommissioningJob = scope.launch {
             runtime.powerWitnessSamples().collect { sample ->
                 advancePowerCommissioning(repository, runtime, sample)
@@ -445,6 +459,7 @@ class ProtectionViewModel(
     ) {
         val policy = powerCommissioningPolicy ?: return
         val current = powerCommissioningState.value ?: return
+        powerCommissioningWitnessSampleSeen = true
         powerCommissioningPolicyState = policy.onSample(powerCommissioningPolicyState, sample)
         applyPowerCommissioningState(repository, runtime, current, liveLux = sample.lux)
     }
@@ -454,6 +469,16 @@ class ProtectionViewModel(
         val runtime = powerRuntime ?: return
         val policy = powerCommissioningPolicy ?: return
         val current = powerCommissioningState.value ?: return
+        if (
+            !powerCommissioningWitnessSampleSeen &&
+            elapsedNowMs() - powerCommissioningStartedElapsedMs >= POWER_COMMISSIONING_FIRST_SAMPLE_TIMEOUT_MS
+        ) {
+            // The source was acquired and then delivered nothing: a listener that died
+            // quietly, or hardware that disappeared underneath us. Either way the owner
+            // is holding a lamp for a window that will never close.
+            failPowerCommissioning(runtime, current, PowerCommissioningFailure.NO_LIGHT_SAMPLES)
+            return
+        }
         val previousPhase = powerCommissioningPolicyState.phase
         powerCommissioningPolicyState = policy.onTick(
             powerCommissioningPolicyState,
@@ -462,6 +487,21 @@ class ProtectionViewModel(
         if (powerCommissioningPolicyState.phase == previousPhase) return
 
         applyPowerCommissioningState(repository, runtime, current, liveLux = current.liveLux)
+    }
+
+    private fun failPowerCommissioning(
+        runtime: ProtectionRuntime,
+        current: PowerCommissioningUiState,
+        reason: String,
+    ) {
+        powerCommissioningPolicy = null
+        runtime.stopPowerCommissioningStream()
+        powerCommissioningJob?.cancel()
+        powerCommissioningJob = null
+        powerCommissioningState.value = current.copy(
+            phase = PowerCommissioningPhase.FAILED,
+            failureReason = reason,
+        )
     }
 
     private suspend fun applyPowerCommissioningState(
@@ -496,7 +536,7 @@ class ProtectionViewModel(
                 powerCommissioningState.value = current.copy(
                     phase = PowerCommissioningPhase.FAILED,
                     liveLux = liveLux,
-                    failureReason = POWER_COMMISSIONING_SAVE_FAILED,
+                    failureReason = PowerCommissioningFailure.SAVE_FAILED,
                 )
                 publishMessage(UserGuidanceCatalog.content(GuidanceCode.SETTINGS_SAVE_FAILED))
             }
@@ -969,7 +1009,12 @@ class ProtectionViewModel(
 
     private companion object {
         const val UI_SNAPSHOT_PROJECTION_INTERVAL_MS = 1_000L
-        const val POWER_COMMISSIONING_SAVE_FAILED = "save-failed"
+
+        /**
+         * An on-change light sensor reports its current value as soon as it is
+         * registered, so silence this long means the source is not really there.
+         */
+        const val POWER_COMMISSIONING_FIRST_SAMPLE_TIMEOUT_MS = 5_000L
 
         fun emptySettingsSummary() = ProtectionSettingsSummary(
             tokenConfigured = false,
