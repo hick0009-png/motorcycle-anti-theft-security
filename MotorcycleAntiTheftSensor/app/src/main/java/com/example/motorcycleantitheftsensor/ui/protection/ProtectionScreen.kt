@@ -45,6 +45,7 @@ import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
@@ -230,6 +231,7 @@ fun ProtectionScreen(
                 ProfilePickerSection(
                     selectedProfile = null,
                     selectedSetupState = null,
+                    deviceSupport = state.profileDeviceSupport,
                     onProfileSelected = actions.selectProfile,
                     headingText = "คุณกำลังปกป้องอะไร?",
                 )
@@ -239,6 +241,7 @@ fun ProtectionScreen(
                 ChangeUseSection(
                     selectedProfile = state.profile.selectedProfile,
                     selectedSetupState = state.profile.setupState,
+                    deviceSupport = state.profileDeviceSupport,
                     onProfileSelected = actions.selectProfile,
                 )
             }
@@ -476,6 +479,7 @@ const val ADVANCED_DIAGNOSTICS_TOGGLE_TAG = "advanced_diagnostics_toggle"
 private fun ChangeUseSection(
     selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
     selectedSetupState: ProfileSetupState?,
+    deviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -496,6 +500,7 @@ private fun ChangeUseSection(
             ProfilePickerSection(
                 selectedProfile = selectedProfile,
                 selectedSetupState = selectedSetupState,
+                deviceSupport = deviceSupport,
                 onProfileSelected = { profile ->
                     expanded = false
                     onProfileSelected(profile)
@@ -518,6 +523,7 @@ private fun profileLabel(profile: com.example.motorcycleantitheftsensor.protecti
 private fun ProfilePickerSection(
     selectedProfile: com.example.motorcycleantitheftsensor.protection.ProtectionProfile?,
     selectedSetupState: ProfileSetupState?,
+    deviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
     headingText: String,
 ) {
@@ -533,8 +539,11 @@ private fun ProfilePickerSection(
             com.example.motorcycleantitheftsensor.protection.ProtectionProfile.POWER to "ดูแลไฟเลี้ยง",
         ).forEach { (profile, label) ->
             val profilePresentation = PresentationTextCatalog.profile(profile)
+            val support = deviceSupport[profile] ?: ProfileDeviceSupport.Supported
+            val consequence = PresentationTextCatalog.profileSupport(support)
             Surface(
                 onClick = { onProfileSelected(profile) },
+                enabled = support.selectable,
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 1.dp,
@@ -547,16 +556,38 @@ private fun ProfilePickerSection(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = if (profile == selectedProfile) "$label (ปัจจุบัน)" else label,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (profile == selectedProfile) "$label (ปัจจุบัน)" else label,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        // Choosing a use this phone cannot detect with is the most
+                        // expensive mistake on this screen: it reads as protection.
+                        Text(
+                            text = PresentationTextCatalog.profileSupportBadge(support),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("profile_support_${profile.name}"),
+                        )
+                    }
                     Text(
                         text = profilePresentation.promise,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (profile != ProtectionProfile.VEHICLE) {
+                    if (consequence != null) {
+                        Text(
+                            text = consequence,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("profile_support_reason_${profile.name}"),
+                        )
+                    }
+                    if (profile != ProtectionProfile.VEHICLE && support.selectable) {
                         Text(
                             text = if (profile == selectedProfile && selectedSetupState == ProfileSetupState.READY) {
                                 "พร้อมใช้งาน"

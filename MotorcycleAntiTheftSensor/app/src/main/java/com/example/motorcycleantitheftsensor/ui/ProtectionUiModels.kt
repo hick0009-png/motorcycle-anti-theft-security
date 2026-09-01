@@ -23,6 +23,8 @@ import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
 import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import kotlin.math.ceil
 
@@ -346,6 +348,15 @@ data class ProtectionUiState(
      */
     val sensorEditability: SensorEditabilityUiModel
         get() = SensorEditabilityUiModel.from(profile.selectedProfile)
+
+    /** What each protection use can do on this device. Derived, for the same reason. */
+    val profileDeviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>
+        get() {
+            val availability = sensorAvailability.mapValues { (_, model) -> model.availability }
+            return ProtectionProfile.entries.associateWith { profile ->
+                ProfileDeviceSupportPolicy.support(profile, availability)
+            }
+        }
 
     companion object {
         fun from(

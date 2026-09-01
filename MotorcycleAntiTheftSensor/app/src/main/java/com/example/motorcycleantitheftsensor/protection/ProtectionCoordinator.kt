@@ -38,6 +38,13 @@ class ProtectionCoordinator(
         (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     private val powerIntegrityChallenge: (() -> Boolean)? = null,
     private val recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
+    /**
+     * What this device can carry, per profile. Defaults to "anything", so a caller
+     * without a sensor catalog behaves exactly as before.
+     */
+    private val deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = {
+        ProfileDeviceSupport.Supported
+    },
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -134,6 +141,25 @@ class ProtectionCoordinator(
             val selectedProfile = profileState?.selectedProfile
             var frozenConfiguration: SensorFusionConfiguration? = null
             if (profileState != null && selectedProfile != null) {
+                // Second gate. A profile can become unsupported after it was chosen —
+                // restored settings, a replaced device — and arming into a use nothing
+                // can detect is the failure that looks exactly like protection.
+                val support = deviceSupport(selectedProfile)
+                if (support is ProfileDeviceSupport.Unsupported) {
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    runtime.stopDetectors()
+                    transition(
+                        state = ProtectionState.SETUP_REQUIRED,
+                        blockers = setOf("Device cannot support the selected profile"),
+                        degradations = readiness.degradations,
+                    )
+                    return@withLock result(
+                        commandId,
+                        CommandOutcome.REJECTED,
+                        "Device cannot support $selectedProfile: ${support.reason}",
+                    )
+                }
                 val resolved = profilePolicy.resolve(profileState, selectedProfile)
                 if (resolved.setupState != ProfileSetupState.READY) {
                     currentArmedSessionId.set(null)
@@ -601,6 +627,16 @@ class ProtectionCoordinator(
     ): ProtectionCommandResult = commandMutex.withLock {
         val repository = profileRepository
             ?: return@withLock result(commandId, CommandOutcome.REJECTED, "Profiles are not available")
+        val support = deviceSupport(profile)
+        if (support is ProfileDeviceSupport.Unsupported) {
+            // Persisting it would let the next Arm report "protecting" for a use this
+            // hardware cannot detect at all.
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Device cannot support $profile: ${support.reason}",
+            )
+        }
         val updateResult = repository.update { state ->
             profilePolicy.updateProfile(state, state.profiles.getValue(profile))
                 .copy(selectedProfile = profile)

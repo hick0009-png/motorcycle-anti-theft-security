@@ -174,6 +174,36 @@ object PresentationTextCatalog {
         }
 
     /**
+     * What a device limitation costs the owner, in the owner's words. Never a scolding
+     * about their phone: it says what this use can and cannot do here.
+     */
+    fun profileSupport(support: ProfileDeviceSupport): String? = when (support) {
+        ProfileDeviceSupport.Supported -> null
+        is ProfileDeviceSupport.Degraded -> when (support.reason) {
+            ProfileSupportReason.NO_LIGHT_SENSOR ->
+                "เครื่องนี้ไม่มีเซ็นเซอร์วัดแสง จะใช้ได้เฉพาะสัญญาณการชาร์จ " +
+                    "ยืนยันสองทางไม่ได้ ความแม่นยำลดลง"
+            ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY ->
+                "เครื่องนี้ไม่มีไจโรสโคป จะวัดมุมด้วยเข็มทิศอย่างเดียว " +
+                    "ต้องใช้เวลายืนยันนานขึ้น"
+            ProfileSupportReason.NO_MOVEMENT_SENSOR, ProfileSupportReason.NO_ANGLE_SENSOR -> null
+        }
+        is ProfileDeviceSupport.Unsupported -> when (support.reason) {
+            ProfileSupportReason.NO_ANGLE_SENSOR ->
+                "เครื่องนี้ไม่มีไจโรสโคปและเข็มทิศ จึงวัดมุมการเปิดประตูไม่ได้"
+            ProfileSupportReason.NO_MOVEMENT_SENSOR ->
+                "เครื่องนี้ไม่มีมาตรวัดความเร่ง จึงตรวจการขยับหรือเคลื่อนย้ายไม่ได้"
+            ProfileSupportReason.NO_LIGHT_SENSOR, ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY -> null
+        }
+    }
+
+    fun profileSupportBadge(support: ProfileDeviceSupport): String = when (support) {
+        ProfileDeviceSupport.Supported -> "🟢 เครื่องนี้ใช้ได้"
+        is ProfileDeviceSupport.Degraded -> "🟡 ใช้ได้บางส่วน"
+        is ProfileDeviceSupport.Unsupported -> "⚪ ใช้ไม่ได้"
+    }
+
+    /**
      * Hardware availability wording. "จำกัด" must never read as a fault: the sensor is
      * present and usable, it just cannot carry a confirmation that assumes a rate.
      */

@@ -1114,6 +1114,63 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun aProfileThisDeviceCannotDetectWithIsRefusedAtSelection() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(profilePolicy.newStoreState())
+        val coordinator = coordinator(
+            FakeRuntime(readiness = ReadinessReport(emptySet(), emptySet()), health = healthyVibration()),
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+            deviceSupport = { profile ->
+                if (profile == ProtectionProfile.ENTRY) {
+                    ProfileDeviceSupport.Unsupported(
+                        missing = setOf(SensorSource.GYROSCOPE),
+                        reason = ProfileSupportReason.NO_ANGLE_SENSOR,
+                    )
+                } else {
+                    ProfileDeviceSupport.Supported
+                }
+            },
+        )
+
+        val rejected = coordinator.selectProfile("select-entry", ProtectionProfile.ENTRY)
+
+        assertEquals(CommandOutcome.REJECTED, rejected.outcome)
+        assertNull(profileRepository.load().selectedProfile)
+
+        val accepted = coordinator.selectProfile("select-vehicle", ProtectionProfile.VEHICLE)
+        assertEquals(CommandOutcome.APPLIED, accepted.outcome)
+    }
+
+    @Test
+    fun armRefusesAProfileTheDeviceCanNoLongerDetectWith() = runTest {
+        // The regression this closes: without the gate the entry watch armed, reported
+        // "protecting", registered no listener and stayed silent forever.
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val coordinator = coordinator(
+            FakeRuntime(readiness = ReadinessReport(emptySet(), emptySet()), health = healthyVibration()),
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+            deviceSupport = {
+                ProfileDeviceSupport.Unsupported(
+                    missing = setOf(SensorSource.GYROSCOPE),
+                    reason = ProfileSupportReason.NO_ANGLE_SENSOR,
+                )
+            },
+        )
+
+        val result = coordinator.arm("arm-unsupported", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, coordinator.snapshot.value.state)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
     fun armFreezesSelectedProfileConfigurationBeforeDetectorStart() = runTest {
         val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
         val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
@@ -1960,6 +2017,7 @@ private fun coordinator(
     powerCommissioningContextProvider: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     powerIntegrityChallenge: (() -> Boolean)? = null,
     recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
+    deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = { ProfileDeviceSupport.Supported },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1980,6 +2038,7 @@ private fun coordinator(
     powerCommissioningContextProvider = powerCommissioningContextProvider,
     powerIntegrityChallenge = powerIntegrityChallenge,
     recoveredPowerIntegrityChallenge = recoveredPowerIntegrityChallenge,
+    deviceSupport = deviceSupport,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(

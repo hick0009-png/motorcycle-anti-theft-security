@@ -528,6 +528,13 @@ object ProtectionRuntimeGraph {
                     powerUseContinuous = true,
                 )
             },
+            deviceSupport = { profile ->
+                ProfileDeviceSupportPolicy.support(
+                    profile,
+                    com.example.motorcycleantitheftsensor.sensor.SensorAvailabilityPolicy
+                        .availability(sensorCatalog.descriptors()),
+                )
+            },
             powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
             recoveredPowerIntegrityChallenge = {
                 val calibration = startupRecoveryState
