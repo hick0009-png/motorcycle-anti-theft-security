@@ -348,7 +348,20 @@ class IncidentEngine(
         observation: SensorObservation,
         protectionState: ProtectionState,
         location: IncidentLocation?,
+        supersede: Boolean = false,
     ): IncidentUpdate.Opened {
+        // Taking the single active slot must settle whatever held it, never orphan a
+        // permanently-open incident in history.
+        val superseded = if (supersede) {
+            activeIncident?.incident?.copy(
+                lifecycle = IncidentLifecycle.CLOSED,
+                updatedAtMs = observation.wallClockMs,
+                closedAtMs = observation.wallClockMs,
+                closeReason = "superseded by a confirmed power episode",
+            )
+        } else {
+            null
+        }
         val incident = SecurityIncident(
             id = idGenerator.nextId(),
             type = classification.type,
@@ -363,7 +376,7 @@ class IncidentEngine(
             location = location,
         )
         activeIncident = ActiveIncident(incident, observation.eventElapsedMs)
-        return IncidentUpdate.Opened(incident)
+        return IncidentUpdate.Opened(incident, supersededIncident = superseded)
     }
 
     private fun classificationFromAudioThreat(audioThreat: AudioThreatMetadata): Classification {
@@ -421,6 +434,14 @@ class IncidentEngine(
     ): Classification {
         if (observation.kind == SensorKind.POWER_THERMAL && observation.diagnostic == ProtectionDiagnostics.CHARGER_DISCONNECTED) {
             return Classification(IncidentType.POWER, IncidentSeverity.CRITICAL)
+        }
+
+        // An open power episode owns its incident until its own recovery verdict closes
+        // it. Movement or audio picked up while the owner works on the cable is context,
+        // not grounds to relabel the incident — relabelling strands the episode, because
+        // only a POWER incident can consume the recovery verdict.
+        if (current.type == IncidentType.POWER) {
+            return Classification(IncidentType.POWER, current.severity)
         }
 
         val vibration = evidence.lastOrNull { item -> item.kind == SensorKind.VIBRATION }
@@ -607,6 +628,7 @@ class IncidentEngine(
                         observation,
                         protectionState,
                         location,
+                        supersede = active != null,
                     )
                 } else {
                     val updated = active.incident.copy(
@@ -627,6 +649,7 @@ class IncidentEngine(
                         observation,
                         protectionState,
                         location,
+                        supersede = active != null,
                     )
                 } else {
                     val updated = active.incident.copy(

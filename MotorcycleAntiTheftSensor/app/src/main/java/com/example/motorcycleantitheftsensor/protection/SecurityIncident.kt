@@ -80,7 +80,15 @@ fun interface IncidentIdGenerator {
 sealed interface IncidentUpdate {
     data object Ignored : IncidentUpdate
 
-    data class Opened(val incident: SecurityIncident) : IncidentUpdate
+    /**
+     * [supersededIncident] carries an unrelated incident that was still open when this
+     * one had to take the engine's single active slot. It is already CLOSED and was
+     * already notified when it opened, so it must be persisted but never re-delivered.
+     */
+    data class Opened(
+        val incident: SecurityIncident,
+        val supersededIncident: SecurityIncident? = null,
+    ) : IncidentUpdate
 
     data class Updated(val incident: SecurityIncident) : IncidentUpdate
 

@@ -202,4 +202,64 @@ class ProtectionProfilePolicyTest {
             policy.updateProfile(initial, vehicle)
         }
     }
+
+    /**
+     * Fix A: the POWER preset turns every non-light source OFF because Power Guard
+     * watches one lamp and one charging signal. A stored per-source override must not
+     * be able to put movement sensors back on: a live accelerometer opens rival
+     * incidents when the owner physically touches the cable.
+     */
+    @Test
+    fun powerProfileKeepsNonLightSourcesOffDespiteStoredOverrides() {
+        val initial = policy.newStoreState()
+        val power = initial.profiles.getValue(ProtectionProfile.POWER)
+        val tampered = policy.updateProfile(
+            initial,
+            power.copy(
+                sensorOverrides = power.sensorOverrides.copy(
+                    sources = mapOf(
+                        SensorSource.ACCELEROMETER to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                        SensorSource.SIGNIFICANT_MOTION to SensorSourceProfileOverrides(
+                            role = SensorRole.SUPPORTING,
+                        ),
+                        SensorSource.GYROSCOPE to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resolved = policy.resolve(tampered, ProtectionProfile.POWER).sensorConfiguration
+
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.ACCELEROMETER).role)
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.SIGNIFICANT_MOTION).role)
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.GYROSCOPE).role)
+        assertEquals(SensorRole.PRIMARY, resolved.source(SensorSource.AMBIENT_LIGHT).role)
+    }
+
+    @Test
+    fun nonPowerProfilesStillHonourStoredSourceRoleOverrides() {
+        val initial = policy.newStoreState()
+        val entry = initial.profiles.getValue(ProtectionProfile.ENTRY)
+        val customised = policy.updateProfile(
+            initial,
+            entry.copy(
+                sensorOverrides = entry.sensorOverrides.copy(
+                    sources = mapOf(
+                        SensorSource.ACCELEROMETER to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resolved = policy.resolve(customised, ProtectionProfile.ENTRY).sensorConfiguration
+
+        assertEquals(SensorRole.PRIMARY, resolved.source(SensorSource.ACCELEROMETER).role)
+    }
+
 }

@@ -249,4 +249,35 @@ class UserGuidanceCatalogTest {
         assertTrue(applied.telegramTh!!.contains("โหมดยานพาหนะ"))
         assertTrue(help.telegramTh!!.contains("คำสั่งเดิม"))
     }
+
+    /**
+     * Fix C: the stillness window explains why a movement incident closed. Reporting it
+     * on a power or door incident misstates what the system observed and made a real
+     * diagnosis harder to read.
+     */
+    @Test
+    fun closedIncidentBodyDescribesWhatActuallySettledForEachType() {
+        assertEquals(
+            "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.POWER),
+            ).bodyTh,
+        )
+        assertEquals(
+            "ประตูปิดและนิ่งแล้ว",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.ENTRY_DOOR),
+            ).bodyTh,
+        )
+        assertEquals(
+            "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.VIBRATION),
+            ).bodyTh,
+        )
+    }
+
 }

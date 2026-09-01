@@ -53,6 +53,7 @@ class ProtectionProfilePolicy(
             sensorConfiguration = resolveSensorConfiguration(
                 recommended.sensorConfiguration,
                 stored.sensorOverrides,
+                lockedOffSources = lockedOffSources(profile, recommended.sensorConfiguration),
             ),
             specificSettings = resolveSpecificSettings(
                 recommended.specificSettings,
@@ -199,9 +200,30 @@ class ProtectionProfilePolicy(
         else -> throw IllegalArgumentException("Profile-specific override type does not match profile")
     }
 
+    /**
+     * Sources a profile pins OFF as part of its detection contract, which a stored
+     * override may never raise again.
+     *
+     * Power Guard watches exactly one lamp and one charging signal; the movement
+     * sources are not merely unused there, they are harmful. Reaching for the charging
+     * cable is movement, so a live accelerometer opens a rival incident that competes
+     * with the power episode for the engine's active-incident slot. Other profiles stay
+     * fully customisable.
+     */
+    private fun lockedOffSources(
+        profile: ProtectionProfile,
+        recommended: SensorFusionConfiguration,
+    ): Set<SensorSource> = when (profile) {
+        ProtectionProfile.POWER -> SensorSource.entries
+            .filter { source -> recommended.source(source).role == SensorRole.OFF }
+            .toSet()
+        ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> emptySet()
+    }
+
     private fun resolveSensorConfiguration(
         recommended: SensorFusionConfiguration,
         overrides: SensorFusionProfileOverrides,
+        lockedOffSources: Set<SensorSource> = emptySet(),
     ): SensorFusionConfiguration {
         val capabilities = recommended.capabilities.toMutableMap()
         overrides.capabilities.forEach { (capability, capabilityOverrides) ->
@@ -220,7 +242,11 @@ class ProtectionProfilePolicy(
             capabilities[capability] = currentCapability.copy(
                 sources = currentCapability.sources + (
                     source to currentSource.copy(
-                        role = sourceOverrides.role ?: currentSource.role,
+                        role = if (source in lockedOffSources) {
+                            SensorRole.OFF
+                        } else {
+                            sourceOverrides.role ?: currentSource.role
+                        },
                         thresholdOverride = sourceOverrides.thresholdOverride
                             ?: currentSource.thresholdOverride,
                         debounceOverrideMs = sourceOverrides.debounceOverrideMs

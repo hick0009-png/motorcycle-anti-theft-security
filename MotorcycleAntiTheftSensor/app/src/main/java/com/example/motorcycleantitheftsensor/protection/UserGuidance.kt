@@ -318,7 +318,13 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.INCIDENT_CLOSED -> GuidanceContent(
                 titleTh = "เหตุการณ์สิ้นสุดแล้ว",
-                bodyTh = "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที",
+                // The stillness window is why a movement incident closes; saying it on a
+                // power or door incident misreports what the system actually observed.
+                bodyTh = when ((detail as? GuidanceDetail.IncidentTypeValue)?.incidentType) {
+                    IncidentType.POWER -> "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
+                    IncidentType.ENTRY_DOOR -> "ประตูปิดและนิ่งแล้ว"
+                    else -> "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที"
+                },
                 telegramTh = "ℹ️ เหตุการณ์สิ้นสุดแล้ว",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,

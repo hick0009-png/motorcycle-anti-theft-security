@@ -167,6 +167,12 @@ object ProtectionRuntimeGraph {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val incidentMutex = Mutex()
         suspend fun process(update: IncidentUpdate) {
+            (update as? IncidentUpdate.Opened)?.supersededIncident?.let { superseded ->
+                // Already settled and already notified at its own opening: persist the
+                // closure so history has no orphan, but never notify a second time.
+                withContext(Dispatchers.IO) { repository.upsert(superseded) }
+                coordinator.recordIncident(superseded)
+            }
             val incident = update.incidentOrNull() ?: return
             when (deliveryPolicy.action(update)) {
                 DeliveryAction.NONE -> Unit
@@ -583,7 +589,7 @@ object ProtectionRuntimeGraph {
 
     private fun IncidentUpdate.withIncident(incident: SecurityIncident): IncidentUpdate = when (this) {
         IncidentUpdate.Ignored -> this
-        is IncidentUpdate.Opened -> IncidentUpdate.Opened(incident)
+        is IncidentUpdate.Opened -> IncidentUpdate.Opened(incident, supersededIncident)
         is IncidentUpdate.Updated -> IncidentUpdate.Updated(incident)
         is IncidentUpdate.Escalated -> IncidentUpdate.Escalated(incident)
         is IncidentUpdate.Closed -> IncidentUpdate.Closed(incident)

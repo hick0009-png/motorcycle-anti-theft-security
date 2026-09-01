@@ -325,7 +325,10 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
             com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_ESCALATED,
             com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
         ).bodyTh
-        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED).bodyTh
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+            com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED,
+            com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
+        ).bodyTh
         else -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_UPDATED).bodyTh
     },
     updatedAtMs = updatedAtMs,
