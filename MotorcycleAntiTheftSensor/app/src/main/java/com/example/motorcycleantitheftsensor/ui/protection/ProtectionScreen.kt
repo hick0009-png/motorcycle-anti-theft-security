@@ -179,19 +179,13 @@ fun ProtectionScreen(
                         )
                     }
                     if (powerCalibrationRequired) {
+                        // States what blocks arming; the witness card below owns the
+                        // action. Two buttons for one calibration is a merge artefact.
                         Text(
                             text = "ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
-                        Button(
-                            onClick = actions.powerStartCommissioning,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp),
-                        ) {
-                            Text("เริ่มปรับเทียบไฟยืนยัน")
-                        }
                     }
                     Button(
                         onClick = if (disarmAction) actions.disarm else actions.arm,

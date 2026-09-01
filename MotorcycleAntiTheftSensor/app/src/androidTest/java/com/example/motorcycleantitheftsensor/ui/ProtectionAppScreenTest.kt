@@ -38,6 +38,7 @@ import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.ui.protection.PROTECTION_LIST_TAG
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -108,7 +109,7 @@ class ProtectionAppScreenTest {
     }
 
     @Test
-    fun powerSetupOffersCalibrationBesideTheDisabledArmAction() {
+    fun powerSetupPromptsInTheStatusCardAndCalibratesFromTheWitnessCardOnly() {
         var commissioningStarts = 0
         val state = baseState(ProtectionState.SETUP_REQUIRED).copy(
             profile = ProtectionProfileUiState(
@@ -123,8 +124,14 @@ class ProtectionAppScreenTest {
             )
         }
 
+        // The status card states what is missing; the witness card owns the action, so
+        // the owner is never shown two buttons that start the same calibration.
         compose.onNodeWithText("ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน").assertIsDisplayed()
-        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").performClick()
+        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").assertDoesNotExist()
+
+        compose.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เริ่มปรับเทียบ"))
+        compose.onNodeWithText("เริ่มปรับเทียบ").performClick()
 
         compose.runOnIdle {
             assertEquals(1, commissioningStarts)
