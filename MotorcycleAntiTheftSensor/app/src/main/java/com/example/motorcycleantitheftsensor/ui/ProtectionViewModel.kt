@@ -97,6 +97,7 @@ class ProtectionViewModel(
     private val eventsMutex = Mutex()
     private val protectionMutex = Mutex()
     private val commandSequence = AtomicLong(0L)
+    private val loadedEventsRevision = AtomicLong(Long.MIN_VALUE)
     private val activeProtectionOperations = AtomicLong(0L)
     private val settingsReadVersion = AtomicLong(0L)
     private val destination = MutableStateFlow(ProtectionDestination.PROTECTION)
@@ -187,7 +188,18 @@ class ProtectionViewModel(
                 advancePowerCommissioningClock()
             }
         }
-        scope.launch { refreshEvents() }
+        scope.launch { eventsMutex.withLock { refreshEvents() } }
+        scope.launch {
+            // The history is written by the runtime, not by this screen, so nothing here
+            // learns about a new incident unless the repository says it changed.
+            incidents.revision.collect { revision ->
+                eventsMutex.withLock {
+                    if (revision != loadedEventsRevision.get()) {
+                        refreshEvents(announceLoading = false)
+                    }
+                }
+            }
+        }
         scope.launch { readSettings(initialMissingPermissions) }
         scope.launch { refreshProfile() }
         scope.launch {
@@ -849,8 +861,18 @@ class ProtectionViewModel(
         return job::cancel
     }
 
-    private suspend fun refreshEvents() {
-        presentation.update { it.copy(eventsLoading = true, eventsError = null) }
+    /**
+     * @param announceLoading false for automatic reads the owner never asked for. Such a
+     * refresh must not flash the spinner, and must not replace events that are still on
+     * screen with a retry banner the owner never asked for.
+     */
+    private suspend fun refreshEvents(announceLoading: Boolean = true) {
+        // Claim the revision before reading it: a read that fails must leave the retry
+        // banner standing rather than re-reading the same unchanged history in a loop.
+        loadedEventsRevision.set(incidents.revision.value)
+        if (announceLoading) {
+            presentation.update { it.copy(eventsLoading = true, eventsError = null) }
+        }
         try {
             val records = withContext(dispatcher) { incidents.listNewestFirst() }
             presentation.update {
@@ -859,6 +881,7 @@ class ProtectionViewModel(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: Throwable) {
+            if (!announceLoading) return
             presentation.update {
                 it.copy(
                     eventsLoading = false,

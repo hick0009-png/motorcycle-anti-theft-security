@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -99,6 +100,55 @@ class ProtectionViewModelTest {
         assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
         assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
         assertFalse(viewModel.uiState.value.toString().contains("Demo", ignoreCase = true))
+    }
+
+    @Test
+    fun newlyPersistedIncidentReachesTheEventListWithoutAManualRetry() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val incidents = FakeIncidentRepository(listOf(realIncident("older", 1_000L)))
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY),
+            incidents = incidents,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_500L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("older"), viewModel.uiState.value.events.map { it.id })
+
+        incidents.upsert(realIncident("newer", 2_000L))
+        advanceUntilIdle()
+
+        assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
+        assertFalse(viewModel.uiState.value.eventsLoading)
+    }
+
+    @Test
+    fun aFailedBackgroundRefreshKeepsTheEventsAlreadyOnScreen() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val incidents = FakeIncidentRepository(listOf(realIncident("older", 1_000L)))
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY),
+            incidents = incidents,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_500L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        incidents.failuresRemaining = 1
+        incidents.upsert(realIncident("newer", 2_000L))
+        advanceUntilIdle()
+
+        // The owner never asked for this read, so a failure must not blank the list or
+        // raise the retry banner over events that are still perfectly valid.
+        assertEquals(listOf("older"), viewModel.uiState.value.events.map { it.id })
+        assertNull(viewModel.uiState.value.eventsError)
+        assertFalse(viewModel.uiState.value.eventsLoading)
     }
 
     @Test
@@ -1913,13 +1963,17 @@ private class FakeRuntime(
 
 private class FakeIncidentRepository(
     incidents: List<SecurityIncident> = emptyList(),
-    private var failuresRemaining: Int = 0,
+    var failuresRemaining: Int = 0,
 ) : IncidentRepository {
     private val incidents = incidents.toMutableList()
+    private val revisions = MutableStateFlow(0L)
+
+    override val revision: StateFlow<Long> = revisions.asStateFlow()
 
     override fun upsert(incident: SecurityIncident) {
         incidents.removeAll { it.id == incident.id }
         incidents.add(0, incident)
+        revisions.value += 1L
     }
 
     override fun findById(id: String): SecurityIncident? = incidents.find { it.id == id }
@@ -1934,6 +1988,7 @@ private class FakeIncidentRepository(
 
     override fun clearHistory() {
         incidents.clear()
+        revisions.value += 1L
     }
 }
 

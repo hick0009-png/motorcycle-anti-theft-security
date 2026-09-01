@@ -9,6 +9,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class FileIncidentRepository(
     private val file: File,
@@ -27,6 +30,10 @@ class FileIncidentRepository(
         encryptor = secureKeyManager::encrypt,
         decryptor = secureKeyManager::decrypt,
     )
+
+    private val revisions = MutableStateFlow(0L)
+
+    override val revision: StateFlow<Long> = revisions.asStateFlow()
 
     private val records by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         readRecords().associateByTo(linkedMapOf()) { incident -> incident.id }
@@ -47,6 +54,7 @@ class FileIncidentRepository(
         persist(retained, syncImmediate = syncImmediate)
         records.clear()
         retained.associateByTo(records) { item -> item.id }
+        revisions.value += 1L
     }
 
     @Synchronized
@@ -69,6 +77,7 @@ class FileIncidentRepository(
     override fun clearHistory() {
         persist(emptyList())
         records.clear()
+        revisions.value += 1L
     }
 
     private fun readRecords(): List<SecurityIncident> {
