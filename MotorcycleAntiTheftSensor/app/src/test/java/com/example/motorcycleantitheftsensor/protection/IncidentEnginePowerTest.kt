@@ -3,6 +3,7 @@ package com.example.motorcycleantitheftsensor.protection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -263,4 +264,65 @@ class IncidentEnginePowerTest {
         assertFalse(engine.hasActiveIncident)
     }
 
+    /**
+     * Fix: the 30-second quiet window is a movement-domain rule — "no more vibration,
+     * the event is over". A power episode is quiet precisely while the supply is still
+     * cut: the arbiter fires one verdict and an on-change light sensor reports nothing
+     * more while the lamp stays dark. Closing on silence sent the owner
+     * "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว" while the cable was still out, and left
+     * the real recovery with no incident to close, so switching the lamp back on was
+     * met with silence.
+     */
+    @Test
+    fun theQuietWindowNeverClosesAPowerEpisode() {
+        engine.accept(
+            powerObservation("power_confirmed_loss", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        val closed = engine.closeIfQuiet(nowElapsedMs = 91_000L, quietWindowMs = 30_000L)
+
+        assertNull("silence is not recovery for a power episode", closed)
+        assertTrue(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun aPowerEpisodeKeptOpenBySilenceStillClosesOnItsOwnRecovery() {
+        engine.accept(
+            powerObservation("power_confirmed_loss", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+        engine.closeIfQuiet(nowElapsedMs = 91_000L, quietWindowMs = 30_000L)
+
+        val update = engine.accept(
+            powerObservation("power_recovered", 120_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        assertTrue("recovery must still own the close", update is IncidentUpdate.Closed)
+        assertFalse(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun disarmStillClosesAPowerEpisodeThatNeverRecovered() {
+        engine.accept(
+            powerObservation("power_confirmed_loss", 1_000L),
+            ProtectionState.ARMED_HEALTHY,
+        )
+
+        val closed = engine.close(nowMs = 1_700_000_120_000L, reason = "owner disarmed")
+
+        assertNotNull("an episode must never outlive the armed session", closed)
+        assertFalse(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun theQuietWindowStillClosesAMovementIncident() {
+        engine.accept(vibrationObservation(1_000L), ProtectionState.ARMED_HEALTHY)
+
+        val closed = engine.closeIfQuiet(nowElapsedMs = 31_000L, quietWindowMs = 30_000L)
+
+        assertNotNull("stillness is what ends a movement incident", closed)
+        assertFalse(engine.hasActiveIncident)
+    }
 }

@@ -249,6 +249,13 @@ object ProtectionRuntimeGraph {
         fun scheduleQuietWatchdog() {
             synchronized(watchdogLock) {
                 quietWatchdogJob?.cancel()
+                quietWatchdogJob = null
+                // A power episode is never closed by silence, so a watchdog over one
+                // would wake every quiet window only to decline. Leave it unscheduled;
+                // the next non-power update schedules it again.
+                if (incidentEngine.activeIncidentType == IncidentType.POWER) {
+                    return
+                }
                 quietWatchdogJob = scope.launch {
                     while (isActive) {
                         delay(INCIDENT_QUIET_WINDOW_MS)

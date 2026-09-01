@@ -25,6 +25,10 @@ class IncidentEngine(
         }
     val hasActiveIncident: Boolean
         @Synchronized get() = activeIncident != null
+
+    /** Type of the incident currently holding the single active slot, if any. */
+    val activeIncidentType: IncidentType?
+        @Synchronized get() = activeIncident?.incident?.type
     private var lightPrecursor: IncidentEvidence? = null
     private val audioPrecursors = mutableListOf<IncidentEvidence>()
     private var vibrationPrecursor: IncidentEvidence? = null
@@ -295,12 +299,22 @@ class IncidentEngine(
         return IncidentUpdate.Closed(closed)
     }
 
+    /**
+     * Ends an incident that has gone quiet. This is a movement-domain rule — no further
+     * vibration means the event is over — and it does not hold for a power episode: the
+     * supply arbiter fires one verdict and an on-change light sensor then reports
+     * nothing at all while the lamp stays dark, so silence is exactly what an ongoing
+     * outage looks like. Closing on it told the owner the supply was stable again while
+     * the cable was still cut, and left the real recovery with no incident to close. A
+     * power episode ends on its own recovery verdict, or when the armed session ends.
+     */
     @Synchronized
     fun closeIfQuiet(
         nowElapsedMs: Long,
         quietWindowMs: Long,
     ): IncidentUpdate.Closed? {
         val active = activeIncident ?: return null
+        if (active.incident.type == IncidentType.POWER) return null
         val quietDurationMs = nowElapsedMs - active.lastEvidenceElapsedMs
         if (quietDurationMs < quietWindowMs) return null
         val closeWallClockMs = active.incident.updatedAtMs + quietDurationMs
