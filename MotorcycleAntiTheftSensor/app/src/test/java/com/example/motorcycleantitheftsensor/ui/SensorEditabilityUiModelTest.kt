@@ -66,18 +66,31 @@ class SensorEditabilityUiModelTest {
     }
 
     @Test
+    fun aProfileCopiedInAfterTheFactStillLocks() {
+        // The view model builds the state first and copies the selected profile in
+        // afterwards. A stored projection would keep reporting "nothing is locked".
+        val base = ProtectionUiState.from(
+            snapshot = ProtectionSnapshot.offline(1_000L).copy(state = ProtectionState.DISARMED_ONLINE),
+            incidents = emptyList(),
+            settings = settings(),
+            nowMs = 2_000L,
+        )
+
+        val withProfile = base.copy(
+            profile = ProtectionProfileUiState(selectedProfile = ProtectionProfile.POWER),
+        )
+
+        assertFalse("the base state has no profile yet", base.sensorEditability.anyLocked)
+        assertTrue(withProfile.sensorEditability.anyLocked)
+        assertFalse(withProfile.sensorEditability.presetSelectable)
+    }
+
+    @Test
     fun uiStateDerivesEditabilityFromTheSelectedProfile() {
         val state = ProtectionUiState.from(
             snapshot = ProtectionSnapshot.offline(1_000L).copy(state = ProtectionState.DISARMED_ONLINE),
             incidents = emptyList(),
-            settings = ProtectionSettingsSummary(
-                tokenConfigured = true,
-                pairedOwnerCount = 1,
-                pairingCode = "A1B2C3",
-                sensitivity = 5,
-                smsFallbackConfigured = false,
-                missingPermissions = emptySet(),
-            ),
+            settings = settings(),
             nowMs = 2_000L,
             profile = ProtectionProfileUiState(selectedProfile = ProtectionProfile.POWER),
         )
@@ -86,4 +99,13 @@ class SensorEditabilityUiModelTest {
         assertTrue(state.sensorEditability.isLocked(SensorSource.GYROSCOPE))
         assertFalse(state.sensorEditability.presetSelectable)
     }
+
+    private fun settings(): ProtectionSettingsSummary = ProtectionSettingsSummary(
+        tokenConfigured = true,
+        pairedOwnerCount = 1,
+        pairingCode = "A1B2C3",
+        sensitivity = 5,
+        smsFallbackConfigured = false,
+        missingPermissions = emptySet(),
+    )
 }

@@ -304,9 +304,15 @@ data class ProtectionUiState(
     val activeSettingsOperation: SettingsOperation? = null,
     val audio: AudioUiTelemetry = AudioUiTelemetry(),
     val profile: ProtectionProfileUiState = ProtectionProfileUiState(),
-    /** Derived from [profile]; never assembled by the screen itself. */
-    val sensorEditability: SensorEditabilityUiModel = SensorEditabilityUiModel(),
 ) {
+    /**
+     * Derived from [profile], never stored: the view model assembles this state in two
+     * steps and copies the selected profile in after the fact, so a stored field would
+     * silently keep reporting "nothing is locked".
+     */
+    val sensorEditability: SensorEditabilityUiModel
+        get() = SensorEditabilityUiModel.from(profile.selectedProfile)
+
     companion object {
         fun from(
             snapshot: ProtectionSnapshot,
@@ -350,7 +356,6 @@ data class ProtectionUiState(
             activeSettingsOperation = activeSettingsOperation,
             audio = audio,
             profile = profile,
-            sensorEditability = SensorEditabilityUiModel.from(profile.selectedProfile),
         )
     }
 }
