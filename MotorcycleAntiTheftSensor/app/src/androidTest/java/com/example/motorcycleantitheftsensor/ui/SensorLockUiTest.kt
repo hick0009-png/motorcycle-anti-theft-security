@@ -20,12 +20,15 @@ import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguratio
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCKED_GROUP_TOGGLE_TAG
+import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_INVENTORY_SUMMARY_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCK_BANNER_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_PRESET_LOCKED_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_LIST_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
 import com.example.motorcycleantitheftsensor.ui.settings.sensorCapabilitySliderTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceAvailabilityTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceRoleTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -47,7 +50,22 @@ class SensorLockUiTest {
     private var savedConfiguration: SensorFusionConfiguration? = null
     private var selectedDestination: ProtectionDestination? = null
 
-    private fun openAdvancedSensors(profile: ProtectionProfile) {
+    /** Every source present and fast, unless the test says otherwise. */
+    private fun inventory(
+        overrides: Map<SensorSource, SensorAvailability> = emptyMap(),
+    ): Map<SensorSource, SensorAvailabilityUiModel> = SensorSource.entries.associateWith { source ->
+        SensorAvailabilityUiModel(
+            source = source,
+            availability = overrides[source] ?: SensorAvailability.AVAILABLE,
+            vendor = "test-vendor",
+            powerMa = 0.5f,
+        )
+    }
+
+    private fun openAdvancedSensors(
+        profile: ProtectionProfile,
+        availability: Map<SensorSource, SensorAvailabilityUiModel> = inventory(),
+    ) {
         savedConfiguration = null
         selectedDestination = null
         composeRule.setContent {
@@ -70,6 +88,7 @@ class SensorLockUiTest {
                     ),
                     nowMs = 2_000L,
                     profile = ProtectionProfileUiState(selectedProfile = profile),
+                    sensorAvailability = availability,
                 ),
                 actions = ProtectionAppActions(
                     selectDestination = { selectedDestination = it },
@@ -166,6 +185,50 @@ class SensorLockUiTest {
             composeRule.onNodeWithTag(tag).assertIsNotEnabled()
         }
         assertNull("a locked role button must not write a configuration", savedConfiguration)
+    }
+
+    @Test
+    fun theCardStatesWhatThisDeviceActuallyHas() {
+        openAdvancedSensors(
+            ProtectionProfile.VEHICLE,
+            availability = inventory(
+                mapOf(
+                    SensorSource.GYROSCOPE to SensorAvailability.MISSING,
+                    SensorSource.MAGNETIC_FIELD to SensorAvailability.LIMITED,
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithTag(SENSOR_INVENTORY_SUMMARY_TAG).performScrollTo().assertExists()
+        composeRule.onNodeWithText("เซ็นเซอร์ในเครื่องนี้: มี 8 · จำกัด 1 · ไม่มี 1")
+            .assertExists()
+    }
+
+    @Test
+    fun withNoCatalogTheCardClaimsNothingAboutTheHardware() {
+        // An empty inventory means "not read yet", never "this phone has no sensors".
+        openAdvancedSensors(ProtectionProfile.VEHICLE, availability = emptyMap())
+
+        composeRule.onNodeWithTag(SENSOR_INVENTORY_SUMMARY_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun everyRoleRowCarriesAHardwareBadgeIncludingLockedOnes() {
+        openAdvancedSensors(
+            ProtectionProfile.POWER,
+            availability = inventory(mapOf(SensorSource.GYROSCOPE to SensorAvailability.MISSING)),
+        )
+        composeRule.onNodeWithText("กำหนดบทบาทเซ็นเซอร์ขั้นสูง").performScrollTo().performClick()
+
+        composeRule.onNodeWithTag(sensorSourceAvailabilityTag(SensorSource.AMBIENT_LIGHT))
+            .assertExists()
+
+        composeRule.onNodeWithTag(SENSOR_LOCKED_GROUP_TOGGLE_TAG).performScrollTo().performClick()
+        listOf(SensorSource.GYROSCOPE, SensorSource.ACCELEROMETER).forEach { source ->
+            val tag = sensorSourceAvailabilityTag(source)
+            composeRule.onNodeWithTag(SENSOR_ROLE_LIST_TAG).performScrollToNode(hasTestTag(tag))
+            composeRule.onNodeWithTag(tag).assertExists()
+        }
     }
 
     @Test

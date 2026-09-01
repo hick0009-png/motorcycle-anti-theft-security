@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -171,6 +172,29 @@ object PresentationTextCatalog {
                 )
             }
         }
+
+    /**
+     * Hardware availability wording. "จำกัด" must never read as a fault: the sensor is
+     * present and usable, it just cannot carry a confirmation that assumes a rate.
+     */
+    fun sensorAvailabilityLabel(availability: SensorAvailability): String = when (availability) {
+        SensorAvailability.AVAILABLE -> "ใช้ได้"
+        SensorAvailability.LIMITED -> "จำกัด"
+        SensorAvailability.MISSING -> "ไม่มีในเครื่องนี้"
+    }
+
+    fun sensorAvailabilityBadge(availability: SensorAvailability): String = when (availability) {
+        SensorAvailability.AVAILABLE -> "🟢"
+        SensorAvailability.LIMITED -> "🟡"
+        SensorAvailability.MISSING -> "⚪"
+    }
+
+    /** TalkBack reads this instead of the emoji, which it would announce as a colour. */
+    fun sensorAvailabilityContentDescription(name: String, availability: SensorAvailability): String =
+        "$name: ${sensorAvailabilityLabel(availability)}"
+
+    fun sensorInventoryLine(available: Int, limited: Int, missing: Int): String =
+        "เซ็นเซอร์ในเครื่องนี้: มี $available · จำกัด $limited · ไม่มี $missing"
 
     /** Fixed labels for the lock affordances, so the screen never invents its own. */
     const val SENSOR_LOCK_CHIP = "ล็อกโดยโหมด"

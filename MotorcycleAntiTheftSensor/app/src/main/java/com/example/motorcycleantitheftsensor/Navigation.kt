@@ -95,6 +95,7 @@ fun MainNavigation(
             profileRepository = graph.profileRepository,
             powerRuntime = graph.runtime,
             powerArmChallenge = graph.powerArmChallenge,
+            sensorCatalog = graph.sensorCatalog,
             initialMissingPermissions = missingPermissions,
         )
     }

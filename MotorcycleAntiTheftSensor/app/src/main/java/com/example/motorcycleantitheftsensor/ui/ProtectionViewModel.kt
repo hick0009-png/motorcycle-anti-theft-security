@@ -26,6 +26,8 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailabilityPolicy
+import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfileRepository
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -78,6 +80,7 @@ class ProtectionViewModel(
     private val entryRuntime: ProtectionRuntime? = null,
     private val powerRuntime: ProtectionRuntime? = null,
     private val powerArmChallenge: PowerArmChallengeRegistry? = null,
+    private val sensorCatalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog? = null,
     private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
@@ -124,6 +127,22 @@ class ProtectionViewModel(
     private var powerCommissioningWitnessSampleSeen = false
     private var powerCommissioningStartedElapsedMs = 0L
 
+    /**
+     * The hardware inventory never changes while the process lives, so it is read once
+     * rather than recomputed on every snapshot.
+     */
+    private val sensorAvailability: Map<SensorSource, SensorAvailabilityUiModel> by lazy {
+        val catalog = sensorCatalog ?: return@lazy emptyMap()
+        catalog.descriptors().mapValues { (source, descriptor) ->
+            SensorAvailabilityUiModel(
+                source = source,
+                availability = SensorAvailabilityPolicy.availability(descriptor),
+                vendor = descriptor.vendor.takeIf { descriptor.isAvailable },
+                powerMa = descriptor.powerMa.takeIf { descriptor.isAvailable },
+            )
+        }
+    }
+
     val audioTelemetry: StateFlow<AudioTelemetry> = coordinator.audioTelemetry
 
     val uiState: StateFlow<ProtectionUiState> = combine(
@@ -154,6 +173,7 @@ class ProtectionViewModel(
                 audio = coordinator.audioTelemetry.value.toAudioUiTelemetry(
                     elapsedNowMs = elapsedNowMs(),
                 ),
+                sensorAvailability = sensorAvailability,
             )
         },
         profileState,
@@ -179,6 +199,7 @@ class ProtectionViewModel(
             audio = coordinator.audioTelemetry.value.toAudioUiTelemetry(
                 elapsedNowMs = elapsedNowMs(),
             ),
+            sensorAvailability = sensorAvailability,
         ),
     )
 

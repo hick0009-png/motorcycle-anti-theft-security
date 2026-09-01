@@ -23,6 +23,7 @@ import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import kotlin.math.ceil
 
 enum class ProtectionDestination { PROTECTION, EVENTS, SETTINGS }
@@ -73,6 +74,34 @@ data class SensorGroupUiModel(
     val isDegraded: Boolean,
     val calibrationProgress: Float? = null,
 )
+
+/**
+ * What this device can do with one sensor source, projected from the hardware
+ * descriptor by [SensorAvailabilityPolicy]. [vendor] and [powerMa] are shown only as
+ * supporting detail; the badge is the decision.
+ */
+data class SensorAvailabilityUiModel(
+    val source: SensorSource,
+    val availability: SensorAvailability,
+    val vendor: String? = null,
+    val powerMa: Float? = null,
+)
+
+/** Counts for the "มี N · จำกัด N · ไม่มี N" summary line. */
+data class SensorInventorySummary(
+    val available: Int = 0,
+    val limited: Int = 0,
+    val missing: Int = 0,
+) {
+    val known: Boolean get() = available + limited + missing > 0
+}
+
+fun Map<SensorSource, SensorAvailabilityUiModel>.inventorySummary(): SensorInventorySummary =
+    SensorInventorySummary(
+        available = values.count { it.availability == SensorAvailability.AVAILABLE },
+        limited = values.count { it.availability == SensorAvailability.LIMITED },
+        missing = values.count { it.availability == SensorAvailability.MISSING },
+    )
 
 data class SensorSourceUiModel(
     val source: com.example.motorcycleantitheftsensor.protection.SensorSource,
@@ -304,6 +333,11 @@ data class ProtectionUiState(
     val activeSettingsOperation: SettingsOperation? = null,
     val audio: AudioUiTelemetry = AudioUiTelemetry(),
     val profile: ProtectionProfileUiState = ProtectionProfileUiState(),
+    /**
+     * Hardware inventory of this device, read once from the sensor catalog. Empty only
+     * before the catalog is available; the screen must not read empty as "all missing".
+     */
+    val sensorAvailability: Map<SensorSource, SensorAvailabilityUiModel> = emptyMap(),
 ) {
     /**
      * Derived from [profile], never stored: the view model assembles this state in two
@@ -333,6 +367,7 @@ data class ProtectionUiState(
             activeSettingsOperation: SettingsOperation? = null,
             audio: AudioUiTelemetry = AudioUiTelemetry(),
             profile: ProtectionProfileUiState = ProtectionProfileUiState(),
+            sensorAvailability: Map<SensorSource, SensorAvailabilityUiModel> = emptyMap(),
         ): ProtectionUiState = ProtectionUiState(
             destination = destination,
             protection = snapshot.toStatusUiState(),
@@ -356,6 +391,7 @@ data class ProtectionUiState(
             activeSettingsOperation = activeSettingsOperation,
             audio = audio,
             profile = profile,
+            sensorAvailability = sensorAvailability,
         )
     }
 }

@@ -81,7 +81,10 @@ import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
+import com.example.motorcycleantitheftsensor.ui.SensorAvailabilityUiModel
 import com.example.motorcycleantitheftsensor.ui.SensorEditabilityUiModel
+import com.example.motorcycleantitheftsensor.ui.inventorySummary
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
@@ -465,6 +468,7 @@ fun SettingsScreen(
                 ?: remember { configPolicy.forPreset(SensorPreset.BALANCED) }
             val displayPreset = state.settings.sensorDisplayPreset ?: configPolicy.displayPreset(currentConfig)
             val editability = state.sensorEditability
+            val availability = state.sensorAvailability
             // Defense in depth. The domain pins these sources OFF when it resolves the
             // profile anyway, but a configuration restored from an older version could
             // still carry a raised role, and this screen must never write one back.
@@ -482,6 +486,23 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                // Level 2 of the three availability surfaces: what this device actually has.
+                val inventory = availability.inventorySummary()
+                if (inventory.known) {
+                    Text(
+                        text = PresentationTextCatalog.sensorInventoryLine(
+                            available = inventory.available,
+                            limited = inventory.limited,
+                            missing = inventory.missing,
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_INVENTORY_SUMMARY_TAG),
+                    )
+                }
 
                 val lockNotice = editability.notice
                 if (editability.anyLocked && lockNotice != null) {
@@ -742,6 +763,7 @@ fun SettingsScreen(
                                 SensorRoleRow(
                                     source = source,
                                     role = currentConfig.source(source).role,
+                                    availability = availability[source]?.availability,
                                     locked = false,
                                     lockReason = null,
                                     lockedContentDescription = null,
@@ -778,6 +800,7 @@ fun SettingsScreen(
                                         SensorRoleRow(
                                             source = source,
                                             role = currentConfig.source(source).role,
+                                            availability = availability[source]?.availability,
                                             locked = true,
                                             lockReason = editability.rowReason,
                                             lockedContentDescription =
@@ -1314,6 +1337,10 @@ internal const val SENSOR_LOCK_BANNER_TAG = "ui.settings.sensor.LOCK_BANNER"
 internal const val SENSOR_PRESET_LOCKED_TAG = "ui.settings.sensor.PRESET_LOCKED"
 internal const val SENSOR_LOCKED_GROUP_TOGGLE_TAG = "ui.settings.sensor.LOCKED_GROUP_TOGGLE"
 internal const val SENSOR_ROLE_LIST_TAG = "ui.settings.sensor.ROLE_LIST"
+internal const val SENSOR_INVENTORY_SUMMARY_TAG = "ui.settings.sensor.INVENTORY_SUMMARY"
+
+internal fun sensorSourceAvailabilityTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.AVAILABILITY"
 
 internal fun sensorCapabilitySliderTag(capability: SensorCapability): String =
     "ui.settings.sensor.capability.${capability.name}.SLIDER"
@@ -1399,9 +1426,34 @@ private fun SensorGroupHeading(text: String) {
  * contrast while the buttons dim.
  */
 @Composable
+private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
+    val name = PresentationTextCatalog.sourceName(source)
+    Surface(
+        color = RowSurface,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, BorderNeutral),
+        modifier = Modifier
+            .testTag(sensorSourceAvailabilityTag(source))
+            .semantics {
+                contentDescription =
+                    PresentationTextCatalog.sensorAvailabilityContentDescription(name, availability)
+            },
+    ) {
+        Text(
+            text = "${PresentationTextCatalog.sensorAvailabilityBadge(availability)} " +
+                PresentationTextCatalog.sensorAvailabilityLabel(availability),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
 private fun SensorRoleRow(
     source: SensorSource,
     role: SensorRole,
+    availability: SensorAvailability?,
     locked: Boolean,
     lockReason: String?,
     lockedContentDescription: String?,
@@ -1435,11 +1487,20 @@ private fun SensorRoleRow(
                 )
                 if (locked) LockChip()
             }
-            Text(
-                text = "กลุ่ม: $capName",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "กลุ่ม: $capName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                // Full contrast even on a locked row: whether the hardware exists is a
+                // fact about the device, not about the profile that dimmed the buttons.
+                if (availability != null) SensorAvailabilityBadge(source, availability)
+            }
             if (locked && lockReason != null) {
                 Text(
                     text = lockReason,

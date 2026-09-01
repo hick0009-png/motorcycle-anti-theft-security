@@ -44,6 +44,8 @@ object ProtectionRuntimeGraph {
         val sensorRepository: SensorConfigurationRepository? = null,
         val profileRepository: ProtectionProfileRepository? = null,
         val powerArmChallenge: PowerArmChallengeRegistry = PowerArmChallengeRegistry(),
+        /** Hardware inventory of this device, for the screens that must state it. */
+        val sensorCatalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -583,6 +585,7 @@ object ProtectionRuntimeGraph {
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
             powerArmChallenge = graphPowerArmChallenge,
+            sensorCatalog = sensorCatalog,
         )
     }
 
