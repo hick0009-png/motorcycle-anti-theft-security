@@ -412,35 +412,9 @@ fun SettingsScreen(
             )
         }
 
-        item(key = "remote-control-readiness") {
-            Column(modifier = Modifier.testTag("remote_control_readiness")) {
-                SettingsCard(
-                    title = "ความพร้อมการควบคุมผ่าน Telegram",
-                ) {
-                    ReadinessRow(
-                        label = "Bot",
-                        ready = state.settings.tokenConfigured,
-                        readyText = "เชื่อมต่อแล้ว",
-                        notReadyText = "ยังไม่ได้ตั้งค่า",
-                        modifier = Modifier.testTag("readiness_bot"),
-                    )
-                    ReadinessRow(
-                        label = "เจ้าของ",
-                        ready = state.settings.pairedOwnerCount > 0,
-                        readyText = "จับคู่แล้ว (${state.settings.pairedOwnerCount} เครื่อง)",
-                        notReadyText = "ยังไม่ได้จับคู่",
-                        modifier = Modifier.testTag("readiness_pairing"),
-                    )
-                    ReadinessRow(
-                        label = "สิทธิ์",
-                        ready = state.protection.permissionBlockers.isEmpty(),
-                        readyText = "พร้อมใช้งาน",
-                        notReadyText = "ต้องตรวจสอบสิทธิ์",
-                        modifier = Modifier.testTag("readiness_permissions"),
-                    )
-                }
-            }
-        }
+        // The readiness card lives once, on the settings overview
+        // (RemoteControlReadinessCard), which already carries the same three rows
+        // and test tags plus a jump to the page that fixes each gap.
 
         }
 
@@ -1662,32 +1636,3 @@ private fun DiagnosticRow(label: String, value: String) {
     }
 }
 
-@Composable
-private fun ReadinessRow(
-    label: String,
-    ready: Boolean,
-    readyText: String,
-    notReadyText: String,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = if (ready) "✓" else "⚠",
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = if (ready) ActionBlue else MaterialTheme.colorScheme.error,
-            ),
-        )
-        Text(
-            text = "$label: ${if (ready) readyText else notReadyText}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}

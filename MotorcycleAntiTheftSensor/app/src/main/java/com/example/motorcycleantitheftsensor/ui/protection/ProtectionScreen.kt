@@ -227,67 +227,9 @@ fun ProtectionScreen(
             }
         }
 
-        item(key = "header") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "การป้องกัน",
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.semantics { heading() },
-                )
-                TextButton(
-                    onClick = { actions.selectDestination(ProtectionDestination.SETTINGS) },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("การตั้งค่า")
-                }
-            }
-        }
-
-        item(key = "protection-state") {
-            StatusCard(title = "สถานะระบบ") {
-                Text(
-                    text = stateGuidance.titleTh,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    text = stateGuidance.bodyTh,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                protection.persistentGuidance
-                    ?.takeIf { guidance -> guidance != stateGuidance }
-                    ?.let { guidance ->
-                        Text(guidance.titleTh, style = MaterialTheme.typography.titleSmall)
-                        Text(guidance.bodyTh, style = MaterialTheme.typography.bodyMedium)
-                    }
-                state.armingSecondsRemaining?.let { seconds ->
-                    Text(
-                        text = "ระบบจะเปิดในอีก $seconds วินาที",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-                Button(
-                    onClick = if (disarmAction) actions.disarm else actions.arm,
-                    enabled = actionEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                ) {
-                    Text(
-                        text = when (protection.state) {
-                            ProtectionState.ALERT_ACTIVE -> "ปิดสัญญาณเตือน"
-                            ProtectionState.ARMING,
-                            ProtectionState.ARMED_HEALTHY,
-                            ProtectionState.ARMED_DEGRADED -> "ปิดระบบป้องกัน"
-                            else -> "เปิดการป้องกัน"
-                        },
-                    )
-                }
-            }
-        }
+        // The pre-redesign "header" + "protection-state" pair was superseded by the
+        // moto-guard-header / protection-state cards above; the merge had reinstated
+        // it, producing a duplicate LazyColumn key that crashed on first measure.
 
         if (state.profile.showPicker) {
             item(key = "profile-picker") {
