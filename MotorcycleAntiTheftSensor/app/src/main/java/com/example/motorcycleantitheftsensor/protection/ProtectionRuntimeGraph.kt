@@ -525,7 +525,10 @@ object ProtectionRuntimeGraph {
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
             entryCommissioningContextProvider = {
-                EntryCommissioningEnvironment.currentContext(entryUseContinuous = true)
+                EntryCommissioningEnvironment.currentContext(
+                    entryUseContinuous = true,
+                    source = runtime.entryOrientationSource(),
+                )
             },
             powerCommissioningContextProvider = {
                 PowerWitnessCommissioningPolicy.CommissioningContext(

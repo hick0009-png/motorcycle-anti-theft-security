@@ -102,6 +102,14 @@ interface ProtectionRuntime {
      * the relative-orientation baseline capture. Default no-op keeps non-Entry runtimes
      * and host fakes unaffected.
      */
+    /**
+     * The orientation sensor an armed door watch will really listen to on this device, or
+     * null when it has none — or when this runtime cannot tell. Commissioning stamps the
+     * answer into the hinge model, so a phone that falls back is recommissioned instead of
+     * carrying a model measured against a sensor it no longer uses.
+     */
+    fun entryOrientationSource(): EntryOrientationSource? = null
+
     fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
     }
 

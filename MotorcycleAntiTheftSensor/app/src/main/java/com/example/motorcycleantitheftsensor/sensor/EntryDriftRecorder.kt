@@ -8,6 +8,8 @@ import android.hardware.SensorManager
 import android.os.Handler
 import android.os.SystemClock
 import com.example.motorcycleantitheftsensor.protection.EntryDriftSampler
+import com.example.motorcycleantitheftsensor.protection.EntryOrientationSource
+import com.example.motorcycleantitheftsensor.protection.EntryOrientationSourcePolicy
 import com.example.motorcycleantitheftsensor.protection.EntryQuaternion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,15 +60,22 @@ class EntryDriftRecorder(
 
     val isRecording: Boolean get() = listener != null
 
+    private fun sensorTypeOf(source: EntryOrientationSource): Int = when (source) {
+        EntryOrientationSource.GAME_ROTATION_VECTOR -> Sensor.TYPE_GAME_ROTATION_VECTOR
+        EntryOrientationSource.ROTATION_VECTOR -> Sensor.TYPE_ROTATION_VECTOR
+        EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR -> Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR
+    }
+
     @Synchronized
     fun start(): Boolean {
         if (listener != null) return true
         val manager = sensorManager ?: return false
         // The door watch's own order. Measuring a sensor it would not use would answer a
         // question nobody asked.
-        val sensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-            ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-            ?: manager.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+        val chosen = EntryOrientationSourcePolicy.choose(
+            EntryOrientationSource.entries.filter { manager.getDefaultSensor(sensorTypeOf(it)) != null },
+        )
+        val sensor = chosen?.let { manager.getDefaultSensor(sensorTypeOf(it)) }
             ?: return false
 
         val target = newFile(sensor)

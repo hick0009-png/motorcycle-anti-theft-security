@@ -172,6 +172,12 @@ interface AndroidDetectorSet {
         currentSensorHealth()[if (source.capability == SensorCapability.LIGHT) SensorKind.LIGHT else SensorKind.VIBRATION]?.state
             ?: SensorHealthState.UNAVAILABLE
 
+    /**
+     * The orientation sensor this device will actually read a door angle from, or null when
+     * it has none of them — or when this detector set does not read one at all.
+     */
+    fun entryOrientationSource(): EntryOrientationSource? = null
+
     /** Entry Guard armed-session hook; default no-op for non-Entry detector sets. */
     fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
     }
@@ -299,6 +305,8 @@ class AndroidProtectionRuntime(
     override fun currentSensorHealth(): Map<SensorKind, SensorHealth> = detectors.currentSensorHealth()
 
     override fun sourceHealth(source: SensorSource): SensorHealthState = detectors.sourceHealth(source)
+
+    override fun entryOrientationSource(): EntryOrientationSource? = detectors.entryOrientationSource()
 
     override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
         detectors.beginEntrySession(sessionId, model, settings)
@@ -611,6 +619,9 @@ class PlatformAndroidDetectorSet(
 
     /** Armed-session Entry Guard state; inactive unless an Entry session begins. */
     private val entrySession = EntryArmedSessionController()
+    private val entryFreshness = EntrySourceFreshnessTracker()
+    @Volatile
+    private var entryOrientationSourceInUse: EntryOrientationSource? = null
     private var entryOrientationListener: android.hardware.SensorEventListener? = null
     private val entrySampleFlow = MutableSharedFlow<EntryOrientationSample>(extraBufferCapacity = 64)
 
@@ -1209,31 +1220,68 @@ class PlatformAndroidDetectorSet(
      * Registered only while an Entry session is active; samples are evaluated by
      * [EntryArmedSessionController] and emitted as typed diagnostic observations.
      */
+    override fun entryOrientationSource(): EntryOrientationSource? =
+        entryOrientationSourceInUse ?: sensorManager?.let { resolveEntryOrientationSource(it) }
+
+    /**
+     * The best orientation source this phone has, in the one order the whole app agrees on.
+     *
+     * Registration used to spell its own fallback chain here and stop after two, while the
+     * drift recorder spelled a longer one and the commissioning fingerprint spelled none at
+     * all. A phone with only the geomagnetic vector was therefore measured by the recorder,
+     * declared merely degraded by the profile policy, and then armed with no listener at all
+     * — silently, since a `?: return` reads as protection right up to the moment it matters.
+     */
+    private fun resolveEntryOrientationSource(manager: SensorManager): EntryOrientationSource? =
+        EntryOrientationSourcePolicy.choose(
+            EntryOrientationSource.entries.filter { manager.getDefaultSensor(entrySensorType(it)) != null },
+        )
+
+    private fun entrySensorType(source: EntryOrientationSource): Int = when (source) {
+        EntryOrientationSource.GAME_ROTATION_VECTOR -> Sensor.TYPE_GAME_ROTATION_VECTOR
+        EntryOrientationSource.ROTATION_VECTOR -> Sensor.TYPE_ROTATION_VECTOR
+        EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR -> Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR
+    }
+
+    private fun entryAccuracyOf(accuracy: Int): EntrySourceAccuracy = when (accuracy) {
+        SensorManager.SENSOR_STATUS_NO_CONTACT -> EntrySourceAccuracy.NO_CONTACT
+        SensorManager.SENSOR_STATUS_UNRELIABLE -> EntrySourceAccuracy.UNRELIABLE
+        SensorManager.SENSOR_STATUS_ACCURACY_LOW -> EntrySourceAccuracy.LOW
+        SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> EntrySourceAccuracy.MEDIUM
+        SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> EntrySourceAccuracy.HIGH
+        else -> EntrySourceAccuracy.UNKNOWN
+    }
+
     private fun registerEntryOrientationSource() {
         val manager = sensorManager ?: return
         if (entryOrientationListener != null) return
-        val sensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-            ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-            ?: return
+        val chosen = resolveEntryOrientationSource(manager) ?: return
+        val sensor = manager.getDefaultSensor(entrySensorType(chosen)) ?: return
+        entryOrientationSourceInUse = chosen
+        entryFreshness.reset()
         val listener = object : android.hardware.SensorEventListener {
             override fun onSensorChanged(event: android.hardware.SensorEvent) {
                 if (event.values.size < 4) return
+                val nowMs = SystemClock.elapsedRealtime()
                 val sample = EntryOrientationSample(
-                    timestampMs = SystemClock.elapsedRealtime(),
+                    timestampMs = nowMs,
                     quaternion = EntryQuaternion(
                         w = event.values[3].toDouble(),
                         x = event.values[0].toDouble(),
                         y = event.values[1].toDouble(),
                         z = event.values[2].toDouble(),
                     ),
-                    fresh = true,
+                    // The gate the detection policy has always had and never once could use.
+                    fresh = entryFreshness.onSample(nowMs),
                 )
                 val verdicts = entrySession.onSample(sample, controller.currentGenerationId())
                 entrySampleFlow.tryEmit(sample)
                 verdicts.forEach { verdict -> record(entryVerdictObservation(verdict, sample)) }
             }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                entryFreshness.onAccuracy(entryAccuracyOf(accuracy), SystemClock.elapsedRealtime())
+            }
         }
         entryOrientationListener = listener
         try {

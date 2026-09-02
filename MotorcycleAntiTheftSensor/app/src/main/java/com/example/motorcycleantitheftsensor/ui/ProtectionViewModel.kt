@@ -316,9 +316,13 @@ class ProtectionViewModel(
             minPeakAngleDeg = selectedAngle.toDouble(),
             closeThresholdDeg = 3.0,
             axisAgreementToleranceDeg = 10.0,
-            sensorIdentity = EntryCommissioningEnvironment.sensorIdentity(),
+            // The source this phone will actually arm on, not the one it usually has: a model
+            // commissioned here is compared against this string at every arm.
+            sensorIdentity = EntryCommissioningEnvironment.orientationIdentity(runtime.entryOrientationSource()),
             mountSignature = EntryCommissioningEnvironment.mountSignature(),
-            orientationSourcePolicy = EntryCommissioningEnvironment.ORIENTATION_SOURCE_POLICY,
+            orientationSourcePolicy = EntryCommissioningEnvironment.orientationSourcePolicy(
+                runtime.entryOrientationSource(),
+            ),
         )
         commissioningPolicy = policy
         // start() enters STILL_CHECK; a bare State() stays IDLE and drops every sample.
