@@ -720,15 +720,14 @@ private fun DeliveryState.thaiDisplayName(): String = when (this) {
     DeliveryState.NOT_ELIGIBLE -> "ไม่เข้าเกณฑ์การส่ง"
 }
 
-private fun AudioRuntimeState.thaiDisplayName(): String = when (this) {
-    AudioRuntimeState.OFF -> "ปิด"
-    AudioRuntimeState.STARTING -> "กำลังเริ่ม"
-    AudioRuntimeState.CALIBRATING -> "กำลังปรับเทียบ"
-    AudioRuntimeState.LISTENING -> "กำลังฟัง"
-    AudioRuntimeState.CLASSIFYING -> "กำลังจำแนก"
-    AudioRuntimeState.DEGRADED -> "ทำงานแบบจำกัด"
-    AudioRuntimeState.FAILED -> "ทำงานผิดพลาด"
-}
+/**
+ * The screen carried its own Thai for the listening state while
+ * [com.example.motorcycleantitheftsensor.ui.audioRuntimeStateLabel] carried another, written
+ * for this very screen and never wired to it. Two names for one state is one too many, and
+ * the shared one wins: it is the mapping the presentation layer tests pin.
+ */
+private fun AudioRuntimeState.thaiDisplayName(): String =
+    com.example.motorcycleantitheftsensor.ui.audioRuntimeStateLabel(this)
 
 private fun AudioGateState.thaiDisplayName(): String = when (this) {
     AudioGateState.DISABLED -> "ปิด"

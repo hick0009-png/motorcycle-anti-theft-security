@@ -144,12 +144,17 @@ class ProtectionProfilesUiTest {
             ),
         )
 
-        composeRule.onNodeWithText("สถานะระบบ").assertIsDisplayed()
+        composeRule.onNodeWithText("สถานะการปกป้อง").assertIsDisplayed()
         composeRule.onNodeWithText("การใช้งานปัจจุบัน").assertIsDisplayed()
         composeRule.onNodeWithText("สถานะไฟเลี้ยง").assertIsDisplayed()
         composeRule.onNodeWithText("อัปเดตล่าสุด", substring = true).assertIsDisplayed()
         composeRule.onAllNodesWithText("สถานะการทำงาน").assertCountEquals(0)
-        composeRule.onAllNodesWithText("ยืนยันตำแหน่งไฟ", substring = true).assertCountEquals(0)
+        // The per-arm lamp challenge stays on a ready home deliberately: without it the witness
+        // registry can never be satisfied and every POWER arm stays degraded, which is why
+        // PowerGuardSection offers it whenever the phone is not armed. What a ready home must
+        // keep away is the setup flow itself.
+        composeRule.onAllNodesWithText("สิ่งที่ต้องตั้งค่า").assertCountEquals(0)
+        composeRule.onNodeWithText("ยืนยันตำแหน่งไฟ", substring = true).assertExists()
         composeRule.onNodeWithText("เปลี่ยนการใช้งาน").performClick()
         composeRule.onNodeWithText("พร้อมใช้งาน").assertExists()
     }
@@ -221,7 +226,7 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
             .performScrollToNode(hasText("สรุปการดูแลยานพาหนะ"))
-        composeRule.onNodeWithText("สถานะระบบ").assertExists()
+        composeRule.onNodeWithText("สถานะการปกป้อง").assertExists()
         composeRule.onNodeWithText("การใช้งานปัจจุบัน").assertExists()
         composeRule.onNodeWithText("ดูแลยานพาหนะ").assertIsDisplayed()
         composeRule.onNodeWithText("สรุปการดูแลยานพาหนะ").assertIsDisplayed()
@@ -318,6 +323,8 @@ class ProtectionProfilesUiTest {
         composeRule.runOnIdle { check(!confirmed) { "Cancel must not confirm" } }
         composeRule.runOnIdle { check(cancelled) { "Cancel must be invoked" } }
 
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("หยุดการป้องกันและเปลี่ยนการใช้งาน"))
         composeRule.onNodeWithText("หยุดการป้องกันและเปลี่ยนการใช้งาน").assertIsDisplayed()
     }
 
@@ -396,7 +403,9 @@ class ProtectionProfilesUiTest {
 
         composeRule.onNodeWithText("เข็มทิศประตู").assertIsDisplayed()
         composeRule.onNodeWithText("พร้อมเฝ้าระวังทางเข้า").assertIsDisplayed()
-        composeRule.onNodeWithText("แจ้งเมื่อเกิน 15°").assertIsDisplayed()
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("แจ้งเมื่อเกิน 15°", substring = true))
+        composeRule.onNodeWithText("แจ้งเมื่อเกิน 15°", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText(
             "มุมแจ้งเตือนถูกเปลี่ยนขณะอาร์ม — ปิดระบบ ปรับเทียบ แล้วเปิดใหม่ เพื่อใช้มุมใหม่",
         ).assertIsDisplayed()

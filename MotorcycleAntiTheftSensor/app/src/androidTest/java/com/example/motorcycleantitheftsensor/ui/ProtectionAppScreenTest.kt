@@ -251,7 +251,7 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText(
             "ยังไม่ได้ให้สิทธิ์ไมโครโฟน การตรวจจับเสียงผิดปกติจะใช้ไม่ได้",
         ).assertExists()
-        compose.onNodeWithText("การตรวจจับที่ลดลง").assertExists()
+        compose.onNodeWithText("ความครอบคลุมของเซนเซอร์ลดลง").assertExists()
         compose.onNodeWithText("สิ่งที่ยังขาดก่อนป้องกันได้").assertDoesNotExist()
         compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.runOnIdle {
@@ -537,7 +537,7 @@ class ProtectionAppScreenTest {
         openAdvancedDiagnostics()
 
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("การสั่นสะเทือน"))
-        compose.onAllNodes(hasText("การวัดสดจะเริ่มหลังเปิดระบบ"))[0].assertHeightIsAtLeast(10.dp)
+        compose.onAllNodes(hasText("จะเริ่มอ่านค่าหลังเปิดการป้องกัน"))[0].assertHeightIsAtLeast(10.dp)
     }
 
     @Test
@@ -699,8 +699,8 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(state)
         openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ไมโครโฟนพร้อมใช้งาน"))
-        compose.onNodeWithText("ไมโครโฟนพร้อมใช้งาน").assertExists()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ตรวจพบไมโครโฟน"))
+        compose.onNodeWithText("ตรวจพบไมโครโฟน").assertExists()
     }
 
     @Test
@@ -731,7 +731,7 @@ class ProtectionAppScreenTest {
         compose.onNodeWithTag(
             com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
         ).performScrollTo()
-        compose.onNodeWithText("สถานะระบบ").assertDoesNotExist()
+        compose.onNodeWithText("สถานะการทำงาน").assertDoesNotExist()
         compose.onNodeWithTag(
             com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG,
         ).assertDoesNotExist()
@@ -740,7 +740,7 @@ class ProtectionAppScreenTest {
             com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
         ).performClick()
 
-        compose.onNodeWithText("สถานะระบบ").assertExists()
+        compose.onNodeWithText("สถานะการทำงาน").assertExists()
     }
 
     @Test
