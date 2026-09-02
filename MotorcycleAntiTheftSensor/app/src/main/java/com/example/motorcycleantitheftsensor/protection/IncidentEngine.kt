@@ -35,11 +35,27 @@ class IncidentEngine(
     private var chargerPrecursor: IncidentEvidence? = null
     private var locationPrecursor: IncidentEvidence? = null
 
+    /**
+     * When movement was last seen, on the observation clock.
+     *
+     * Kept apart from [vibrationPrecursor] deliberately: that one is consumed the moment it
+     * helps open an incident, and correlation would then forget the very shake it just used.
+     * This one only ever records that movement happened, which is the question the door
+     * watch asks of it.
+     */
+    private var lastMovementElapsedMs: Long? = null
+
     @Synchronized
     fun accept(
         observation: SensorObservation,
         protectionState: ProtectionState,
         location: IncidentLocation? = null,
+        /**
+         * Whether this armed session runs a movement signal at all. Only the caller knows,
+         * and a caller that does not say is taken to have none — a door watch that cannot
+         * corroborate keeps the behaviour it has today rather than falling silent.
+         */
+        movementCorroborationArmed: Boolean = false,
     ): IncidentUpdate {
         if (protectionState !in ACTIVE_PROTECTION_STATES) {
             clearAllPrecursors()
@@ -49,7 +65,7 @@ class IncidentEngine(
         // Entry Guard verdicts arrive fully evaluated with typed diagnostics; they own
         // their episode lifecycle and never participate in precursor correlation.
         if (observation.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true) {
-            return acceptEntry(observation, protectionState, location)
+            return acceptEntry(observation, protectionState, location, movementCorroborationArmed)
         }
 
         // Power Guard verdicts arrive fully evaluated by the armed-session arbiter with
@@ -57,6 +73,13 @@ class IncidentEngine(
         // precursor correlation either.
         if (observation.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true) {
             return acceptPower(observation, protectionState, location)
+        }
+
+        // Every real movement sample, whatever it goes on to do: the door watch needs to know
+        // that something shook, not what the shake was classified as. Entry verdicts share the
+        // movement kind but were dispatched above, so they can never answer their own question.
+        if (observation.kind == SensorKind.VIBRATION && observation.valid) {
+            lastMovementElapsedMs = observation.eventElapsedMs
         }
 
         purgePrecursors(observation.eventElapsedMs)
@@ -350,6 +373,8 @@ class IncidentEngine(
         vibrationPrecursor = null
         chargerPrecursor = null
         locationPrecursor = null
+        // Disarm ends the session: a shake from before it can corroborate nothing after it.
+        lastMovementElapsedMs = null
     }
 
     private fun recordAudioPrecursor(evidence: IncidentEvidence) {
@@ -550,13 +575,23 @@ class IncidentEngine(
         observation: SensorObservation,
         protectionState: ProtectionState,
         location: IncidentLocation?,
+        movementCorroborationArmed: Boolean = false,
     ): IncidentUpdate {
         val evidence = observation.toEvidence()
         val active = activeIncident
         val isEntryIncident = active?.incident?.type == IncidentType.ENTRY_DOOR
+        // Only claims about a door are asked for a shake, and only when they would raise the
+        // alarm themselves. A health episode says the source is gone, which is true whether or
+        // not anything moved, and updates to an episode already believed are not new claims.
+        val corroborated = EntryCorroborationPolicy.mayOpen(
+            verdictElapsedMs = observation.eventElapsedMs,
+            lastMovementElapsedMs = lastMovementElapsedMs,
+            corroborationArmed = movementCorroborationArmed,
+        )
         return when (observation.diagnostic) {
             ENTRY_DOOR_OPEN, ENTRY_DOOR_STILL_OPEN -> {
                 if (active == null || !isEntryIncident) {
+                    if (!corroborated) return IncidentUpdate.Ignored
                     openIncident(
                         Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.WARNING),
                         listOf(evidence),
@@ -576,8 +611,12 @@ class IncidentEngine(
                 }
             }
             ENTRY_MOUNT_MOVED -> {
-                // Mount movement outranks any door event and escalates to critical.
+                // Mount movement outranks any door event and escalates to critical. Which is
+                // exactly why it is asked for the same proof: drift reaches the residual gate
+                // before the angle gate on most mountings, and a mount-moved verdict does not
+                // merely alarm — it stops the session detecting anything for the rest of the day.
                 if (active == null || !isEntryIncident) {
+                    if (!corroborated) return IncidentUpdate.Ignored
                     openIncident(
                         Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.CRITICAL),
                         listOf(evidence),

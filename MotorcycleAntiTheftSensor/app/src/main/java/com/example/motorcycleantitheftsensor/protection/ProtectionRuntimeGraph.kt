@@ -304,6 +304,7 @@ object ProtectionRuntimeGraph {
                                 observation = batch.primary,
                                 protectionState = coordinator.snapshot.value.state,
                                 location = batch.location,
+                                movementCorroborationArmed = coordinator.movementCorroborationArmed(),
                             )
                         } else {
                             IncidentUpdate.Ignored
@@ -316,6 +317,7 @@ object ProtectionRuntimeGraph {
                                     observation = evidence,
                                     protectionState = coordinator.snapshot.value.state,
                                     location = batch.location,
+                                    movementCorroborationArmed = coordinator.movementCorroborationArmed(),
                                 )
                                 evidenceUpdate.incidentOrNull()?.let { latest -> update.withIncident(latest) } ?: update
                             }

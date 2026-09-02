@@ -1320,6 +1320,23 @@ class ProtectionCoordinator(
      */
     fun currentSignalRole(kind: SensorKind): SensorRole? = armedSignalRoles.get()[kind]
 
+    /**
+     * Whether this armed session has a movement signal that could vouch for a door verdict.
+     *
+     * The door watch reads an angle, and an angle moves on its own: the orientation a still
+     * phone reports drifts, the baseline is frozen for the whole session, and a session that
+     * lasts a working day gives the drift all day to reach a threshold meant for a door. So a
+     * door claim is asked whether anything shook — but only where the question can be
+     * answered. A use that runs no movement signal, or a phone with no movement sensor,
+     * answers false here and is never asked, because a corroboration that cannot arrive would
+     * silence the watch entirely rather than sharpen it.
+     */
+    fun movementCorroborationArmed(): Boolean {
+        val role = armedSignalRoles.get()[SensorKind.VIBRATION] ?: return false
+        if (role == SensorRole.OFF) return false
+        return runtime.sourceHealth(SensorSource.ACCELEROMETER) != SensorHealthState.UNAVAILABLE
+    }
+
     private fun hasReadyPrimary(primarySources: Set<SensorSource>): Boolean =
         primarySources.any { source -> runtime.sourceHealth(source) == SensorHealthState.HEALTHY }
 
