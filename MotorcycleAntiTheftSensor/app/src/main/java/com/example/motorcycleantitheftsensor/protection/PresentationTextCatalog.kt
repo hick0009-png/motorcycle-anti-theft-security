@@ -231,6 +231,17 @@ object PresentationTextCatalog {
     const val SENSOR_LOCK_CHANGE_USE = "เปลี่ยนการใช้งาน"
 
     /**
+     * What one source contributes to one protection use, and what each role would really
+     * do. See [SensorContributionCatalog] for why every line is what it is; nothing here
+     * may promise a detection the engine does not perform.
+     */
+    fun contribution(profile: ProtectionProfile, source: SensorSource): SensorContribution =
+        SensorContributionCatalog.contribution(profile, source)
+
+    /** Prefixes the one contribution line the sensor row shows. */
+    const val SENSOR_DETECTS_PREFIX = "ช่วยตรวจจับ"
+
+    /**
      * Recommendation wording.
      *
      * [SENSOR_DIVERGES_CHIP] deliberately says the setting does not match rather than

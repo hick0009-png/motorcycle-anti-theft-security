@@ -808,6 +808,9 @@ fun SettingsScreen(
                                     recommendedContentDescription =
                                         recommendedRole?.let(recommendedDescription),
                                     diverges = source in divergingSources,
+                                    detects = recommendation.profile?.let { profile ->
+                                        PresentationTextCatalog.contribution(profile, source).detectsTh
+                                    },
                                     onSelectRole = { role -> onSelectRole(source, role) },
                                 )
                             }
@@ -852,6 +855,7 @@ fun SettingsScreen(
                                             recommendedRole = null,
                                             recommendedContentDescription = null,
                                             diverges = false,
+                                            detects = null,
                                             onSelectRole = { },
                                         )
                                     }
@@ -1387,6 +1391,9 @@ internal const val SENSOR_RESTORE_RECOMMENDED_TAG = "ui.settings.sensor.RESTORE_
 internal fun sensorSourceDivergesTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.DIVERGES"
 
+internal fun sensorSourceDetectsTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.DETECTS"
+
 /** The three role buttons, in the order the row draws them. */
 private val ROLE_BUTTON_ORDER = listOf(SensorRole.PRIMARY, SensorRole.SUPPORTING, SensorRole.OFF)
 
@@ -1523,6 +1530,10 @@ private fun SensorGroupHeading(text: String) {
  * [recommendedRole] stars the button the selected profile asks for, and [diverges] says
  * the current role is not that one. Locked rows pass neither: a star over a button that
  * cannot be pressed is noise, and the lock chip already explains the row.
+ *
+ * [detects] says what this source contributes to the selected use. A locked row passes
+ * null: it already carries the reason this profile does not detect with it, and claiming
+ * a contribution underneath that would contradict it.
  */
 @Composable
 private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
@@ -1559,6 +1570,7 @@ private fun SensorRoleRow(
     recommendedRole: SensorRole?,
     recommendedContentDescription: String?,
     diverges: Boolean,
+    detects: String?,
     onSelectRole: (SensorRole) -> Unit,
 ) {
     val srcName = PresentationTextCatalog.sourceName(source)
@@ -1602,6 +1614,14 @@ private fun SensorRoleRow(
                 // Full contrast even on a locked row: whether the hardware exists is a
                 // fact about the device, not about the profile that dimmed the buttons.
                 if (availability != null) SensorAvailabilityBadge(source, availability)
+            }
+            if (detects != null) {
+                Text(
+                    text = "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: $detects",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceDetectsTag(source)),
+                )
             }
             if (locked && lockReason != null) {
                 Text(

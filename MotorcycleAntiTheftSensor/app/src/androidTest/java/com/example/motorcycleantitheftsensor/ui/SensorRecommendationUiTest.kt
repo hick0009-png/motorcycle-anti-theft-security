@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -24,6 +25,7 @@ import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCKED_GROUP_TOG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_RESTORE_RECOMMENDED_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_LIST_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDetectsTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDivergesTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceRoleTag
 import org.junit.Assert.assertEquals
@@ -35,10 +37,11 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * The star is the only place on this screen where the owner can see that two protection
- * uses want different sensors. These run on device: they pin that it sits on the role the
- * selected profile asks for, that a row off the recommendation says so, and that the way
- * back writes the recommended roles rather than merely claiming to.
+ * The dialog is the only place where the owner can see that two protection uses want
+ * different sensors, and what each sensor is there for. These run on device: they pin
+ * that the star sits on the role the selected profile asks for, that a row off the
+ * recommendation says so, that the way back writes the recommended roles rather than
+ * merely claiming to, and that every editable row explains what it contributes.
  */
 class SensorRecommendationUiTest {
 
@@ -203,6 +206,66 @@ class SensorRecommendationUiTest {
             "the profile overrides must be cleared too, or the runtime keeps the old roles",
             profileRestored,
         )
+    }
+
+    @Test
+    fun everyVehicleRowSaysWhatItContributes() {
+        assertEveryRowExplainsItself(ProtectionProfile.VEHICLE)
+    }
+
+    @Test
+    fun everyEntryRowSaysWhatItContributes() {
+        assertEveryRowExplainsItself(ProtectionProfile.ENTRY)
+    }
+
+    /** One profile per test: the compose rule accepts a single setContent per test. */
+    private fun assertEveryRowExplainsItself(profile: ProtectionProfile) {
+        openRoleDialog(profile)
+
+        SensorSource.entries.forEach { source ->
+            val tag = sensorSourceDetectsTag(source)
+            scrollTo(tag)
+            composeRule.onNodeWithTag(tag).assertExists()
+            composeRule.onNodeWithText(
+                "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: " +
+                    PresentationTextCatalog.contribution(profile, source).detectsTh,
+            ).assertExists()
+        }
+    }
+
+    @Test
+    fun theSameSensorReadsDifferentlyUnderADifferentUse() {
+        // The owner-visible payoff: the light sensor is the tamper witness for the vehicle
+        // watch and the lamp witness for Power Guard, and the row says so in each.
+        val vehicleLight = PresentationTextCatalog
+            .contribution(ProtectionProfile.VEHICLE, SensorSource.AMBIENT_LIGHT).detectsTh
+        val powerLight = PresentationTextCatalog
+            .contribution(ProtectionProfile.POWER, SensorSource.AMBIENT_LIGHT).detectsTh
+
+        openRoleDialog(ProtectionProfile.VEHICLE)
+        scrollTo(sensorSourceDetectsTag(SensorSource.AMBIENT_LIGHT))
+        composeRule.onNodeWithText(
+            "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: $vehicleLight",
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: $powerLight",
+        ).assertDoesNotExist()
+    }
+
+    @Test
+    fun aLockedRowExplainsTheLockInsteadOfClaimingAContribution() {
+        // Saying what a sensor detects directly under "this mode does not use it" would
+        // contradict the line above it.
+        openRoleDialog(ProtectionProfile.POWER)
+
+        scrollTo(sensorSourceDetectsTag(SensorSource.AMBIENT_LIGHT))
+        composeRule.onNodeWithTag(sensorSourceDetectsTag(SensorSource.AMBIENT_LIGHT)).assertExists()
+
+        composeRule.onNodeWithTag(SENSOR_LOCKED_GROUP_TOGGLE_TAG).performScrollTo().performClick()
+        val lockedRow = sensorSourceRoleTag(SensorSource.ACCELEROMETER, SensorRole.OFF)
+        scrollTo(lockedRow)
+        composeRule.onNodeWithTag(sensorSourceDetectsTag(SensorSource.ACCELEROMETER))
+            .assertDoesNotExist()
     }
 
     @Test
