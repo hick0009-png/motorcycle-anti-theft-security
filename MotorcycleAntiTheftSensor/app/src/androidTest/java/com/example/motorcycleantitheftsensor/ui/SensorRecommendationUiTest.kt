@@ -25,7 +25,10 @@ import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCKED_GROUP_TOG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_RESTORE_RECOMMENDED_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_LIST_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceCostTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDetectsTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceEffectTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceEffectsToggleTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDivergesTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceRoleTag
 import org.junit.Assert.assertEquals
@@ -250,6 +253,99 @@ class SensorRecommendationUiTest {
         composeRule.onNodeWithText(
             "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: $powerLight",
         ).assertDoesNotExist()
+    }
+
+    @Test
+    fun theEffectsPanelComparesAllThreeRolesAndNamesTheCost() {
+        openRoleDialog(ProtectionProfile.VEHICLE)
+        val contribution = PresentationTextCatalog
+            .contribution(ProtectionProfile.VEHICLE, SensorSource.GYROSCOPE)
+
+        // Collapsed by default: thirty explanations open at once is not a dialog.
+        composeRule.onNodeWithTag(sensorSourceEffectTag(SensorSource.GYROSCOPE, SensorRole.PRIMARY))
+            .assertDoesNotExist()
+
+        val toggle = sensorSourceEffectsToggleTag(SensorSource.GYROSCOPE)
+        scrollTo(toggle)
+        composeRule.onNodeWithTag(toggle).performClick()
+
+        SensorRole.entries.forEach { role ->
+            val tag = sensorSourceEffectTag(SensorSource.GYROSCOPE, role)
+            scrollTo(tag)
+            composeRule.onNodeWithTag(tag).assertExists()
+        }
+        composeRule.onNodeWithText(contribution.asPrimaryTh).assertExists()
+        composeRule.onNodeWithText(contribution.asSupportingTh).assertExists()
+        composeRule.onNodeWithText(contribution.ifOffTh).assertExists()
+
+        val cost = sensorSourceCostTag(SensorSource.GYROSCOPE)
+        scrollTo(cost)
+        composeRule.onNodeWithTag(cost).assertExists()
+        composeRule.onNodeWithText(
+            "${PresentationTextCatalog.SENSOR_COST_PREFIX}: ${contribution.costTh}",
+        ).assertExists()
+    }
+
+    @Test
+    fun theEffectsPanelStatesTheRealArmingRuleForPrimaries() {
+        // The rule that "more primaries means a slower arm" is not true of this engine, so
+        // the panel states the one that is: arming needs one calibrated primary.
+        openRoleDialog(ProtectionProfile.VEHICLE)
+
+        val toggle = sensorSourceEffectsToggleTag(SensorSource.ACCELEROMETER)
+        scrollTo(toggle)
+        composeRule.onNodeWithTag(toggle).performClick()
+
+        composeRule.onNodeWithText(PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE)
+            .assertExists()
+    }
+
+    @Test
+    fun theLightSupportingLineExplainsTheEscalationItActuallyCauses() {
+        openRoleDialog(ProtectionProfile.VEHICLE)
+
+        val toggle = sensorSourceEffectsToggleTag(SensorSource.AMBIENT_LIGHT)
+        scrollTo(toggle)
+        composeRule.onNodeWithTag(toggle).performClick()
+
+        val supporting = PresentationTextCatalog
+            .contribution(ProtectionProfile.VEHICLE, SensorSource.AMBIENT_LIGHT).asSupportingTh
+        assertTrue(
+            "the supporting line must name the incident the escalation produces",
+            supporting.contains("พบการงัดแงะหรือเปิดเบาะ"),
+        )
+        composeRule.onNodeWithText(supporting).assertExists()
+    }
+
+    @Test
+    fun severalRowsCanBeOpenAtOnceAndEachKeepsItsOwnState() {
+        openRoleDialog(ProtectionProfile.VEHICLE)
+
+        listOf(SensorSource.ACCELEROMETER, SensorSource.GYROSCOPE).forEach { source ->
+            val toggle = sensorSourceEffectsToggleTag(source)
+            scrollTo(toggle)
+            composeRule.onNodeWithTag(toggle).performClick()
+        }
+
+        listOf(SensorSource.ACCELEROMETER, SensorSource.GYROSCOPE).forEach { source ->
+            val tag = sensorSourceEffectTag(source, SensorRole.OFF)
+            scrollTo(tag)
+            composeRule.onNodeWithTag(tag).assertExists()
+        }
+        // An untouched row stays closed.
+        composeRule.onNodeWithTag(sensorSourceEffectTag(SensorSource.PROXIMITY, SensorRole.OFF))
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun aLockedRowOffersNoEffectsPanelBecauseNoRoleIsAvailableToCompare() {
+        openRoleDialog(ProtectionProfile.POWER)
+
+        composeRule.onNodeWithTag(SENSOR_LOCKED_GROUP_TOGGLE_TAG).performScrollTo().performClick()
+        val lockedRow = sensorSourceRoleTag(SensorSource.ACCELEROMETER, SensorRole.OFF)
+        scrollTo(lockedRow)
+        composeRule.onNodeWithTag(sensorSourceEffectsToggleTag(SensorSource.ACCELEROMETER))
+            .assertDoesNotExist()
     }
 
     @Test

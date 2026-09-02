@@ -241,6 +241,22 @@ object PresentationTextCatalog {
     /** Prefixes the one contribution line the sensor row shows. */
     const val SENSOR_DETECTS_PREFIX = "ช่วยตรวจจับ"
 
+    /** Labels for the panel comparing what the three roles would do. */
+    const val SENSOR_ROLE_EFFECTS_TITLE = "เปลี่ยนบทบาทแล้วได้อะไร"
+    const val SENSOR_COST_PREFIX = "ต้นทุน"
+
+    /**
+     * What being a primary costs, stated once for the role rather than repeated per
+     * sensor: it is a property of the arming gate, not of any one source.
+     *
+     * `ProtectionCoordinator.hasReadyPrimary` is an `any`, so one calibrated primary is
+     * enough to arm and adding more does not make arming slower. Copy that implied
+     * otherwise would talk owners out of a setting that costs them nothing.
+     */
+    const val SENSOR_PRIMARY_ARMING_RULE =
+        "ระบบจะเริ่มป้องกันได้เมื่อมีตัวหลักที่ปรับเทียบเสร็จแล้วอย่างน้อยหนึ่งตัว " +
+            "การตั้งเป็นหลักเพิ่มไม่ได้ทำให้เริ่มป้องกันช้าลง"
+
     /**
      * Recommendation wording.
      *

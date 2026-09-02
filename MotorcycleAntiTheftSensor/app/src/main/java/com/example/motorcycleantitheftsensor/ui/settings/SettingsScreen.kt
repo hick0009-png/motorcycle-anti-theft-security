@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +73,7 @@ import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
+import com.example.motorcycleantitheftsensor.protection.SensorContribution
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorKind
@@ -463,6 +465,11 @@ fun SettingsScreen(
             var showAdvancedDialog by rememberSaveable { mutableStateOf(false) }
             var showNoPrimaryWarningDialog by rememberSaveable { mutableStateOf(false) }
             var lockedSourcesExpanded by rememberSaveable { mutableStateOf(false) }
+            // Rows live in a LazyColumn, so this cannot be per-row state: scrolling a row
+            // out of view would silently collapse it again.
+            var expandedEffects by rememberSaveable(stateSaver = ExpandedSourcesSaver) {
+                mutableStateOf(emptySet<SensorSource>())
+            }
             val configPolicy = remember { SensorConfigurationPolicy() }
             val currentConfig = state.settings.sensorConfiguration
                 ?: remember { configPolicy.forPreset(SensorPreset.BALANCED) }
@@ -804,12 +811,19 @@ fun SettingsScreen(
                                     locked = false,
                                     lockReason = null,
                                     lockedContentDescription = null,
-                                    recommendedRole = recommendedRole,
+                                    contribution = recommendation.profile?.let { profile ->
+                                        PresentationTextCatalog.contribution(profile, source)
+                                    },
                                     recommendedContentDescription =
                                         recommendedRole?.let(recommendedDescription),
                                     diverges = source in divergingSources,
-                                    detects = recommendation.profile?.let { profile ->
-                                        PresentationTextCatalog.contribution(profile, source).detectsTh
+                                    expanded = source in expandedEffects,
+                                    onToggleExpanded = {
+                                        expandedEffects = if (source in expandedEffects) {
+                                            expandedEffects - source
+                                        } else {
+                                            expandedEffects + source
+                                        }
                                     },
                                     onSelectRole = { role -> onSelectRole(source, role) },
                                 )
@@ -852,10 +866,11 @@ fun SettingsScreen(
                                                     PresentationTextCatalog.sourceName(source),
                                                     requireNotNull(editability.profile),
                                                 ),
-                                            recommendedRole = null,
+                                            contribution = null,
                                             recommendedContentDescription = null,
                                             diverges = false,
-                                            detects = null,
+                                            expanded = false,
+                                            onToggleExpanded = { },
                                             onSelectRole = { },
                                         )
                                     }
@@ -1394,6 +1409,21 @@ internal fun sensorSourceDivergesTag(source: SensorSource): String =
 internal fun sensorSourceDetectsTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.DETECTS"
 
+internal fun sensorSourceEffectsToggleTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.EFFECTS_TOGGLE"
+
+internal fun sensorSourceEffectTag(source: SensorSource, role: SensorRole): String =
+    "ui.settings.sensor.source.${source.name}.effect.${role.name}"
+
+internal fun sensorSourceCostTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.COST"
+
+/** Survives rotation by name, since enum entries themselves cannot go into a Bundle. */
+private val ExpandedSourcesSaver = listSaver<Set<SensorSource>, String>(
+    save = { expanded -> expanded.map(SensorSource::name) },
+    restore = { names -> names.map(SensorSource::valueOf).toSet() },
+)
+
 /** The three role buttons, in the order the row draws them. */
 private val ROLE_BUTTON_ORDER = listOf(SensorRole.PRIMARY, SensorRole.SUPPORTING, SensorRole.OFF)
 
@@ -1527,13 +1557,13 @@ private fun SensorGroupHeading(text: String) {
  * unhandled, so TalkBack stops announcing them as actionable, and the reason keeps full
  * contrast while the buttons dim.
  *
- * [recommendedRole] stars the button the selected profile asks for, and [diverges] says
- * the current role is not that one. Locked rows pass neither: a star over a button that
- * cannot be pressed is noise, and the lock chip already explains the row.
+ * [contribution] carries everything the selected use has to say about this source: the
+ * role it recommends (which stars a button), what the source detects, and what each role
+ * would do. A locked row passes null for all of it — it already carries the reason this
+ * profile does not detect with it, and a star over a button that cannot be pressed, or a
+ * contribution underneath a line saying there is none, would both contradict that.
  *
- * [detects] says what this source contributes to the selected use. A locked row passes
- * null: it already carries the reason this profile does not detect with it, and claiming
- * a contribution underneath that would contradict it.
+ * [diverges] says the current role is not the recommended one.
  */
 @Composable
 private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
@@ -1567,12 +1597,14 @@ private fun SensorRoleRow(
     locked: Boolean,
     lockReason: String?,
     lockedContentDescription: String?,
-    recommendedRole: SensorRole?,
+    contribution: SensorContribution?,
     recommendedContentDescription: String?,
     diverges: Boolean,
-    detects: String?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     onSelectRole: (SensorRole) -> Unit,
 ) {
+    val recommendedRole = contribution?.recommendedRole
     val srcName = PresentationTextCatalog.sourceName(source)
     val capName = PresentationTextCatalog.capabilityName(source.capability)
     Card(
@@ -1615,9 +1647,9 @@ private fun SensorRoleRow(
                 // fact about the device, not about the profile that dimmed the buttons.
                 if (availability != null) SensorAvailabilityBadge(source, availability)
             }
-            if (detects != null) {
+            if (contribution != null) {
                 Text(
-                    text = "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: $detects",
+                    text = "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: ${contribution.detectsTh}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag(sensorSourceDetectsTag(source)),
@@ -1718,7 +1750,107 @@ private fun SensorRoleRow(
                     }
                 }
             }
+
+            if (contribution != null) {
+                TextButton(
+                    onClick = onToggleExpanded,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag(sensorSourceEffectsToggleTag(source)),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = "${if (expanded) "▾" else "▸"} " +
+                            PresentationTextCatalog.SENSOR_ROLE_EFFECTS_TITLE,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = ActionBlue,
+                    )
+                }
+                if (expanded) {
+                    SensorRoleEffects(
+                        source = source,
+                        currentRole = role,
+                        contribution = contribution,
+                    )
+                }
+            }
         }
+    }
+}
+
+/**
+ * The three roles side by side, so the choice is between outcomes rather than between
+ * three words. The filled bullet marks the role in force now and the star the one this
+ * profile recommends; they are different marks because they answer different questions.
+ */
+@Composable
+private fun SensorRoleEffects(
+    source: SensorSource,
+    currentRole: SensorRole,
+    contribution: SensorContribution,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ROLE_BUTTON_ORDER.forEach { candidate ->
+            val effect = when (candidate) {
+                SensorRole.PRIMARY -> contribution.asPrimaryTh
+                SensorRole.SUPPORTING -> contribution.asSupportingTh
+                SensorRole.OFF -> contribution.ifOffTh
+            }
+            val isCurrent = candidate == currentRole
+            val isRecommended = candidate == contribution.recommendedRole
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(sensorSourceEffectTag(source, candidate)),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = if (isCurrent) "●" else "○",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = roleButtonLabel(candidate) +
+                            if (isRecommended) {
+                                " ${PresentationTextCatalog.SENSOR_RECOMMENDED_STAR} " +
+                                    PresentationTextCatalog.SENSOR_RECOMMENDED_CHIP
+                            } else {
+                                ""
+                            },
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = effect,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        // A property of the primary role itself, so it is stated once here rather than
+        // repeated inside all thirty per-sensor entries.
+        Text(
+            text = PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+        Text(
+            text = "${PresentationTextCatalog.SENSOR_COST_PREFIX}: ${contribution.costTh}",
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag(sensorSourceCostTag(source)),
+        )
     }
 }
 
