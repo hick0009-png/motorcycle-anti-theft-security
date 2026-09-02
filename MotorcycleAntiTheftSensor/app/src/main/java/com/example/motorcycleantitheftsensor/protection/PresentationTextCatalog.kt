@@ -262,6 +262,22 @@ object PresentationTextCatalog {
     /** Prefixes a note about a detection the role on this screen does not govern. */
     const val SENSOR_CAVEAT_PREFIX = "หมายเหตุ"
 
+    /** "โหมดยานพาหนะ · หลัก 2 · ประกอบ 8 · ปิด 0" — what this use is actually set up to run. */
+    fun sensorRoleTallyLine(
+        profile: ProtectionProfile,
+        primary: Int,
+        supporting: Int,
+        off: Int,
+    ): String = "โหมด${profile(profile).name} · หลัก $primary · ประกอบ $supporting · ปิด $off"
+
+    /**
+     * A configuration with no primary at all cannot arm: `hasReadyPrimary` has nothing to
+     * find. The dialog already refuses the last removal, so this states the condition
+     * rather than warning about an edit in progress.
+     */
+    const val SENSOR_NO_PRIMARY_WARNING =
+        "ไม่มีเซ็นเซอร์หลักเลย ระบบจะเริ่มป้องกันไม่ได้จนกว่าจะตั้งอย่างน้อยหนึ่งตัวเป็นหลัก"
+
     /**
      * The note a whole capability group carries, or null when it carries none.
      *

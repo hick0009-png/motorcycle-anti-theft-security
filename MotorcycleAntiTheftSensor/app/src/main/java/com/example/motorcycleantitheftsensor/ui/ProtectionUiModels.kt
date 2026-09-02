@@ -107,6 +107,37 @@ fun Map<SensorSource, SensorAvailabilityUiModel>.inventorySummary(): SensorInven
         missing = values.count { it.availability == SensorAvailability.MISSING },
     )
 
+/** Counts for the "หลัก N · ประกอบ N · ปิด N" summary line. */
+data class SensorRoleTally(
+    val primary: Int = 0,
+    val supporting: Int = 0,
+    val off: Int = 0,
+) {
+    /**
+     * Arming needs one healthy primary, so a tally with none cannot protect anything.
+     * `ProtectionCoordinator` falls back to the accelerometer when a configuration names
+     * no primary at all, but that fallback is not something a settings screen should
+     * teach an owner to rely on.
+     */
+    val armable: Boolean get() = primary > 0
+}
+
+/**
+ * Counts the roles a configuration carries.
+ *
+ * Callers pass the configuration the profile will actually apply — with the sources it
+ * pins OFF already pinned — so the summary cannot claim eight corroborating sensors for
+ * a use that runs one.
+ */
+fun SensorFusionConfiguration.roleTally(): SensorRoleTally {
+    val roles = SensorSource.entries.map { source(it).role }
+    return SensorRoleTally(
+        primary = roles.count { it == SensorRole.PRIMARY },
+        supporting = roles.count { it == SensorRole.SUPPORTING },
+        off = roles.count { it == SensorRole.OFF },
+    )
+}
+
 data class SensorSourceUiModel(
     val source: com.example.motorcycleantitheftsensor.protection.SensorSource,
     val nameTh: String,

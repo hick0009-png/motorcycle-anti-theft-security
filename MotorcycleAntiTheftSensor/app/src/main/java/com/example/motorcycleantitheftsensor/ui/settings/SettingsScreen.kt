@@ -87,6 +87,7 @@ import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import com.example.motorcycleantitheftsensor.ui.SensorAvailabilityUiModel
 import com.example.motorcycleantitheftsensor.ui.SensorEditabilityUiModel
 import com.example.motorcycleantitheftsensor.ui.inventorySummary
+import com.example.motorcycleantitheftsensor.ui.roleTally
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
@@ -483,10 +484,16 @@ fun SettingsScreen(
             val missingSources = availability
                 .filterValues { it.availability == SensorAvailability.MISSING }
                 .keys
-            val saveConfiguration: (SensorFusionConfiguration) -> Unit = { requested ->
-                val withoutLocked = editability.lockedSources.fold(requested) { config, source ->
-                    configPolicy.withSourceRole(config, source, SensorRole.OFF)
+            // What the profile will actually run, given what this screen is holding. Both
+            // the summary and every save go through it, so the counts on the card cannot
+            // disagree with what gets written.
+            val pinLockedOff: (SensorFusionConfiguration) -> SensorFusionConfiguration = { config ->
+                editability.lockedSources.fold(config) { pinned, source ->
+                    configPolicy.withSourceRole(pinned, source, SensorRole.OFF)
                 }
+            }
+            val saveConfiguration: (SensorFusionConfiguration) -> Unit = { requested ->
+                val withoutLocked = pinLockedOff(requested)
                 // A primary the phone does not have makes the controller reject the whole
                 // configuration, stopping every other sensor with it. Demoting to supporting
                 // keeps the owner's intent — that source still counts when it exists — while
@@ -525,6 +532,37 @@ fun SettingsScreen(
                         modifier = Modifier
                             .padding(top = 6.dp)
                             .testTag(SENSOR_INVENTORY_SUMMARY_TAG),
+                    )
+                }
+
+                // Level 3: what this use is set up to run, as opposed to what the phone has.
+                val tallyProfile = recommendation.profile
+                if (tallyProfile != null) {
+                    val tally = pinLockedOff(currentConfig).roleTally()
+                    Text(
+                        text = PresentationTextCatalog.sensorRoleTallyLine(
+                            profile = tallyProfile,
+                            primary = tally.primary,
+                            supporting = tally.supporting,
+                            off = tally.off,
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_ROLE_TALLY_TAG),
+                    )
+                    Text(
+                        text = if (tally.armable) {
+                            PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE
+                        } else {
+                            "⚠️ ${PresentationTextCatalog.SENSOR_NO_PRIMARY_WARNING}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.then(
+                            if (tally.armable) Modifier else Modifier.testTag(SENSOR_NO_PRIMARY_TAG),
+                        ),
                     )
                 }
 
@@ -1452,11 +1490,17 @@ internal fun sensorSourceCostTag(source: SensorSource): String =
 internal fun sensorSourceUnavailableTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
 
+internal const val SENSOR_ROLE_TALLY_TAG = "ui.settings.sensor.ROLE_TALLY"
+internal const val SENSOR_NO_PRIMARY_TAG = "ui.settings.sensor.NO_PRIMARY"
+
 internal fun sensorCapabilityCaveatTag(capability: SensorCapability): String =
     "ui.settings.sensor.capability.${capability.name}.CAVEAT"
 
 internal fun sensorSourceCaveatTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.CAVEAT"
+
+internal fun sensorSourceArmingRuleTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.ARMING_RULE"
 
 /** Survives rotation by name, since enum entries themselves cannot go into a Bundle. */
 private val ExpandedSourcesSaver = listSaver<Set<SensorSource>, String>(
@@ -1906,11 +1950,13 @@ private fun SensorRoleEffects(
             )
         }
         // A property of the primary role itself, so it is stated once here rather than
-        // repeated inside all thirty per-sensor entries.
+        // repeated inside all thirty per-sensor entries. The card summary says the same
+        // thing, but the card is behind this dialog and cannot be read from here.
         Text(
             text = PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.testTag(sensorSourceArmingRuleTag(contribution.source)),
         )
         Text(
             text = "${PresentationTextCatalog.SENSOR_COST_PREFIX}: ${contribution.costTh}",

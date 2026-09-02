@@ -26,9 +26,12 @@ import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCKED_GROUP_TOGGLE_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_RESTORE_RECOMMENDED_TAG
+import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_NO_PRIMARY_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_LIST_TAG
+import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_TALLY_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
 import com.example.motorcycleantitheftsensor.ui.settings.sensorCapabilityCaveatTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceArmingRuleTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceCaveatTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceCostTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDetectsTag
@@ -308,8 +311,10 @@ class SensorRecommendationUiTest {
         scrollTo(toggle)
         composeRule.onNodeWithTag(toggle).performClick()
 
-        composeRule.onNodeWithText(PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE)
-            .assertExists()
+        // By tag, not by text: the card summary behind this dialog states the same rule.
+        val rule = sensorSourceArmingRuleTag(SensorSource.ACCELEROMETER)
+        scrollTo(rule)
+        composeRule.onNodeWithTag(rule).assertExists()
     }
 
     @Test
@@ -430,6 +435,48 @@ class SensorRecommendationUiTest {
             SensorRole.SUPPORTING,
             saved.source(SensorSource.GYROSCOPE).role,
         )
+    }
+
+    @Test
+    fun theCardSaysHowManySensorsThisUseLeadsWithAndHowManyCorroborate() {
+        openRoleDialog(ProtectionProfile.VEHICLE, openDialog = false)
+
+        composeRule.onNodeWithTag(SENSOR_ROLE_TALLY_TAG).performScrollTo().assertExists()
+        composeRule.onNodeWithText(
+            PresentationTextCatalog.sensorRoleTallyLine(ProtectionProfile.VEHICLE, 2, 8, 0),
+        ).assertExists()
+        composeRule.onNodeWithTag(SENSOR_NO_PRIMARY_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun theCountCountsWhatTheUseWillRunRatherThanWhatTheScreenIsHolding() {
+        // Power Guard runs one lamp. The shared configuration this screen still reads says
+        // otherwise, and crediting it with eight corroborating sensors would contradict the
+        // lock banner directly above.
+        openRoleDialog(ProtectionProfile.POWER, openDialog = false)
+
+        composeRule.onNodeWithTag(SENSOR_ROLE_TALLY_TAG).performScrollTo().assertExists()
+        composeRule.onNodeWithText(
+            PresentationTextCatalog.sensorRoleTallyLine(ProtectionProfile.POWER, 1, 0, 9),
+        ).assertExists()
+    }
+
+    @Test
+    fun aConfigurationWithNoLeadSensorSaysItCannotProtect() {
+        openRoleDialog(
+            ProtectionProfile.VEHICLE,
+            configuration = SensorSource.entries.fold(
+                configPolicy.forPreset(SensorPreset.BALANCED),
+            ) { config, source ->
+                configPolicy.withSourceRole(config, source, SensorRole.OFF)
+            },
+            openDialog = false,
+        )
+
+        composeRule.onNodeWithTag(SENSOR_NO_PRIMARY_TAG).performScrollTo().assertExists()
+        composeRule.onNodeWithText(
+            "⚠️ ${PresentationTextCatalog.SENSOR_NO_PRIMARY_WARNING}",
+        ).assertExists()
     }
 
     @Test
