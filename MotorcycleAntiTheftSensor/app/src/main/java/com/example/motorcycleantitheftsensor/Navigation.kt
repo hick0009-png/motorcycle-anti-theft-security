@@ -94,6 +94,8 @@ fun MainNavigation(
             pairingCodePolicy = pairingCodePolicy,
             refreshControlService = refreshControlService,
             sensorConfigRepository = graph.sensorRepository,
+            // Without this the sensor screen edits a configuration no Arm reads.
+            profileRepository = graph.profileRepository,
         )
     }
     val managedPermissions = remember {

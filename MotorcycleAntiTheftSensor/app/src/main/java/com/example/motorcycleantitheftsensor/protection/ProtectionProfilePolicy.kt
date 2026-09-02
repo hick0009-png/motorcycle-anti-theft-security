@@ -65,6 +65,65 @@ class ProtectionProfilePolicy(
         )
     }
 
+    /**
+     * What the owner changed, expressed as the difference from this use's recommendation.
+     *
+     * The settings screen edits a whole configuration, because that is what a screen of
+     * sliders and roles is. The store keeps differences, because a use that is later
+     * re-recommended — a better default, a device that turned out to lack a sensor — must
+     * carry the owner's decisions forward and nothing else. This converts one into the other.
+     *
+     * Sources this use locks off are never written: [resolve] forces them off anyway, and
+     * recording an override that agrees with a lock would turn a temporary rule into a
+     * decision the owner never made.
+     */
+    fun overridesFrom(
+        profile: ProtectionProfile,
+        edited: SensorFusionConfiguration,
+    ): SensorFusionProfileOverrides {
+        val recommended = recommended(profile).sensorConfiguration
+        val locked = lockedOffSources(profile)
+
+        val capabilities = mutableMapOf<SensorCapability, SensorCapabilityProfileOverrides>()
+        val sources = mutableMapOf<SensorSource, SensorSourceProfileOverrides>()
+
+        SensorCapability.entries.forEach { capability ->
+            val base = recommended.capability(capability)
+            val now = edited.capability(capability)
+            val capabilityOverride = SensorCapabilityProfileOverrides(
+                sensitivity = now.sensitivity.takeIf { it != base.sensitivity },
+                correlationWindowMs = now.correlationWindowMs.takeIf { it != base.correlationWindowMs },
+                confirmationDurationMs = now.confirmationDurationMs
+                    .takeIf { it != base.confirmationDurationMs },
+            )
+            if (capabilityOverride != SensorCapabilityProfileOverrides()) {
+                capabilities[capability] = capabilityOverride
+            }
+        }
+
+        SensorSource.entries.forEach { source ->
+            if (source in locked) return@forEach
+            val base = recommended.source(source)
+            val now = edited.source(source)
+            val sourceOverride = SensorSourceProfileOverrides(
+                role = now.role.takeIf { it != base.role },
+                thresholdOverride = now.thresholdOverride.takeIf { it != base.thresholdOverride },
+                debounceOverrideMs = now.debounceOverrideMs.takeIf { it != base.debounceOverrideMs },
+                samplingProfileOverride = now.samplingProfileOverride
+                    .takeIf { it != base.samplingProfileOverride },
+            )
+            if (sourceOverride != SensorSourceProfileOverrides()) {
+                sources[source] = sourceOverride
+            }
+        }
+
+        return SensorFusionProfileOverrides(
+            samplingProfile = edited.samplingProfile.takeIf { it != recommended.samplingProfile },
+            capabilities = capabilities,
+            sources = sources,
+        )
+    }
+
     fun restoreRecommended(
         state: ProtectionProfileStoreState,
         profile: ProtectionProfile,

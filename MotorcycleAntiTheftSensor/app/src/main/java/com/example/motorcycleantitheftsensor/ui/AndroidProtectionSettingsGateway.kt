@@ -1,6 +1,8 @@
 package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import com.example.motorcycleantitheftsensor.protection.ProfileSensorSettingsStore
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfileRepository
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationRepository
@@ -26,12 +28,14 @@ class AndroidProtectionSettingsGateway internal constructor(
         refreshControlService: () -> Unit,
         verificationTimeoutMs: Long = 12_000L,
         sensorConfigRepository: SensorConfigurationRepository? = null,
+        profileRepository: ProtectionProfileRepository? = null,
     ) : this(
         operations = EncryptedAndroidProtectionSettingsOperations(
             preferences = preferences,
             telegram = telegram,
             refreshService = refreshControlService,
             sensorConfigRepository = sensorConfigRepository,
+            profileRepository = profileRepository,
         ),
         pairingCodePolicy = pairingCodePolicy,
         verificationTimeoutMs = verificationTimeoutMs,
@@ -152,8 +156,18 @@ private class EncryptedAndroidProtectionSettingsOperations(
     private val telegram: TelegramBotClient,
     private val refreshService: () -> Unit,
     private val sensorConfigRepository: SensorConfigurationRepository? = null,
+    /**
+     * Where a use's own detection settings live, and the only store an armed session reads.
+     *
+     * Without it this screen edits the central configuration that nothing arms from: the
+     * owner moves a slider, the screen saves, and the next Arm resolves the use's own
+     * configuration and overwrites every one of those decisions. The screen was honest about
+     * roles and locks and dishonest about whether any of it took effect.
+     */
+    private val profileRepository: ProtectionProfileRepository? = null,
 ) : AndroidProtectionSettingsOperations {
     private var inMemoryConfig: SensorFusionConfiguration? = null
+    private val profileSettings = profileRepository?.let { ProfileSensorSettingsStore(it) }
 
     override fun getAllowedChatIds(): Set<String> = preferences.getAllowedChatIds()
     override fun saveAllowedChatIds(chatIds: Set<String>) = preferences.saveAllowedChatIds(chatIds)
@@ -173,6 +187,9 @@ private class EncryptedAndroidProtectionSettingsOperations(
     override fun refreshControlService() = refreshService()
 
     override fun getSensorConfiguration(): SensorFusionConfiguration {
+        // What the selected use would actually arm with: its recommendation with this owner's
+        // decisions applied, and its locked sources already forced off.
+        selectedProfileConfiguration()?.let { return it }
         val repo = sensorConfigRepository
         if (repo != null) {
             return repo.loadConfiguration()
@@ -191,6 +208,7 @@ private class EncryptedAndroidProtectionSettingsOperations(
     }
 
     override fun saveSensorConfiguration(config: SensorFusionConfiguration): Boolean {
+        val savedToProfile = saveToSelectedProfile(config)
         val repo = sensorConfigRepository
         if (repo != null) {
             val saveResult = repo.saveConfiguration(config)
@@ -199,10 +217,17 @@ private class EncryptedAndroidProtectionSettingsOperations(
                 preferences.setSensitivity(config.capability(SensorCapability.MOVEMENT).sensitivity)
                 return true
             }
-            return false
+            // The central copy is kept in step for the parts of the app still reading it, but
+            // the use's own store is what an Arm reads: a write that landed there succeeded.
+            return savedToProfile
         }
         inMemoryConfig = config
         preferences.setSensitivity(config.capability(SensorCapability.MOVEMENT).sensitivity)
         return true
     }
+
+    private fun selectedProfileConfiguration(): SensorFusionConfiguration? = profileSettings?.read()
+
+    private fun saveToSelectedProfile(config: SensorFusionConfiguration): Boolean =
+        profileSettings?.write(config) ?: false
 }
