@@ -63,6 +63,12 @@ interface ProtectionRuntime {
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
         usedSensorKinds: Set<SensorKind> = SensorKind.entries.toSet(),
+        /**
+         * Which signals this use lets open an incident, for the ones the configuration
+         * cannot name. An empty table means the caller did not declare any, and the runtime
+         * then keeps the pre-declaration behaviour rather than silently muting a signal.
+         */
+        signalRoles: Map<SensorKind, SensorRole> = emptyMap(),
     ): DetectorStartResult = startDetectors(armedSessionId)
 
     fun stopDetectors()

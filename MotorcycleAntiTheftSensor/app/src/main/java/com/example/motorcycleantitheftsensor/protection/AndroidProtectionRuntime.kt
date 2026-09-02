@@ -134,6 +134,17 @@ interface AndroidDetectorSet {
     fun start(armedSessionId: String, usedSensorKinds: Set<SensorKind>): DetectorStartResult =
         start(armedSessionId)
 
+    /**
+     * [signalRoles] names which of those kinds may open an incident on their own. The
+     * microphone, the location fix and the charging line carry no role of their own, and
+     * an unstamped signal is not allowed to host, so this is where they are told.
+     */
+    fun start(
+        armedSessionId: String,
+        usedSensorKinds: Set<SensorKind>,
+        signalRoles: Map<SensorKind, SensorRole>,
+    ): DetectorStartResult = start(armedSessionId, usedSensorKinds)
+
     fun stop()
 
     fun applySensitivity(level: Int)
@@ -258,10 +269,11 @@ class AndroidProtectionRuntime(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
         usedSensorKinds: Set<SensorKind>,
+        signalRoles: Map<SensorKind, SensorRole>,
     ): DetectorStartResult {
         observationProcessor.resetSession()
         detectors.applySensorConfiguration(configuration)
-        return detectors.start(armedSessionId, usedSensorKinds)
+        return detectors.start(armedSessionId, usedSensorKinds, signalRoles)
     }
 
     override fun stopDetectors() {
@@ -505,6 +517,9 @@ class PlatformAndroidDetectorSet(
     @Volatile
     private var sensitivityLevel: Int = 5
 
+    @Volatile
+    private var signalRoles: Map<SensorKind, SensorRole> = emptyMap()
+
     private val vibration = VibrationDetector(applicationContext, ::record)
     private val light = LightIntrusionDetector(applicationContext, ::record)
     private val powerThermal = PowerThermalMonitor(
@@ -721,6 +736,15 @@ class PlatformAndroidDetectorSet(
 
     override fun start(armedSessionId: String): DetectorStartResult =
         start(armedSessionId, SensorKind.entries.toSet())
+
+    override fun start(
+        armedSessionId: String,
+        usedSensorKinds: Set<SensorKind>,
+        signalRoles: Map<SensorKind, SensorRole>,
+    ): DetectorStartResult {
+        this.signalRoles = signalRoles
+        return start(armedSessionId, usedSensorKinds)
+    }
 
     override fun start(
         armedSessionId: String,
@@ -1275,9 +1299,25 @@ class PlatformAndroidDetectorSet(
         )
     }
 
+    /**
+     * Stamps the role of a signal the configuration cannot name, then records it.
+     *
+     * The engine refuses to open an incident on an observation with no role, so the
+     * microphone, the location fix and the charging line have to arrive carrying the role
+     * the armed use gave them. An observation that already carries one — every hardware
+     * sample, and the door watch's own orientation verdict — is left exactly as it is.
+     *
+     * With no table applied, an unstamped signal keeps the role it effectively had before
+     * this existed. A start path that forgot to declare its hosts must not silence them.
+     */
     private fun record(observation: SensorObservation) {
-        updateHealth(observation)
-        onObservation(observation)
+        val stamped = if (observation.role == null) {
+            observation.copy(role = signalRoles[observation.kind] ?: SensorRole.PRIMARY)
+        } else {
+            observation
+        }
+        updateHealth(stamped)
+        onObservation(stamped)
     }
 
     private fun publishHealth(kind: SensorKind, newHealth: SensorHealth) {

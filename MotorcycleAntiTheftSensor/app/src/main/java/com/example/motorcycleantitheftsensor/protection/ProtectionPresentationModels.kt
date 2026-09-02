@@ -55,6 +55,20 @@ data class SensorContribution(
     val unusedByProfile: Boolean get() = recommendedRole == SensorRole.OFF
 }
 
+/**
+ * A signal named the way an owner would name it, for stating which ones may raise an
+ * alert on their own. Not a [SensorKind]: the door watch's host is a computed hinge
+ * angle, which no kind describes.
+ */
+enum class ProtectionHost {
+    MOVEMENT,
+    ORIENTATION,
+    LIGHT,
+    SOUND,
+    LOCATION,
+    CHARGING,
+}
+
 data class FormattedMeasurement(
     val value: String,
     val interpretation: String,

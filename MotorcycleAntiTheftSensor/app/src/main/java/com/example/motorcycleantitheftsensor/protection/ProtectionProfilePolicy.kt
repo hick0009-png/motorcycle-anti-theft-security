@@ -349,15 +349,81 @@ class ProtectionProfilePolicy(
          * signal; recording audio and taking location fixes for it costs battery and
          * privacy, and their absence must not read as a degraded system either.
          */
-        fun usedSensorKinds(profile: ProtectionProfile): Set<SensorKind> = when (profile) {
-            ProtectionProfile.POWER -> setOf(SensorKind.LIGHT, SensorKind.POWER_THERMAL)
-            ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> setOf(
-                SensorKind.VIBRATION,
-                SensorKind.LIGHT,
-                SensorKind.MICROPHONE,
-                SensorKind.LOCATION,
-                SensorKind.POWER_THERMAL,
+        fun usedSensorKinds(profile: ProtectionProfile): Set<SensorKind> =
+            signalRoles(profile).filterValues { it != SensorRole.OFF }.keys
+
+        /**
+         * Which signals a use lets open an incident on its own, for the signals the fusion
+         * configuration cannot describe.
+         *
+         * The ten hardware sources carry the role the owner set, but the microphone, the
+         * location fix and the charging line are not `SensorSource`s and reached the engine
+         * with no role at all. `isPrimaryRole` read a missing role as primary, so all three
+         * hosted every use by accident — the door watch had four hosts nobody chose, all
+         * competing for the one active-incident slot.
+         *
+         * A use names its hosts once, here, and everything else corroborates:
+         *
+         * - The vehicle watch keeps the charging line and the location fix as hosts. A cut
+         *   cable or a bike that has moved is theft on its own evidence, and demoting either
+         *   would silence an alert that works today.
+         * - The door watch hosts on orientation alone. Sound and vibration matter greatly as
+         *   corroboration — a loud road is not a door opening — so they may join an incident
+         *   but never start one.
+         * - Power Guard hosts on the witness lamp and the charging line together, and runs
+         *   nothing else at all.
+         */
+        fun signalRoles(profile: ProtectionProfile): Map<SensorKind, SensorRole> = when (profile) {
+            ProtectionProfile.VEHICLE -> mapOf(
+                SensorKind.VIBRATION to SensorRole.PRIMARY,
+                SensorKind.LIGHT to SensorRole.PRIMARY,
+                SensorKind.MICROPHONE to SensorRole.SUPPORTING,
+                SensorKind.LOCATION to SensorRole.PRIMARY,
+                SensorKind.POWER_THERMAL to SensorRole.PRIMARY,
             )
+            ProtectionProfile.ENTRY -> mapOf(
+                // The orientation verdict carries PRIMARY of its own; a raw vibration sample
+                // arriving here is corroboration, which is what the recommendation already
+                // sets for the door watch's movement sources.
+                SensorKind.VIBRATION to SensorRole.SUPPORTING,
+                SensorKind.LIGHT to SensorRole.SUPPORTING,
+                SensorKind.MICROPHONE to SensorRole.SUPPORTING,
+                SensorKind.LOCATION to SensorRole.SUPPORTING,
+                SensorKind.POWER_THERMAL to SensorRole.SUPPORTING,
+            )
+            ProtectionProfile.POWER -> mapOf(
+                SensorKind.LIGHT to SensorRole.PRIMARY,
+                SensorKind.POWER_THERMAL to SensorRole.PRIMARY,
+                SensorKind.VIBRATION to SensorRole.OFF,
+                SensorKind.MICROPHONE to SensorRole.OFF,
+                SensorKind.LOCATION to SensorRole.OFF,
+            )
+        }
+
+        /** The hosts of a use, in the order the screen should name them. */
+        fun hostKinds(profile: ProtectionProfile): List<SensorKind> =
+            SensorKind.entries.filter { signalRoles(profile)[it] == SensorRole.PRIMARY }
+
+        /**
+         * What opens an incident under a use, as the owner would name it.
+         *
+         * Mostly this is [hostKinds], but the door watch is the exception the table cannot
+         * express: its host is the orientation verdict, which arrives as a vibration-kind
+         * observation carrying its own primary role, so the table has to leave raw
+         * vibration corroborating while the verdict still hosts. `ProtectionProfilePolicyTest`
+         * pins the two against each other so they cannot drift.
+         */
+        fun hosts(profile: ProtectionProfile): List<ProtectionHost> = when (profile) {
+            ProtectionProfile.ENTRY -> listOf(ProtectionHost.ORIENTATION)
+            else -> hostKinds(profile).mapNotNull { kind ->
+                when (kind) {
+                    SensorKind.VIBRATION -> ProtectionHost.MOVEMENT
+                    SensorKind.LIGHT -> ProtectionHost.LIGHT
+                    SensorKind.LOCATION -> ProtectionHost.LOCATION
+                    SensorKind.POWER_THERMAL -> ProtectionHost.CHARGING
+                    SensorKind.MICROPHONE -> ProtectionHost.SOUND
+                }
+            }
         }
     }
 

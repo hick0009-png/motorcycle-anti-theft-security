@@ -73,6 +73,7 @@ import com.example.motorcycleantitheftsensor.autostart.BackgroundKeepAliveManage
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.service.SensorService
 import com.example.motorcycleantitheftsensor.protection.SensorContribution
@@ -539,6 +540,25 @@ fun SettingsScreen(
 
                 // Level 3: what this use is set up to run, as opposed to what the phone has.
                 val tallyProfile = recommendation.profile
+                if (tallyProfile != null) {
+                    // Stated before the counts, because it is the question the counts are
+                    // an answer to: which signals may raise an alert by themselves.
+                    Text(
+                        text = PresentationTextCatalog.hostSummaryLine(
+                            ProtectionProfilePolicy.hosts(tallyProfile),
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_HOST_SUMMARY_TAG),
+                    )
+                    Text(
+                        text = PresentationTextCatalog.HOST_SUMMARY_EXPLANATION,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (tallyProfile != null) {
                     val tally = pinLockedOff(currentConfig).roleTally()
                     Text(
@@ -1496,6 +1516,7 @@ internal fun sensorSourceCostTag(source: SensorSource): String =
 internal fun sensorSourceUnavailableTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
 
+internal const val SENSOR_HOST_SUMMARY_TAG = "ui.settings.sensor.HOST_SUMMARY"
 internal const val DRIFT_LOG_TOGGLE_TAG = "ui.settings.drift.TOGGLE"
 internal const val DRIFT_LOG_STATUS_TAG = "ui.settings.drift.STATUS"
 

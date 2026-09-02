@@ -200,6 +200,7 @@ class AndroidProtectionRuntimeTest {
         processor.seedBaseline(SensorKind.VIBRATION, SensorBaseline(9.8, 3))
         detectors.locationObservation = SensorObservation(
             kind = SensorKind.LOCATION,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 950L,
             wallClockMs = 5_050L,
             normalizedValue = 1.0,
@@ -606,6 +607,7 @@ private class RecordingDetectorSet(
 
 private fun microphoneObservation(): SensorObservation = SensorObservation(
     kind = SensorKind.MICROPHONE,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = 900L,
     wallClockMs = 5_000L,
     normalizedValue = 0.4,
@@ -616,6 +618,7 @@ private fun microphoneObservation(): SensorObservation = SensorObservation(
 
 private fun powerObservation(value: Double, diagnostic: String): SensorObservation = SensorObservation(
     kind = SensorKind.POWER_THERMAL,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = 900L,
     wallClockMs = 5_000L,
     normalizedValue = value,
@@ -630,6 +633,7 @@ private fun vibrationObservation(
     eventElapsedMs: Long = 900L,
 ): SensorObservation = SensorObservation(
     kind = SensorKind.VIBRATION,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = eventElapsedMs,
     wallClockMs = 5_000L,
     normalizedValue = value,

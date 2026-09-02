@@ -374,6 +374,13 @@ object ProtectionRuntimeGraph {
                             if (!coordinator.acceptsIncident(sessionEpoch) || armedSessionId.isNullOrBlank()) return@withLock null
                             val obs = SensorObservation(
                                 kind = SensorKind.LOCATION,
+                                // This fix reaches the engine without passing the detector
+                                // set, so it is stamped from the same table the armed use
+                                // gave the runtime. Falling back to primary keeps the
+                                // pre-declaration behaviour of a movement alert that opens
+                                // on its own rather than muting it.
+                                role = coordinator.currentSignalRole(SensorKind.LOCATION)
+                                    ?: SensorRole.PRIMARY,
                                 eventElapsedMs = fix.elapsedRealtimeMs,
                                 wallClockMs = fix.wallClockMs,
                                 normalizedValue = 1.0,

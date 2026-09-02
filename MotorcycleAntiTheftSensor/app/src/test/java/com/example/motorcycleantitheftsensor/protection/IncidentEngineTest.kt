@@ -27,8 +27,12 @@ class IncidentEngineTest {
         normalizedValue: Double = 1.0,
         diagnostic: String? = null,
         audioThreat: AudioThreatMetadata? = null,
+        // These proofs were written when a missing role counted as a host. Saying so
+        // explicitly keeps every one of them meaning what it meant.
+        role: SensorRole? = SensorRole.PRIMARY,
     ): SensorObservation = SensorObservation(
         kind = kind,
+        role = role,
         eventElapsedMs = elapsedMs,
         wallClockMs = 1_700_000_000_000L + elapsedMs,
         normalizedValue = normalizedValue,

@@ -262,6 +262,25 @@ object PresentationTextCatalog {
     /** Prefixes a note about a detection the role on this screen does not govern. */
     const val SENSOR_CAVEAT_PREFIX = "หมายเหตุ"
 
+    fun hostName(host: ProtectionHost): String = when (host) {
+        ProtectionHost.MOVEMENT -> "การสั่นและการเคลื่อนไหว"
+        ProtectionHost.ORIENTATION -> "เซ็นเซอร์ทิศทาง (มุมประตู)"
+        ProtectionHost.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+        ProtectionHost.SOUND -> "เสียง"
+        ProtectionHost.LOCATION -> "ตำแหน่ง"
+        ProtectionHost.CHARGING -> "สัญญาณสายชาร์จ"
+    }
+
+    /**
+     * "เจ้าภาพของโหมดนี้: ..." — the signals allowed to raise an alert on their own.
+     * Everything else can only join one they raised.
+     */
+    fun hostSummaryLine(hosts: List<ProtectionHost>): String =
+        "เจ้าภาพของโหมดนี้ (เปิดเหตุการณ์ได้เอง): " + hosts.joinToString(" · ", transform = ::hostName)
+
+    const val HOST_SUMMARY_EXPLANATION =
+        "สัญญาณอื่นเปิดเหตุการณ์เองไม่ได้ ทำได้แค่เข้าไปเติมหลักฐานให้เหตุการณ์ที่เจ้าภาพเปิดไว้"
+
     /**
      * The overnight drift measurement. Deliberately worded as a measurement rather than a
      * protection feature: it detects nothing and alerts nobody.

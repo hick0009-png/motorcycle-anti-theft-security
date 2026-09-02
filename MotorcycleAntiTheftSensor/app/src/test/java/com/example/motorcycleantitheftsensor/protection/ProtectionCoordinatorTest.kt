@@ -1201,6 +1201,17 @@ class ProtectionCoordinatorTest {
             ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.VEHICLE),
             runtime.startedSensorKinds,
         )
+        // Without this table the runtime cannot stamp the signals the configuration
+        // cannot name, and an unstamped signal is refused the right to open an incident:
+        // the vehicle watch's movement alert would go quiet with nothing to see.
+        assertEquals(
+            ProtectionProfilePolicy.signalRoles(ProtectionProfile.VEHICLE),
+            runtime.startedSignalRoles,
+        )
+        assertEquals(
+            SensorRole.PRIMARY,
+            coordinator.currentSignalRole(SensorKind.LOCATION),
+        )
 
         // Editing the stored profile after Arm must not change the frozen snapshot.
         profileRepository.save(
@@ -2090,6 +2101,7 @@ private class FakeRuntime(
         private set
     var startedConfiguration: SensorFusionConfiguration? = null
     var startedSensorKinds: Set<SensorKind>? = null
+    var startedSignalRoles: Map<SensorKind, SensorRole> = emptyMap()
         private set
     val appliedConfigurations = mutableListOf<SensorFusionConfiguration>()
 
@@ -2104,10 +2116,12 @@ private class FakeRuntime(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
         usedSensorKinds: Set<SensorKind>,
+        signalRoles: Map<SensorKind, SensorRole>,
     ): DetectorStartResult {
         startedSessionId = armedSessionId
         startedConfiguration = configuration
         startedSensorKinds = usedSensorKinds
+        startedSignalRoles = signalRoles
         return startDetectors(armedSessionId)
     }
 

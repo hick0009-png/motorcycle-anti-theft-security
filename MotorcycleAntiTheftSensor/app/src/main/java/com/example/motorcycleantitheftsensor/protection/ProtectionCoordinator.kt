@@ -53,6 +53,7 @@ class ProtectionCoordinator(
     private val incidentEpoch = AtomicLong(0L)
     private val recoveryGeneration = AtomicLong(0L)
     private val currentArmedSessionId = AtomicReference<String?>(null)
+    private val armedSignalRoles = AtomicReference<Map<SensorKind, SensorRole>>(emptyMap())
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
@@ -334,10 +335,12 @@ class ProtectionCoordinator(
                 frozenSnapshotRef.set(armedSnapshot)
                 currentArmedSessionId.set(sessionId)
                 frozenConfiguration = armedSnapshot.effectiveConfiguration
+                armedSignalRoles.set(ProtectionProfilePolicy.signalRoles(selectedProfile))
                 val startResult = runtime.startDetectors(
                     sessionId,
                     armedSnapshot.effectiveConfiguration,
                     ProtectionProfilePolicy.usedSensorKinds(selectedProfile),
+                    ProtectionProfilePolicy.signalRoles(selectedProfile),
                 )
                 if (!startResult.started) {
                     currentArmedSessionId.set(null)
@@ -1307,6 +1310,15 @@ class ProtectionCoordinator(
         ProtectionState.ARMED_DEGRADED
     }
 
+
+    /**
+     * The role the armed use gave a signal the configuration cannot name.
+     *
+     * Signals that reach the engine outside the detector set — the confirmed-movement fix
+     * is the only one — have to be stamped from the same table, or the use would have one
+     * host on paper and another in practice.
+     */
+    fun currentSignalRole(kind: SensorKind): SensorRole? = armedSignalRoles.get()[kind]
 
     private fun hasReadyPrimary(primarySources: Set<SensorSource>): Boolean =
         primarySources.any { source -> runtime.sourceHealth(source) == SensorHealthState.HEALTHY }

@@ -251,7 +251,10 @@ class IncidentEngine(
             val matchedAudio = audioPrecursors.lastOrNull {
                 abs(observation.eventElapsedMs - it.eventElapsedMs) <= correlationWindowMs
             }
-            if (matchedAudio != null) {
+            // The one opening path that never asked whether either signal was allowed to
+            // host. Sound near a door and a phone that drifted a few metres would open a
+            // critical alert for a use that hosts on neither.
+            if (matchedAudio != null && hasPrimaryRole(observation, matchedAudio)) {
                 audioPrecursors.remove(matchedAudio)
                 val classification = Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
                 val openingEvidence = listOf(matchedAudio, evidence)
@@ -365,17 +368,21 @@ class IncidentEngine(
         supersede: Boolean = false,
     ): IncidentUpdate.Opened {
         // Taking the single active slot must settle whatever held it, never orphan a
-        // permanently-open incident in history.
-        val superseded = if (supersede) {
-            activeIncident?.incident?.copy(
-                lifecycle = IncidentLifecycle.CLOSED,
-                updatedAtMs = observation.wallClockMs,
-                closedAtMs = observation.wallClockMs,
-                closeReason = "superseded by a confirmed power episode",
-            )
-        } else {
-            null
-        }
+        // permanently-open incident in history. This holds whether or not the caller asked
+        // to supersede: the slot has one occupant, so an unannounced replacement left the
+        // previous incident OPEN forever, invisible to the close paths that only ever look
+        // at the active one.
+        val displaced = activeIncident?.incident
+        val superseded = displaced?.copy(
+            lifecycle = IncidentLifecycle.CLOSED,
+            updatedAtMs = observation.wallClockMs,
+            closedAtMs = observation.wallClockMs,
+            closeReason = if (supersede) {
+                "superseded by a confirmed power episode"
+            } else {
+                "superseded by ${classification.type.name.lowercase()}"
+            },
+        )
         val incident = SecurityIncident(
             id = idGenerator.nextId(),
             type = classification.type,
@@ -503,8 +510,18 @@ class IncidentEngine(
         }
     }
 
+    /**
+     * Only a declared host may open an incident.
+     *
+     * A missing role used to count as primary, which quietly made hosts of every signal
+     * that reached the engine without one — the microphone, the location fix and the
+     * charging line. The safe reading of "nobody said" is "may not", so an unstamped
+     * observation now corroborates and never starts. Every signal that must host says so
+     * through `ProtectionProfilePolicy.signalRoles`, applied where the observation is
+     * recorded.
+     */
     private fun isPrimaryRole(role: SensorRole?): Boolean {
-        return role == SensorRole.PRIMARY || role == null
+        return role == SensorRole.PRIMARY
     }
 
     private fun hasPrimaryRole(vararg items: Any?): Boolean {
