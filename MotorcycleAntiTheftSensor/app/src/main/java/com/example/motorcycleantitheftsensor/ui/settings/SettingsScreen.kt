@@ -480,10 +480,26 @@ fun SettingsScreen(
             // Defense in depth. The domain pins these sources OFF when it resolves the
             // profile anyway, but a configuration restored from an older version could
             // still carry a raised role, and this screen must never write one back.
+            val missingSources = availability
+                .filterValues { it.availability == SensorAvailability.MISSING }
+                .keys
             val saveConfiguration: (SensorFusionConfiguration) -> Unit = { requested ->
+                val withoutLocked = editability.lockedSources.fold(requested) { config, source ->
+                    configPolicy.withSourceRole(config, source, SensorRole.OFF)
+                }
+                // A primary the phone does not have makes the controller reject the whole
+                // configuration, stopping every other sensor with it. Demoting to supporting
+                // keeps the owner's intent — that source still counts when it exists — while
+                // leaving a configuration this device can actually apply. Only sources the
+                // catalog positively reports as missing are touched; an unread catalog is
+                // not evidence of missing hardware.
                 actions.updateSensorConfiguration(
-                    editability.lockedSources.fold(requested) { config, source ->
-                        configPolicy.withSourceRole(config, source, SensorRole.OFF)
+                    missingSources.fold(withoutLocked) { config, source ->
+                        if (config.source(source).role == SensorRole.PRIMARY) {
+                            configPolicy.withSourceRole(config, source, SensorRole.SUPPORTING)
+                        } else {
+                            config
+                        }
                     },
                 )
             }
@@ -1418,6 +1434,9 @@ internal fun sensorSourceEffectTag(source: SensorSource, role: SensorRole): Stri
 internal fun sensorSourceCostTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.COST"
 
+internal fun sensorSourceUnavailableTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
+
 /** Survives rotation by name, since enum entries themselves cannot go into a Bundle. */
 private val ExpandedSourcesSaver = listSaver<Set<SensorSource>, String>(
     save = { expanded -> expanded.map(SensorSource::name) },
@@ -1564,6 +1583,9 @@ private fun SensorGroupHeading(text: String) {
  * contribution underneath a line saying there is none, would both contradict that.
  *
  * [diverges] says the current role is not the recommended one.
+ *
+ * A source this device does not have keeps its supporting and off buttons: only primary
+ * is refused, because only primary makes the controller reject the whole configuration.
  */
 @Composable
 private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
@@ -1604,6 +1626,7 @@ private fun SensorRoleRow(
     onToggleExpanded: () -> Unit,
     onSelectRole: (SensorRole) -> Unit,
 ) {
+    val hardwareMissing = availability == SensorAvailability.MISSING
     val recommendedRole = contribution?.recommendedRole
     val srcName = PresentationTextCatalog.sourceName(source)
     val capName = PresentationTextCatalog.capabilityName(source.capability)
@@ -1662,6 +1685,18 @@ private fun SensorRoleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (hardwareMissing && !locked) {
+                Text(
+                    text = "⚠️ " + if (role == SensorRole.PRIMARY) {
+                        PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE_NOW
+                    } else {
+                        PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceUnavailableTag(source)),
+                )
+            }
             if (diverges) {
                 Text(
                     text = "⚠️ ${PresentationTextCatalog.SENSOR_DIVERGES_CHIP}",
@@ -1682,10 +1717,13 @@ private fun SensorRoleRow(
                 ROLE_BUTTON_ORDER.forEach { candidate ->
                     val isSelected = role == candidate
                     val isRecommended = candidate == recommendedRole
+                    val refused = hardwareMissing && candidate == SensorRole.PRIMARY
+                    val selectable = !locked && !refused
                     // The star must reach TalkBack as words; it announces the glyph as
                     // "star", which says nothing about why the button carries one.
                     val describedAs = when {
                         locked -> lockedContentDescription
+                        refused -> PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE
                         isRecommended -> recommendedContentDescription
                         else -> null
                     }
@@ -1708,7 +1746,7 @@ private fun SensorRoleRow(
                     if (isSelected) {
                         Button(
                             onClick = {},
-                            enabled = !locked,
+                            enabled = selectable,
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                             modifier = buttonModifier,
                             colors = ButtonDefaults.buttonColors(
@@ -1732,7 +1770,7 @@ private fun SensorRoleRow(
                     } else {
                         OutlinedButton(
                             onClick = { onSelectRole(candidate) },
-                            enabled = !locked,
+                            enabled = selectable,
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                             modifier = buttonModifier,
                             border = BorderStroke(1.dp, BorderNeutral),

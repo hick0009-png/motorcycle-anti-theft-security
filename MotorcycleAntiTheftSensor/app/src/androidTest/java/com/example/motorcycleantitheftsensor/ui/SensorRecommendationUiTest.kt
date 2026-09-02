@@ -3,6 +3,8 @@ package com.example.motorcycleantitheftsensor.ui
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertContentDescriptionContains
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -31,6 +33,7 @@ import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceEffectTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceEffectsToggleTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDivergesTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceRoleTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceUnavailableTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -55,11 +58,13 @@ class SensorRecommendationUiTest {
     private var savedConfiguration: SensorFusionConfiguration? = null
     private var profileRestored = false
 
-    private fun inventory(): Map<SensorSource, SensorAvailabilityUiModel> =
+    private fun inventory(
+        overrides: Map<SensorSource, SensorAvailability> = emptyMap(),
+    ): Map<SensorSource, SensorAvailabilityUiModel> =
         SensorSource.entries.associateWith { source ->
             SensorAvailabilityUiModel(
                 source = source,
-                availability = SensorAvailability.AVAILABLE,
+                availability = overrides[source] ?: SensorAvailability.AVAILABLE,
                 vendor = "test-vendor",
                 powerMa = 0.5f,
             )
@@ -68,6 +73,7 @@ class SensorRecommendationUiTest {
     private fun openRoleDialog(
         profile: ProtectionProfile,
         configuration: SensorFusionConfiguration = configPolicy.forPreset(SensorPreset.BALANCED),
+        availability: Map<SensorSource, SensorAvailabilityUiModel> = inventory(),
     ) {
         savedConfiguration = null
         profileRestored = false
@@ -90,7 +96,7 @@ class SensorRecommendationUiTest {
                     ),
                     nowMs = 2_000L,
                     profile = ProtectionProfileUiState(selectedProfile = profile),
-                    sensorAvailability = inventory(),
+                    sensorAvailability = availability,
                 ),
                 actions = ProtectionAppActions(
                     selectDestination = {},
@@ -335,6 +341,89 @@ class SensorRecommendationUiTest {
         // An untouched row stays closed.
         composeRule.onNodeWithTag(sensorSourceEffectTag(SensorSource.PROXIMITY, SensorRole.OFF))
             .assertDoesNotExist()
+    }
+
+    @Test
+    fun aSensorThisPhoneLacksRefusesPrimaryAndKeepsTheOtherTwo() {
+        openRoleDialog(
+            ProtectionProfile.VEHICLE,
+            availability = inventory(mapOf(SensorSource.GYROSCOPE to SensorAvailability.MISSING)),
+        )
+
+        val primary = sensorSourceRoleTag(SensorSource.GYROSCOPE, SensorRole.PRIMARY)
+        scrollTo(primary)
+        composeRule.onNodeWithTag(primary).assertIsNotEnabled()
+        composeRule.onNodeWithTag(sensorSourceRoleTag(SensorSource.GYROSCOPE, SensorRole.SUPPORTING))
+            .assertIsEnabled()
+        composeRule.onNodeWithTag(sensorSourceRoleTag(SensorSource.GYROSCOPE, SensorRole.OFF))
+            .assertIsEnabled()
+        composeRule.onNodeWithTag(sensorSourceUnavailableTag(SensorSource.GYROSCOPE)).assertExists()
+        assertNull("a refused button must not write a configuration", savedConfiguration)
+    }
+
+    @Test
+    fun aPresentSensorKeepsAllThreeRolesAndCarriesNoWarning() {
+        openRoleDialog(
+            ProtectionProfile.VEHICLE,
+            availability = inventory(mapOf(SensorSource.GYROSCOPE to SensorAvailability.MISSING)),
+        )
+
+        val primary = sensorSourceRoleTag(SensorSource.ACCELEROMETER, SensorRole.PRIMARY)
+        scrollTo(primary)
+        composeRule.onNodeWithTag(primary).assertIsEnabled()
+        composeRule.onNodeWithTag(sensorSourceUnavailableTag(SensorSource.ACCELEROMETER))
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun theOtherTwoRolesStillSaveOnAMissingSensor() {
+        // The point of refusing only primary: a phone without the sensor must still be able
+        // to keep the row as supporting, which the controller merely marks degraded.
+        openRoleDialog(
+            ProtectionProfile.VEHICLE,
+            availability = inventory(mapOf(SensorSource.GYROSCOPE to SensorAvailability.MISSING)),
+        )
+
+        val off = sensorSourceRoleTag(SensorSource.GYROSCOPE, SensorRole.OFF)
+        scrollTo(off)
+        composeRule.onNodeWithTag(off).performClick()
+
+        val saved = requireNotNull(savedConfiguration) { "an allowed role must still save" }
+        assertEquals(SensorRole.OFF, saved.source(SensorSource.GYROSCOPE).role)
+    }
+
+    @Test
+    fun aStoredPrimaryOnAMissingSensorIsNamedAndRepairedOnTheNextSave() {
+        // A configuration restored from another phone can hold the combination this screen
+        // now refuses to create. The row says so, and the next save leaves the device with
+        // a configuration it can actually apply instead of one the controller rejects whole.
+        openRoleDialog(
+            ProtectionProfile.VEHICLE,
+            configuration = configPolicy.withSourceRole(
+                configPolicy.forPreset(SensorPreset.BALANCED),
+                SensorSource.GYROSCOPE,
+                SensorRole.PRIMARY,
+            ),
+            availability = inventory(mapOf(SensorSource.GYROSCOPE to SensorAvailability.MISSING)),
+        )
+
+        val warning = sensorSourceUnavailableTag(SensorSource.GYROSCOPE)
+        scrollTo(warning)
+        composeRule.onNodeWithTag(warning).assertExists()
+        composeRule.onNodeWithText(
+            "⚠️ ${PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE_NOW}",
+        ).assertExists()
+
+        val proximityOff = sensorSourceRoleTag(SensorSource.PROXIMITY, SensorRole.OFF)
+        scrollTo(proximityOff)
+        composeRule.onNodeWithTag(proximityOff).performClick()
+
+        val saved = requireNotNull(savedConfiguration) { "an unrelated edit must still save" }
+        assertEquals(
+            "a primary the phone lacks must never be written back",
+            SensorRole.SUPPORTING,
+            saved.source(SensorSource.GYROSCOPE).role,
+        )
     }
 
     @Test

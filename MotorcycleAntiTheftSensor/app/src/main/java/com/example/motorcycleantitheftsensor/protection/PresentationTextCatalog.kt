@@ -226,6 +226,24 @@ object PresentationTextCatalog {
     fun sensorInventoryLine(available: Int, limited: Int, missing: Int): String =
         "เซ็นเซอร์ในเครื่องนี้: มี $available · จำกัด $limited · ไม่มี $missing"
 
+    /**
+     * The real asymmetry between the two roles on a phone that lacks the sensor.
+     *
+     * `SensorCapabilityController` raises UNAVAILABLE and rejects the whole configuration
+     * when a missing source is primary, so one such row stops every other sensor too.
+     * The same source as supporting only lands in `degradedSources` and everything else
+     * keeps running. That difference is invisible on screen, and it is the trap.
+     */
+    const val SENSOR_PRIMARY_UNAVAILABLE =
+        "เครื่องนี้ไม่มีเซ็นเซอร์ตัวนี้ จึงตั้งเป็นหลักไม่ได้ — " +
+            "ถ้าตั้งได้ ระบบจะปฏิเสธการตั้งค่าทั้งชุดและเซ็นเซอร์ตัวอื่นจะหยุดตามไปด้วย " +
+            "ส่วน \"ประกอบ\" ระบบจะข้ามตัวนี้ไปเฉย ๆ ตัวอื่นยังทำงานตามปกติ"
+
+    /** Shown when a configuration made elsewhere already holds the rejected combination. */
+    const val SENSOR_PRIMARY_UNAVAILABLE_NOW =
+        "ตอนนี้ตั้งเป็นหลักอยู่ทั้งที่เครื่องนี้ไม่มีเซ็นเซอร์ตัวนี้ " +
+            "ระบบจะเริ่มป้องกันไม่ได้จนกว่าจะเปลี่ยนเป็น \"ประกอบ\" หรือ \"ปิด\""
+
     /** Fixed labels for the lock affordances, so the screen never invents its own. */
     const val SENSOR_LOCK_CHIP = "ล็อกโดยโหมด"
     const val SENSOR_LOCK_CHANGE_USE = "เปลี่ยนการใช้งาน"
