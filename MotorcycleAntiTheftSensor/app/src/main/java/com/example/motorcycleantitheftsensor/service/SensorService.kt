@@ -611,15 +611,21 @@ class SensorService : Service(), ServiceEnvironment {
         }
     }
 
+    /**
+     * Stops the recording but keeps its thread. The recorder holds a Handler bound to that
+     * looper for the life of the object, so quitting the thread here left a reused recorder
+     * registered against a dead looper: it reported itself as recording and never received
+     * a sample. The thread costs nothing while idle and is released in onDestroy.
+     */
     private fun stopDriftRecording() {
         driftRecorder?.stop()
-        driftHandlerThread?.quitSafely()
-        driftHandlerThread = null
     }
 
     override fun onDestroy() {
         try {
             stopDriftRecording()
+            driftHandlerThread?.quitSafely()
+            driftHandlerThread = null
             if (::heartbeatPinger.isInitialized) {
                 heartbeatPinger.stopHeartbeat()
             }
