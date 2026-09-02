@@ -673,6 +673,21 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            // Where the use reads these sensors directly, the slider and the
+                            // roles govern only the fusion running alongside. Staying silent
+                            // here would let the owner turn a group down and believe the
+                            // detection went with it.
+                            val capabilityCaveat = recommendation.profile?.let { profile ->
+                                PresentationTextCatalog.capabilityCaveat(profile, capability)
+                            }
+                            if (capabilityCaveat != null) {
+                                Text(
+                                    text = "${PresentationTextCatalog.SENSOR_CAVEAT_PREFIX}: $capabilityCaveat",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag(sensorCapabilityCaveatTag(capability)),
+                                )
+                            }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1437,6 +1452,12 @@ internal fun sensorSourceCostTag(source: SensorSource): String =
 internal fun sensorSourceUnavailableTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
 
+internal fun sensorCapabilityCaveatTag(capability: SensorCapability): String =
+    "ui.settings.sensor.capability.${capability.name}.CAVEAT"
+
+internal fun sensorSourceCaveatTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.CAVEAT"
+
 /** Survives rotation by name, since enum entries themselves cannot go into a Bundle. */
 private val ExpandedSourcesSaver = listSaver<Set<SensorSource>, String>(
     save = { expanded -> expanded.map(SensorSource::name) },
@@ -1875,6 +1896,14 @@ private fun SensorRoleEffects(
                     )
                 }
             }
+        }
+        contribution.caveatTh?.let { caveat ->
+            Text(
+                text = "${PresentationTextCatalog.SENSOR_CAVEAT_PREFIX}: $caveat",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag(sensorSourceCaveatTag(contribution.source)),
+            )
         }
         // A property of the primary role itself, so it is stated once here rather than
         // repeated inside all thirty per-sensor entries.

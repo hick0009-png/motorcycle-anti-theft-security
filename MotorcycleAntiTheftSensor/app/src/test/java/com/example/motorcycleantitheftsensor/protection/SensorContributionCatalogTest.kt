@@ -180,6 +180,62 @@ class SensorContributionCatalogTest {
         }
     }
 
+    @Test
+    fun theGroupNoteAppearsOnlyWhereItHoldsForEverySourceInTheGroup() {
+        // The door watch reads all three rotation sensors directly, so the group note is
+        // true of the whole group. Nothing else qualifies.
+        assertEquals(
+            PresentationTextCatalog.contribution(
+                ProtectionProfile.ENTRY,
+                SensorSource.GYROSCOPE,
+            ).caveatTh,
+            PresentationTextCatalog.capabilityCaveat(
+                ProtectionProfile.ENTRY,
+                SensorCapability.ROTATION,
+            ),
+        )
+        assertEquals(
+            PresentationTextCatalog.contribution(
+                ProtectionProfile.POWER,
+                SensorSource.AMBIENT_LIGHT,
+            ).caveatTh,
+            PresentationTextCatalog.capabilityCaveat(
+                ProtectionProfile.POWER,
+                SensorCapability.LIGHT,
+            ),
+        )
+
+        SensorCapability.entries.forEach { capability ->
+            assertNull(
+                "the vehicle watch acts on every role, so $capability needs no note",
+                PresentationTextCatalog.capabilityCaveat(ProtectionProfile.VEHICLE, capability),
+            )
+        }
+        SensorCapability.entries
+            .filter { it != SensorCapability.ROTATION }
+            .forEach { capability ->
+                assertNull(
+                    "the door watch reads only rotation directly, not $capability",
+                    PresentationTextCatalog.capabilityCaveat(ProtectionProfile.ENTRY, capability),
+                )
+            }
+    }
+
+    @Test
+    fun aGroupWhereOnlySomeSourcesCarryTheNoteGetsNoGroupNote() {
+        // Power Guard's movement sources carry no caveat while its light source does, and
+        // LIGHT is the only group where every member does. A note stretched over a group it
+        // is false for would be worse than no note.
+        SensorCapability.entries
+            .filter { it != SensorCapability.LIGHT }
+            .forEach { capability ->
+                assertNull(
+                    "Power Guard reads only the lamp directly, not $capability",
+                    PresentationTextCatalog.capabilityCaveat(ProtectionProfile.POWER, capability),
+                )
+            }
+    }
+
     private fun assertNotEqualCopy(first: String, second: String) {
         assertFalse("two uses share one sentence: $first", first == second)
     }

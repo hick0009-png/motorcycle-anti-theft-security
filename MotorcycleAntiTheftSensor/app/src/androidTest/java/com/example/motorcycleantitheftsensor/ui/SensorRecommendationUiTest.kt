@@ -17,6 +17,7 @@ import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.SensorCapability
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
@@ -27,6 +28,8 @@ import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_LOCKED_GROUP_TOG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_RESTORE_RECOMMENDED_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SENSOR_ROLE_LIST_TAG
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
+import com.example.motorcycleantitheftsensor.ui.settings.sensorCapabilityCaveatTag
+import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceCaveatTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceCostTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceDetectsTag
 import com.example.motorcycleantitheftsensor.ui.settings.sensorSourceEffectTag
@@ -74,6 +77,7 @@ class SensorRecommendationUiTest {
         profile: ProtectionProfile,
         configuration: SensorFusionConfiguration = configPolicy.forPreset(SensorPreset.BALANCED),
         availability: Map<SensorSource, SensorAvailabilityUiModel> = inventory(),
+        openDialog: Boolean = true,
     ) {
         savedConfiguration = null
         profileRestored = false
@@ -119,7 +123,9 @@ class SensorRecommendationUiTest {
         }
         composeRule.onNodeWithText("การวินิจฉัยขั้นสูง").performScrollTo().performClick()
         composeRule.onNodeWithText("แสดงการวินิจฉัยขั้นสูง").performScrollTo().performClick()
-        composeRule.onNodeWithText("กำหนดบทบาทเซ็นเซอร์ขั้นสูง").performScrollTo().performClick()
+        if (openDialog) {
+            composeRule.onNodeWithText("กำหนดบทบาทเซ็นเซอร์ขั้นสูง").performScrollTo().performClick()
+        }
     }
 
     /** Rows live in a LazyColumn, so an unscrolled row is not merely off screen — it does not exist. */
@@ -424,6 +430,72 @@ class SensorRecommendationUiTest {
             SensorRole.SUPPORTING,
             saved.source(SensorSource.GYROSCOPE).role,
         )
+    }
+
+    @Test
+    fun theDoorWatchAdmitsOnItsRotationCardThatTheRoleDoesNotGovernTheDetection() {
+        openRoleDialog(ProtectionProfile.ENTRY, openDialog = false)
+
+        val note = sensorCapabilityCaveatTag(SensorCapability.ROTATION)
+        composeRule.onNodeWithTag(note).performScrollTo().assertExists()
+        composeRule.onNodeWithText(
+            "${PresentationTextCatalog.SENSOR_CAVEAT_PREFIX}: " +
+                requireNotNull(
+                    PresentationTextCatalog.capabilityCaveat(
+                        ProtectionProfile.ENTRY,
+                        SensorCapability.ROTATION,
+                    ),
+                ),
+        ).assertExists()
+    }
+
+    @Test
+    fun theVehicleWatchCarriesNoSuchNoteBecauseItReallyActsOnEveryRole() {
+        openRoleDialog(ProtectionProfile.VEHICLE, openDialog = false)
+
+        SensorCapability.entries.forEach { capability ->
+            composeRule.onNodeWithTag(sensorCapabilityCaveatTag(capability)).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun powerGuardAdmitsTheSameThingAboutTheWitnessLamp() {
+        // Finding #4's twin: the power watch registers the light sensor itself, so lowering
+        // the role here would not stop it either.
+        openRoleDialog(ProtectionProfile.POWER, openDialog = false)
+
+        composeRule.onNodeWithTag(sensorCapabilityCaveatTag(SensorCapability.LIGHT))
+            .performScrollTo()
+            .assertExists()
+        composeRule.onNodeWithTag(sensorCapabilityCaveatTag(SensorCapability.MOVEMENT))
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun theNoteRepeatsWhereTheRoleIsActuallyChosen() {
+        // The card explains the group; the panel is where the owner is about to move a role,
+        // which is exactly where believing the role governs the detection would cost them.
+        openRoleDialog(ProtectionProfile.ENTRY)
+
+        val toggle = sensorSourceEffectsToggleTag(SensorSource.GYROSCOPE)
+        scrollTo(toggle)
+        composeRule.onNodeWithTag(toggle).performClick()
+
+        val caveat = sensorSourceCaveatTag(SensorSource.GYROSCOPE)
+        scrollTo(caveat)
+        composeRule.onNodeWithTag(caveat).assertExists()
+    }
+
+    @Test
+    fun thePanelOfAUseThatActsOnTheRoleStaysFreeOfNotes() {
+        openRoleDialog(ProtectionProfile.VEHICLE)
+
+        val toggle = sensorSourceEffectsToggleTag(SensorSource.GYROSCOPE)
+        scrollTo(toggle)
+        composeRule.onNodeWithTag(toggle).performClick()
+
+        composeRule.onNodeWithTag(sensorSourceCaveatTag(SensorSource.GYROSCOPE))
+            .assertDoesNotExist()
     }
 
     @Test

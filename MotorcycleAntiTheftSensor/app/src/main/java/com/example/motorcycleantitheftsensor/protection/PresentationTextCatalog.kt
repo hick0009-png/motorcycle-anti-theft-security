@@ -259,6 +259,23 @@ object PresentationTextCatalog {
     /** Prefixes the one contribution line the sensor row shows. */
     const val SENSOR_DETECTS_PREFIX = "ช่วยตรวจจับ"
 
+    /** Prefixes a note about a detection the role on this screen does not govern. */
+    const val SENSOR_CAVEAT_PREFIX = "หมายเหตุ"
+
+    /**
+     * The note a whole capability group carries, or null when it carries none.
+     *
+     * Derived from the per-source caveats rather than written again, and only when every
+     * source in the group says the same thing — a note over a group where it holds for
+     * some rows and not others would be false for the rest.
+     */
+    fun capabilityCaveat(profile: ProtectionProfile, capability: SensorCapability): String? =
+        SensorSource.entries
+            .filter { it.capability == capability }
+            .map { contribution(profile, it).caveatTh }
+            .distinct()
+            .singleOrNull()
+
     /** Labels for the panel comparing what the three roles would do. */
     const val SENSOR_ROLE_EFFECTS_TITLE = "เปลี่ยนบทบาทแล้วได้อะไร"
     const val SENSOR_COST_PREFIX = "ต้นทุน"
