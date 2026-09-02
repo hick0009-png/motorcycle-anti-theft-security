@@ -21,7 +21,9 @@ import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissionin
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
@@ -193,6 +195,48 @@ data class SensorEditabilityUiModel(
     }
 }
 
+/**
+ * The role each source is recommended to carry under the selected profile.
+ *
+ * Read from [ProtectionProfilePolicy] rather than rebuilt here, for the same reason
+ * [SensorEditabilityUiModel] is: a second copy of the recommendation table would keep
+ * pointing at a role the profile has stopped asking for. With no profile selected the
+ * map is empty and the screen claims nothing — an unknown recommendation is not a
+ * recommendation of OFF.
+ */
+data class SensorRecommendationUiModel(
+    val profile: ProtectionProfile? = null,
+    val roles: Map<SensorSource, SensorRole> = emptyMap(),
+) {
+    val known: Boolean get() = roles.isNotEmpty()
+
+    fun recommendedRole(source: SensorSource): SensorRole? = roles[source]
+
+    /**
+     * True only when a recommendation exists and the current role is not it. An unknown
+     * recommendation never marks a row as diverging.
+     */
+    fun differs(source: SensorSource, current: SensorRole): Boolean =
+        roles[source]?.let { it != current } ?: false
+
+    /** Sources out of line with the recommendation, restricted to what this profile may edit. */
+    fun divergingSources(
+        configuration: SensorFusionConfiguration,
+        editability: SensorEditabilityUiModel,
+    ): List<SensorSource> = editability.editableSources
+        .filter { differs(it, configuration.source(it).role) }
+
+    companion object {
+        fun from(profile: ProtectionProfile?): SensorRecommendationUiModel {
+            if (profile == null) return SensorRecommendationUiModel()
+            return SensorRecommendationUiModel(
+                profile = profile,
+                roles = ProtectionProfilePolicy.recommendedRoles(profile),
+            )
+        }
+    }
+}
+
 /** Guided two-cycle commissioning progress for the เข็มทิศประตู flow (spec section 9). */
 enum class EntryCommissioningPhase {
     STILL_CHECK,
@@ -348,6 +392,9 @@ data class ProtectionUiState(
      */
     val sensorEditability: SensorEditabilityUiModel
         get() = SensorEditabilityUiModel.from(profile.selectedProfile)
+
+    val sensorRecommendation: SensorRecommendationUiModel
+        get() = SensorRecommendationUiModel.from(profile.selectedProfile)
 
     /** What each protection use can do on this device. Derived, for the same reason. */
     val profileDeviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>

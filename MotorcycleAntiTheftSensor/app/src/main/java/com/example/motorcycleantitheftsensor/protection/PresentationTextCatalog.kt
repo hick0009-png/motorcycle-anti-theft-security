@@ -230,6 +230,26 @@ object PresentationTextCatalog {
     const val SENSOR_LOCK_CHIP = "ล็อกโดยโหมด"
     const val SENSOR_LOCK_CHANGE_USE = "เปลี่ยนการใช้งาน"
 
+    /**
+     * Recommendation wording.
+     *
+     * [SENSOR_DIVERGES_CHIP] deliberately says the setting does not match rather than
+     * that the owner changed it: the advanced screen still edits the shared
+     * configuration, so a row can diverge from the profile's recommendation without
+     * anyone having touched it.
+     */
+    const val SENSOR_RECOMMENDED_STAR = "⭐"
+    const val SENSOR_RECOMMENDED_CHIP = "แนะนำสำหรับโหมดนี้"
+    const val SENSOR_DIVERGES_CHIP = "ไม่ตรงกับค่าแนะนำ"
+    const val SENSOR_RESTORE_RECOMMENDED = "คืนค่าที่แนะนำของโหมดนี้"
+
+    /** TalkBack cannot see the star, so the recommended button says so in words. */
+    fun sensorRecommendedContentDescription(roleLabel: String, profile: ProtectionProfile): String =
+        "$roleLabel — ค่าที่แนะนำของโหมด${profile(profile).name}"
+
+    fun sensorDivergesLine(count: Int, profile: ProtectionProfile): String =
+        "$count รายการไม่ตรงกับค่าที่แนะนำของโหมด${profile(profile).name}"
+
     /** "<source> ล็อกโดยโหมด... ตั้งค่าไม่ได้" for TalkBack, which cannot see dimming. */
     fun sensorLockedContentDescription(name: String, profile: ProtectionProfile): String =
         "$name ถูกล็อกในโหมด${profile(profile).name} ตั้งค่าไม่ได้"

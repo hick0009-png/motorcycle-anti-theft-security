@@ -469,6 +469,7 @@ fun SettingsScreen(
             val displayPreset = state.settings.sensorDisplayPreset ?: configPolicy.displayPreset(currentConfig)
             val editability = state.sensorEditability
             val availability = state.sensorAvailability
+            val recommendation = state.sensorRecommendation
             // Defense in depth. The domain pins these sources OFF when it resolves the
             // profile anyway, but a configuration restored from an older version could
             // still carry a raised role, and this screen must never write one back.
@@ -734,6 +735,16 @@ fun SettingsScreen(
                     text = {
                         val editableSources = editability.editableSources
                         val lockedSources = editability.lockedSourceList
+                        val divergingSources =
+                            recommendation.divergingSources(currentConfig, editability)
+                        val recommendedDescription: (SensorRole) -> String? = { candidate ->
+                            recommendation.profile?.let { profile ->
+                                PresentationTextCatalog.sensorRecommendedContentDescription(
+                                    roleButtonLabel(candidate),
+                                    profile,
+                                )
+                            }
+                        }
                         val onSelectRole: (SensorSource, SensorRole) -> Unit = { source, role ->
                             val updatedConfig = configPolicy.withSourceRole(currentConfig, source, role)
                             val hasPrimary = configPolicy.armEligibility(updatedConfig) is
@@ -751,6 +762,31 @@ fun SettingsScreen(
                                 .testTag(SENSOR_ROLE_LIST_TAG),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            val divergingProfile = recommendation.profile
+                            if (divergingSources.isNotEmpty() && divergingProfile != null) {
+                                item {
+                                    RestoreRecommendedRow(
+                                        line = PresentationTextCatalog.sensorDivergesLine(
+                                            divergingSources.size,
+                                            divergingProfile,
+                                        ),
+                                        onRestore = {
+                                            // Both stores are written on purpose. Clearing the
+                                            // profile overrides is what "recommended" means, but
+                                            // this screen still reads the shared configuration
+                                            // (T9), so without the second write the owner would
+                                            // press the button and see nothing move.
+                                            saveConfiguration(
+                                                recommendation.roles.entries.fold(currentConfig) {
+                                                    config, (source, role) ->
+                                                    configPolicy.withSourceRole(config, source, role)
+                                                },
+                                            )
+                                            actions.restoreRecommendedProfile()
+                                        },
+                                    )
+                                }
+                            }
                             if (editability.anyLocked) {
                                 item {
                                     SensorGroupHeading(
@@ -760,6 +796,7 @@ fun SettingsScreen(
                             }
                             items(editableSources.size) { index ->
                                 val source = editableSources[index]
+                                val recommendedRole = recommendation.recommendedRole(source)
                                 SensorRoleRow(
                                     source = source,
                                     role = currentConfig.source(source).role,
@@ -767,6 +804,10 @@ fun SettingsScreen(
                                     locked = false,
                                     lockReason = null,
                                     lockedContentDescription = null,
+                                    recommendedRole = recommendedRole,
+                                    recommendedContentDescription =
+                                        recommendedRole?.let(recommendedDescription),
+                                    diverges = source in divergingSources,
                                     onSelectRole = { role -> onSelectRole(source, role) },
                                 )
                             }
@@ -808,6 +849,9 @@ fun SettingsScreen(
                                                     PresentationTextCatalog.sourceName(source),
                                                     requireNotNull(editability.profile),
                                                 ),
+                                            recommendedRole = null,
+                                            recommendedContentDescription = null,
+                                            diverges = false,
                                             onSelectRole = { },
                                         )
                                     }
@@ -1338,6 +1382,19 @@ internal const val SENSOR_PRESET_LOCKED_TAG = "ui.settings.sensor.PRESET_LOCKED"
 internal const val SENSOR_LOCKED_GROUP_TOGGLE_TAG = "ui.settings.sensor.LOCKED_GROUP_TOGGLE"
 internal const val SENSOR_ROLE_LIST_TAG = "ui.settings.sensor.ROLE_LIST"
 internal const val SENSOR_INVENTORY_SUMMARY_TAG = "ui.settings.sensor.INVENTORY_SUMMARY"
+internal const val SENSOR_RESTORE_RECOMMENDED_TAG = "ui.settings.sensor.RESTORE_RECOMMENDED"
+
+internal fun sensorSourceDivergesTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.DIVERGES"
+
+/** The three role buttons, in the order the row draws them. */
+private val ROLE_BUTTON_ORDER = listOf(SensorRole.PRIMARY, SensorRole.SUPPORTING, SensorRole.OFF)
+
+private fun roleButtonLabel(role: SensorRole): String = when (role) {
+    SensorRole.PRIMARY -> "หลัก"
+    SensorRole.SUPPORTING -> "ประกอบ"
+    SensorRole.OFF -> "ปิด"
+}
 
 internal fun sensorSourceAvailabilityTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.AVAILABILITY"
@@ -1388,6 +1445,44 @@ private fun SensorLockBanner(notice: String, onChangeUse: () -> Unit) {
     }
 }
 
+/**
+ * Offered only while something actually diverges: a button that restores what is already
+ * in place teaches the owner nothing and invites a pointless write.
+ */
+@Composable
+private fun RestoreRecommendedRow(line: String, onRestore: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = RowSurface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "⚠️ $line",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(
+                onClick = onRestore,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .heightIn(min = 48.dp)
+                    .testTag(SENSOR_RESTORE_RECOMMENDED_TAG),
+            ) {
+                Text(
+                    text = PresentationTextCatalog.SENSOR_RESTORE_RECOMMENDED,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = ActionBlue,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun LockChip(
     label: String = PresentationTextCatalog.SENSOR_LOCK_CHIP,
@@ -1424,6 +1519,10 @@ private fun SensorGroupHeading(text: String) {
  * When [locked] the profile owns this source: every button is disabled, not merely
  * unhandled, so TalkBack stops announcing them as actionable, and the reason keeps full
  * contrast while the buttons dim.
+ *
+ * [recommendedRole] stars the button the selected profile asks for, and [diverges] says
+ * the current role is not that one. Locked rows pass neither: a star over a button that
+ * cannot be pressed is noise, and the lock chip already explains the row.
  */
 @Composable
 private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
@@ -1457,6 +1556,9 @@ private fun SensorRoleRow(
     locked: Boolean,
     lockReason: String?,
     lockedContentDescription: String?,
+    recommendedRole: SensorRole?,
+    recommendedContentDescription: String?,
+    diverges: Boolean,
     onSelectRole: (SensorRole) -> Unit,
 ) {
     val srcName = PresentationTextCatalog.sourceName(source)
@@ -1508,6 +1610,14 @@ private fun SensorRoleRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (diverges) {
+                Text(
+                    text = "⚠️ ${PresentationTextCatalog.SENSOR_DIVERGES_CHIP}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceDivergesTag(source)),
+                )
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -1517,20 +1627,28 @@ private fun SensorRoleRow(
                     .alpha(if (locked) LockedContentAlpha else 1f),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                val roles = listOf(
-                    SensorRole.PRIMARY to "หลัก",
-                    SensorRole.SUPPORTING to "ประกอบ",
-                    SensorRole.OFF to "ปิด",
-                )
-                roles.forEach { (candidate, label) ->
+                ROLE_BUTTON_ORDER.forEach { candidate ->
                     val isSelected = role == candidate
+                    val isRecommended = candidate == recommendedRole
+                    // The star must reach TalkBack as words; it announces the glyph as
+                    // "star", which says nothing about why the button carries one.
+                    val describedAs = when {
+                        locked -> lockedContentDescription
+                        isRecommended -> recommendedContentDescription
+                        else -> null
+                    }
+                    val label = if (isRecommended) {
+                        "${PresentationTextCatalog.SENSOR_RECOMMENDED_STAR} ${roleButtonLabel(candidate)}"
+                    } else {
+                        roleButtonLabel(candidate)
+                    }
                     val buttonModifier = Modifier
                         .weight(1f)
                         .heightIn(min = 40.dp)
                         .testTag(sensorSourceRoleTag(source, candidate))
                         .then(
-                            if (locked && lockedContentDescription != null) {
-                                Modifier.semantics { contentDescription = lockedContentDescription }
+                            if (describedAs != null) {
+                                Modifier.semantics { contentDescription = describedAs }
                             } else {
                                 Modifier
                             },

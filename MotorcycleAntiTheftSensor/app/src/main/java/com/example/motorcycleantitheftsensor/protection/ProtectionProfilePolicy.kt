@@ -260,24 +260,7 @@ class ProtectionProfilePolicy(
         profile: ProtectionProfile,
     ): SensorFusionConfiguration {
         val balanced = sensorPolicy.forPreset(SensorPreset.BALANCED, nowMs())
-        val recommendedRoles = when (profile) {
-            ProtectionProfile.VEHICLE -> return balanced
-            ProtectionProfile.ENTRY -> mapOf(
-                SensorSource.SIGNIFICANT_MOTION to SensorRole.SUPPORTING,
-                SensorSource.ACCELEROMETER to SensorRole.SUPPORTING,
-                SensorSource.LINEAR_ACCELERATION to SensorRole.SUPPORTING,
-                SensorSource.GYROSCOPE to SensorRole.PRIMARY,
-                SensorSource.ROTATION_VECTOR to SensorRole.PRIMARY,
-                SensorSource.GAME_ROTATION_VECTOR to SensorRole.PRIMARY,
-                SensorSource.MAGNETIC_FIELD to SensorRole.SUPPORTING,
-                SensorSource.GEOMAGNETIC_ROTATION_VECTOR to SensorRole.SUPPORTING,
-                SensorSource.AMBIENT_LIGHT to SensorRole.SUPPORTING,
-                SensorSource.PROXIMITY to SensorRole.SUPPORTING,
-            )
-            ProtectionProfile.POWER -> SensorSource.entries.associateWith { source ->
-                if (source == SensorSource.AMBIENT_LIGHT) SensorRole.PRIMARY else SensorRole.OFF
-            }
-        }
+        val recommendedRoles = recommendedRoles(profile)
         return balanced.copy(
             capabilities = balanced.capabilities.mapValues { (_, capability) ->
                 capability.copy(
@@ -290,6 +273,39 @@ class ProtectionProfilePolicy(
     }
 
     companion object {
+        /**
+         * The role every source is recommended to carry under a profile.
+         *
+         * This is where the recommendation lives; [recommendedSensorConfiguration] paints
+         * it onto the balanced preset and the settings screen reads the same map to mark
+         * the recommended button. A screen that rebuilt the table for itself would drift
+         * from what the runtime actually receives, and the star would point at a role the
+         * profile no longer asks for.
+         */
+        fun recommendedRoles(profile: ProtectionProfile): Map<SensorSource, SensorRole> =
+            when (profile) {
+                // The vehicle watch is the balanced preset itself: movement leads, the
+                // rest corroborates.
+                ProtectionProfile.VEHICLE -> SensorConfigurationPolicy.DEFAULT_ROLES_BALANCED
+                // A door swings before it shakes, so orientation leads here and the
+                // accelerometer steps back to corroboration.
+                ProtectionProfile.ENTRY -> mapOf(
+                    SensorSource.SIGNIFICANT_MOTION to SensorRole.SUPPORTING,
+                    SensorSource.ACCELEROMETER to SensorRole.SUPPORTING,
+                    SensorSource.LINEAR_ACCELERATION to SensorRole.SUPPORTING,
+                    SensorSource.GYROSCOPE to SensorRole.PRIMARY,
+                    SensorSource.ROTATION_VECTOR to SensorRole.PRIMARY,
+                    SensorSource.GAME_ROTATION_VECTOR to SensorRole.PRIMARY,
+                    SensorSource.MAGNETIC_FIELD to SensorRole.SUPPORTING,
+                    SensorSource.GEOMAGNETIC_ROTATION_VECTOR to SensorRole.SUPPORTING,
+                    SensorSource.AMBIENT_LIGHT to SensorRole.SUPPORTING,
+                    SensorSource.PROXIMITY to SensorRole.SUPPORTING,
+                )
+                ProtectionProfile.POWER -> SensorSource.entries.associateWith { source ->
+                    if (source == SensorSource.AMBIENT_LIGHT) SensorRole.PRIMARY else SensorRole.OFF
+                }
+            }
+
         /**
          * Sources a profile pins OFF as part of its detection contract, exposed so the
          * settings screen can state the same fact instead of inferring its own.

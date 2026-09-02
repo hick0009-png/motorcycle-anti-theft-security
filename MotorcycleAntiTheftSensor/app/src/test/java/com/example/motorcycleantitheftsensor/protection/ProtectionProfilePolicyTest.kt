@@ -83,6 +83,57 @@ class ProtectionProfilePolicyTest {
     }
 
     @Test
+    fun publishedRecommendationMatchesTheConfigurationEachProfileResolvesTo() {
+        // The settings screen stars a button from recommendedRoles(); the runtime receives
+        // recommended().sensorConfiguration. If these ever drift, the star points at a role
+        // the profile has stopped asking for and nothing else would notice.
+        ProtectionProfile.entries.forEach { profile ->
+            val published = ProtectionProfilePolicy.recommendedRoles(profile)
+            val resolved = policy.recommended(profile).sensorConfiguration
+
+            assertEquals(
+                "$profile must publish a role for every source",
+                SensorSource.entries.toSet(),
+                published.keys,
+            )
+            SensorSource.entries.forEach { source ->
+                assertEquals(
+                    "$profile recommends a different role for $source than it resolves to",
+                    resolved.source(source).role,
+                    published.getValue(source),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun eachProfileRecommendsAtLeastOnePrimarySource() {
+        // A recommendation the owner can restore to must still be armable; restoring into
+        // a configuration with no primary would leave the screen warning about its own
+        // suggestion.
+        ProtectionProfile.entries.forEach { profile ->
+            assertTrue(
+                "$profile recommends no primary source",
+                ProtectionProfilePolicy.recommendedRoles(profile)
+                    .containsValue(SensorRole.PRIMARY),
+            )
+        }
+    }
+
+    @Test
+    fun theTwoMovementProfilesRecommendDifferentLeadSensors() {
+        // The visible point of the star: a door swings before it shakes, a vehicle shakes
+        // before it turns. If these ever match, the profiles are the same profile.
+        val vehicle = ProtectionProfilePolicy.recommendedRoles(ProtectionProfile.VEHICLE)
+        val entry = ProtectionProfilePolicy.recommendedRoles(ProtectionProfile.ENTRY)
+
+        assertEquals(SensorRole.PRIMARY, vehicle.getValue(SensorSource.ACCELEROMETER))
+        assertEquals(SensorRole.SUPPORTING, vehicle.getValue(SensorSource.GYROSCOPE))
+        assertEquals(SensorRole.PRIMARY, entry.getValue(SensorSource.GYROSCOPE))
+        assertEquals(SensorRole.SUPPORTING, entry.getValue(SensorSource.ACCELEROMETER))
+    }
+
+    @Test
     fun newStoreHasEveryProfileWithoutImplicitCustomerSelection() {
         val state = policy.newStoreState()
 
