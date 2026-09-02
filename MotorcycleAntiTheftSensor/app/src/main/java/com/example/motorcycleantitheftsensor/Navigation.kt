@@ -69,6 +69,24 @@ fun MainNavigation(
             }
         }
     }
+    // Diagnostic only: starts and stops the overnight orientation-drift recording, which
+    // has to live in the foreground service to survive a screen-off night.
+    val setDriftRecording: (Boolean) -> Unit = remember(applicationContext) {
+        { enabled ->
+            val intent = Intent(applicationContext, SensorService::class.java).apply {
+                action = if (enabled) {
+                    SensorService.ACTION_START_DRIFT_LOG
+                } else {
+                    SensorService.ACTION_STOP_DRIFT_LOG
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(intent)
+            } else {
+                applicationContext.startService(intent)
+            }
+        }
+    }
     val settingsGateway = remember(preferences, telegram, pairingCodePolicy, refreshControlService, graph.sensorRepository) {
         AndroidProtectionSettingsGateway(
             preferences = preferences,
@@ -136,6 +154,7 @@ fun MainNavigation(
             confirmProfileSwitch = protectionViewModel::confirmProfileSwitch,
             cancelProfileSwitch = protectionViewModel::cancelProfileSwitch,
             restoreRecommendedProfile = protectionViewModel::restoreRecommendedProfile,
+            setDriftRecording = setDriftRecording,
             entrySetAngle = protectionViewModel::setEntryAngle,
             entryStartCommissioning = protectionViewModel::startEntryCommissioning,
             entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,

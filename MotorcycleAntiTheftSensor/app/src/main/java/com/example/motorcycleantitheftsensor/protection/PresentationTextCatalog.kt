@@ -262,6 +262,38 @@ object PresentationTextCatalog {
     /** Prefixes a note about a detection the role on this screen does not govern. */
     const val SENSOR_CAVEAT_PREFIX = "หมายเหตุ"
 
+    /**
+     * The overnight drift measurement. Deliberately worded as a measurement rather than a
+     * protection feature: it detects nothing and alerts nobody.
+     */
+    const val DRIFT_LOG_TITLE = "วัดการไหลของมุมสำหรับโหมดประตู (สำหรับวินิจฉัย)"
+    const val DRIFT_LOG_EXPLANATION =
+        "โหมดประตูตรึงมุมอ้างอิงไว้ตลอดการเฝ้าหนึ่งครั้ง ถ้าค่ามุมของเครื่องไหลไปเองจนถึงเกณฑ์ " +
+            "จะแจ้งเตือนทั้งที่ประตูไม่ได้ขยับ อัตราการไหลต่างกันมากตามรุ่นเครื่อง จึงต้องวัดจริง — " +
+            "วางเครื่องนิ่งสนิท เริ่มบันทึก แล้วปล่อยทิ้งไว้ 8 ชั่วโมง"
+    const val DRIFT_LOG_START = "เริ่มบันทึก"
+    const val DRIFT_LOG_STOP = "หยุดบันทึก"
+
+    fun driftLogStatusLine(
+        recording: Boolean,
+        sensorName: String,
+        elapsedMinutes: Long,
+        rows: Int,
+        maxTwistDeg: Double,
+    ): String {
+        val state = if (recording) "กำลังบันทึก" else "หยุดแล้ว"
+        val twist = String.format(java.util.Locale.US, "%.2f", maxTwistDeg)
+        return "$state · $sensorName · ผ่านไป $elapsedMinutes นาที · $rows จุด · ไหลสูงสุด $twist°"
+    }
+
+    /** The measurement's own verdict line, stated against the threshold it decides. */
+    fun driftLogVerdict(maxTwistDeg: Double, thresholdDeg: Int): String =
+        if (maxTwistDeg >= thresholdDeg) {
+            "⚠️ ไหลถึง $thresholdDeg° แล้ว — แหล่งทิศทางนี้ใช้ตามลำพังไม่ได้ ต้องตรึงด้วยเข็มทิศก่อน"
+        } else {
+            "ยังไม่ถึงเกณฑ์ $thresholdDeg° — ต้องวัดให้ครบ 8 ชั่วโมงจึงจะสรุปได้"
+        }
+
     /** "โหมดยานพาหนะ · หลัก 2 · ประกอบ 8 · ปิด 0" — what this use is actually set up to run. */
     fun sensorRoleTallyLine(
         profile: ProtectionProfile,

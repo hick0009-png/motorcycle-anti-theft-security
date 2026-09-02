@@ -70,6 +70,8 @@ data class ProtectionAppActions(
     val confirmProfileSwitch: () -> Unit = {},
     val cancelProfileSwitch: () -> Unit = {},
     val restoreRecommendedProfile: () -> Unit = {},
+    /** Diagnostic: starts or stops the overnight orientation-drift recording. */
+    val setDriftRecording: (Boolean) -> Unit = {},
 )
 
 @Composable

@@ -10,7 +10,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.hardware.SensorManager
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -54,6 +57,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import com.example.motorcycleantitheftsensor.sensor.EntryDriftRecorder
+import com.example.motorcycleantitheftsensor.sensor.EntryDriftStatus
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -78,7 +85,17 @@ class SensorService : Service(), ServiceEnvironment {
         const val ACTION_ARM = "ACTION_ARM"
         const val ACTION_DISARM = "ACTION_DISARM"
         const val ACTION_REFRESH_TELEGRAM_POLLING = "ACTION_REFRESH_TELEGRAM_POLLING"
+        const val ACTION_START_DRIFT_LOG = "ACTION_START_DRIFT_LOG"
+        const val ACTION_STOP_DRIFT_LOG = "ACTION_STOP_DRIFT_LOG"
         const val EXTRA_RECOVERY_TRIGGER = "EXTRA_RECOVERY_TRIGGER"
+
+        /**
+         * The measurement runs inside this service because it has to survive a screen-off
+         * night: the service is already foreground and already holds a partial wake lock,
+         * and an eight-hour recording started from an Activity would stop at the first doze.
+         */
+        val driftRecorderStatus: StateFlow<EntryDriftStatus?> get() = driftRecorderState
+        private val driftRecorderState = MutableStateFlow<EntryDriftStatus?>(null)
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -103,6 +120,8 @@ class SensorService : Service(), ServiceEnvironment {
     private lateinit var telegramClient: TelegramBotClient
     private lateinit var telegramRefreshBoundary: TelegramPollingRefreshBoundary
     private lateinit var heartbeatPinger: com.example.motorcycleantitheftsensor.telegram.HeartbeatPinger
+    private var driftRecorder: EntryDriftRecorder? = null
+    private var driftHandlerThread: HandlerThread? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -160,6 +179,19 @@ class SensorService : Service(), ServiceEnvironment {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Diagnostic recording is deliberately kept off the protection command path: it
+        // must never invalidate recovery, arm, disarm, or touch the coordinator at all.
+        when (intent?.action) {
+            ACTION_START_DRIFT_LOG -> {
+                ensureForeground()
+                startDriftRecording()
+                return START_STICKY
+            }
+            ACTION_STOP_DRIFT_LOG -> {
+                stopDriftRecording()
+                return START_STICKY
+            }
+        }
         val refreshTelegramPolling = intent?.action == ACTION_REFRESH_TELEGRAM_POLLING
         val action = SensorServiceAction.from(intent?.action)
         if (action !in setOf(SensorServiceAction.Start, SensorServiceAction.Ignore)) {
@@ -560,8 +592,34 @@ class SensorService : Service(), ServiceEnvironment {
 
     private fun commandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
+    private fun startDriftRecording() {
+        if (driftRecorder?.isRecording == true) return
+        val thread = driftHandlerThread ?: HandlerThread("EntryDriftRecorder").apply { start() }
+        driftHandlerThread = thread
+        val recorder = driftRecorder ?: EntryDriftRecorder(
+            context = applicationContext,
+            sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager,
+            handler = Handler(thread.looper),
+        ).also { created ->
+            driftRecorder = created
+            serviceScope.launch {
+                created.status.collect { driftRecorderState.value = it }
+            }
+        }
+        if (!recorder.start()) {
+            Log.w(TAG, "Drift recording could not start: no orientation source")
+        }
+    }
+
+    private fun stopDriftRecording() {
+        driftRecorder?.stop()
+        driftHandlerThread?.quitSafely()
+        driftHandlerThread = null
+    }
+
     override fun onDestroy() {
         try {
+            stopDriftRecording()
             if (::heartbeatPinger.isInitialized) {
                 heartbeatPinger.stopHeartbeat()
             }
