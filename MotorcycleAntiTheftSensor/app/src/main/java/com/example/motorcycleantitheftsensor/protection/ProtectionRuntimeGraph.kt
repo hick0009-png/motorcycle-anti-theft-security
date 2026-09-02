@@ -25,6 +25,22 @@ import com.example.motorcycleantitheftsensor.sensor.LocationObservationProvider
 import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
 
 object ProtectionRuntimeGraph {
+
+    /**
+     * The angle this owner set for the door watch, which is what drift has to be measured
+     * against: a watch set to thirty degrees tolerates twice the drift of one set to fifteen.
+     * Falls back to the commissioning default when the profile has never been resolved.
+     */
+    private fun entryAlertAngleDeg(profileRepository: ProtectionProfileRepository): Int =
+        runCatching {
+            val settings = ProtectionProfilePolicy()
+                .resolve(profileRepository.load(), ProtectionProfile.ENTRY)
+                .specificSettings as? EntryProfileSettings
+            settings?.angleThresholdDegrees
+        }.getOrNull() ?: DEFAULT_ENTRY_ALERT_ANGLE_DEG
+
+    private const val DEFAULT_ENTRY_ALERT_ANGLE_DEG = 15
+
     @Volatile
     private var instance: Graph? = null
 
@@ -46,6 +62,12 @@ object ProtectionRuntimeGraph {
         val powerArmChallenge: PowerArmChallengeRegistry = PowerArmChallengeRegistry(),
         /** Hardware inventory of this device, for the screens that must state it. */
         val sensorCatalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog? = null,
+        /**
+         * What this phone measured about its own orientation drift. Shared rather than
+         * rebuilt: the graph opens the encrypted preferences, and a second opener of the same
+         * file by name would be reading someone else's ciphertext.
+         */
+        val driftMeasurementStore: EntryDriftMeasurementStore? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -460,6 +482,10 @@ object ProtectionRuntimeGraph {
             legacyRepository = sensorRepository,
         )
 
+        // What this particular phone measured about its own orientation drift. Read at the
+        // moment a use is offered, which is why it lives outside any session.
+        val driftMeasurementStore = SharedPreferencesEntryDriftMeasurementStore(sharedPrefs)
+
         val runtime = AndroidProtectionRuntime(
             readinessProvider = AndroidRuntimeReadiness(context) {
                 RemoteControlReadiness(
@@ -545,6 +571,14 @@ object ProtectionRuntimeGraph {
                     profile,
                     com.example.motorcycleantitheftsensor.sensor.SensorAvailabilityPolicy
                         .availability(sensorCatalog.descriptors()),
+                    // The door watch is offered on the strength of what this phone measured
+                    // about itself, against the angle this owner actually set. A phone that
+                    // measured nothing is unaffected.
+                    entryDrift = EntryDriftBudgetPolicy.verdict(
+                        measurement = driftMeasurementStore.load(),
+                        alertAngleDeg = entryAlertAngleDeg(profileRepository),
+                        currentSource = runtime.entryOrientationSource(),
+                    ),
                 )
             },
             powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
@@ -605,6 +639,7 @@ object ProtectionRuntimeGraph {
             profileRepository = profileRepository,
             powerArmChallenge = graphPowerArmChallenge,
             sensorCatalog = sensorCatalog,
+            driftMeasurementStore = driftMeasurementStore,
         )
     }
 

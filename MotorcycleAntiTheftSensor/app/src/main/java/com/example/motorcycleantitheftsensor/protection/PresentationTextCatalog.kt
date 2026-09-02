@@ -186,14 +186,24 @@ object PresentationTextCatalog {
             ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY ->
                 "เครื่องนี้ไม่มีไจโรสโคป จะวัดมุมด้วยเข็มทิศอย่างเดียว " +
                     "ต้องใช้เวลายืนยันนานขึ้น"
-            ProfileSupportReason.NO_MOVEMENT_SENSOR, ProfileSupportReason.NO_ANGLE_SENSOR -> null
+            ProfileSupportReason.DRIFT_LIMITS_SESSION ->
+                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเอง เฝ้าต่อเนื่องได้ราว " +
+                    "${support.trustedHours ?: 0} ชั่วโมง นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด " +
+                    "— ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
+            ProfileSupportReason.NO_MOVEMENT_SENSOR, ProfileSupportReason.NO_ANGLE_SENSOR,
+            ProfileSupportReason.DRIFT_TOO_FAST -> null
         }
         is ProfileDeviceSupport.Unsupported -> when (support.reason) {
             ProfileSupportReason.NO_ANGLE_SENSOR ->
                 "เครื่องนี้ไม่มีไจโรสโคปและเข็มทิศ จึงวัดมุมการเปิดประตูไม่ได้"
             ProfileSupportReason.NO_MOVEMENT_SENSOR ->
                 "เครื่องนี้ไม่มีมาตรวัดความเร่ง จึงตรวจการขยับหรือเคลื่อนย้ายไม่ได้"
-            ProfileSupportReason.NO_LIGHT_SENSOR, ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY -> null
+            ProfileSupportReason.DRIFT_TOO_FAST ->
+                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเองเร็วเกินไป " +
+                    "(ถึงเกณฑ์แจ้งเตือนในราว ${support.trustedHours ?: 0} ชั่วโมง) " +
+                    "จะเตือนทั้งที่ประตูไม่ได้เปิด จึงใช้โหมดนี้บนเครื่องนี้ไม่ได้"
+            ProfileSupportReason.NO_LIGHT_SENSOR, ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY,
+            ProfileSupportReason.DRIFT_LIMITS_SESSION -> null
         }
     }
 
@@ -303,6 +313,26 @@ object PresentationTextCatalog {
         val state = if (recording) "กำลังบันทึก" else "หยุดแล้ว"
         val twist = String.format(java.util.Locale.US, "%.2f", maxTwistDeg)
         return "$state · $sensorName · ผ่านไป $elapsedMinutes นาที · $rows จุด · ไหลสูงสุด $twist°"
+    }
+
+    /**
+     * What the measurement means for this owner's sessions, in hours they can plan around.
+     *
+     * Never a grade for the phone. The question an owner has is "can I leave it armed while I
+     * am at work", and that is what this answers.
+     */
+    fun driftBudgetLine(verdict: EntryDriftVerdict): String = when (verdict) {
+        EntryDriftVerdict.NotMeasured ->
+            "ยังวัดไม่นานพอ (ต้องอย่างน้อย 5 นาที) — วางเครื่องนิ่ง ๆ แล้วปล่อยไว้"
+        is EntryDriftVerdict.Trustworthy ->
+            "เครื่องนี้นิ่งพอ — มุมจะไหลถึงเกณฑ์ก็ต่อเมื่อเปิดค้างราว " +
+                "${verdict.hoursToThreshold.toInt()} ชั่วโมง เฝ้าข้ามคืนหรือทั้งวันทำงานได้"
+        is EntryDriftVerdict.Limited ->
+            "เฝ้าต่อเนื่องได้ราว ${verdict.hoursToThreshold.toInt()} ชั่วโมง " +
+                "นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด — ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
+        is EntryDriftVerdict.Unusable ->
+            "มุมของเครื่องนี้ไหลถึงเกณฑ์ในราว ${verdict.hoursToThreshold.toInt()} ชั่วโมง " +
+                "จะเตือนผิดจนใช้งานจริงไม่ได้"
     }
 
     /** The measurement's own verdict line, stated against the threshold it decides. */

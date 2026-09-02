@@ -600,6 +600,11 @@ class SensorService : Service(), ServiceEnvironment {
             context = applicationContext,
             sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager,
             handler = Handler(thread.looper),
+            // The measurement outlives the recording: it is what decides whether this phone's
+            // door watch may be offered at all, and for how long a session. The graph's store
+            // is shared rather than a second one built here — it holds the encrypted
+            // preferences open, and opening that file again by name reads ciphertext.
+            measurementStore = graph.driftMeasurementStore,
         ).also { created ->
             driftRecorder = created
             serviceScope.launch {

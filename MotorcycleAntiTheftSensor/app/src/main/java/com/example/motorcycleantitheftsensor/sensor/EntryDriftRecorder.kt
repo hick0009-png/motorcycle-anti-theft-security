@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Handler
 import android.os.SystemClock
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
 import com.example.motorcycleantitheftsensor.protection.EntryDriftSampler
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSource
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSourcePolicy
@@ -49,6 +50,11 @@ class EntryDriftRecorder(
     private val handler: Handler,
     private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
     private val wallClockMs: () -> Long = System::currentTimeMillis,
+    /**
+     * Where the finished measurement goes. Without it this stays what it started as — a file
+     * on disk for one developer to read — and every other phone learns nothing about itself.
+     */
+    private val measurementStore: EntryDriftMeasurementStore? = null,
 ) {
     private val statusState = MutableStateFlow<EntryDriftStatus?>(null)
     val status: StateFlow<EntryDriftStatus?> = statusState.asStateFlow()
@@ -57,6 +63,7 @@ class EntryDriftRecorder(
     private var sampler: EntryDriftSampler? = null
     private var file: File? = null
     private var startedAtMs: Long = 0L
+    private var sourceInUse: EntryOrientationSource? = null
 
     val isRecording: Boolean get() = listener != null
 
@@ -77,6 +84,7 @@ class EntryDriftRecorder(
         )
         val sensor = chosen?.let { manager.getDefaultSensor(sensorTypeOf(it)) }
             ?: return false
+        sourceInUse = chosen
 
         val target = newFile(sensor)
         val recorder = EntryDriftSampler()
@@ -136,6 +144,13 @@ class EntryDriftRecorder(
         }
         listener = null
         file?.let { appendLine(it, "# stopped afterMs=${elapsedMs() - startedAtMs}") }
+        // What the recording learned, kept where the rest of the app can read it: whether this
+        // particular phone's door watch can be believed, and for how long.
+        val measured = sampler?.measurement(
+            sourceLabel = (sourceInUse ?: EntryOrientationSource.GAME_ROTATION_VECTOR).label,
+            wallClockMs = wallClockMs(),
+        )
+        if (measured != null) measurementStore?.save(measured)
         statusState.value = statusState.value?.copy(recording = false)
     }
 

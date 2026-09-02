@@ -15,6 +15,19 @@ enum class ProfileSupportReason {
 
     /** A compass but no gyroscope: the angle is measurable, but slower and coarser. */
     NO_GYROSCOPE_COMPASS_ONLY,
+
+    /**
+     * This phone measured its own orientation drift and found it fast enough to reach the
+     * alert angle inside a long armed session. The watch works; the session has a ceiling.
+     */
+    DRIFT_LIMITS_SESSION,
+
+    /**
+     * Drift reaches the alert angle so quickly that no absence is covered. Offering the door
+     * watch here would mean alerting the owner about a door nobody touched, over and over,
+     * until they stop believing it — worse than saying plainly that this phone cannot.
+     */
+    DRIFT_TOO_FAST,
 }
 
 /**
@@ -30,11 +43,17 @@ sealed interface ProfileDeviceSupport {
     data class Degraded(
         val missing: Set<SensorSource>,
         val reason: ProfileSupportReason,
+        /**
+         * Hours this phone's own measurement says the watch can be believed. Only the drift
+         * reasons carry one; a missing sensor has no ceiling to state, it simply is not there.
+         */
+        val trustedHours: Int? = null,
     ) : ProfileDeviceSupport
 
     data class Unsupported(
         val missing: Set<SensorSource>,
         val reason: ProfileSupportReason,
+        val trustedHours: Int? = null,
     ) : ProfileDeviceSupport
 
     val selectable: Boolean get() = this !is Unsupported
@@ -72,9 +91,16 @@ object ProfileDeviceSupportPolicy {
         SensorSource.SIGNIFICANT_MOTION,
     )
 
+    /**
+     * @param entryDrift what this phone measured about its own orientation drift. Hardware is
+     *   asked first: a phone with no way to measure an angle is refused whatever it measured,
+     *   and a phone that never measured is treated as fine rather than suspect — the door
+     *   watch worked before any of this existed and an unasked question refuses nobody.
+     */
     fun support(
         profile: ProtectionProfile,
         availability: Map<SensorSource, SensorAvailability>,
+        entryDrift: EntryDriftVerdict = EntryDriftVerdict.NotMeasured,
     ): ProfileDeviceSupport {
         if (availability.isEmpty()) return ProfileDeviceSupport.Supported
         val present: (Set<SensorSource>) -> Boolean = { sources ->
@@ -103,6 +129,16 @@ object ProfileDeviceSupportPolicy {
                 !present(ANGLE_SOURCES) -> ProfileDeviceSupport.Degraded(
                     missing = ANGLE_SOURCES,
                     reason = ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY,
+                )
+                entryDrift is EntryDriftVerdict.Unusable -> ProfileDeviceSupport.Unsupported(
+                    missing = emptySet(),
+                    reason = ProfileSupportReason.DRIFT_TOO_FAST,
+                    trustedHours = EntryDriftBudgetPolicy.trustedHours(entryDrift),
+                )
+                entryDrift is EntryDriftVerdict.Limited -> ProfileDeviceSupport.Degraded(
+                    missing = emptySet(),
+                    reason = ProfileSupportReason.DRIFT_LIMITS_SESSION,
+                    trustedHours = EntryDriftBudgetPolicy.trustedHours(entryDrift),
                 )
                 else -> ProfileDeviceSupport.Supported
             }

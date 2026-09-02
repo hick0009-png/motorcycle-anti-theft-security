@@ -1011,10 +1011,6 @@ fun SettingsScreen(
             }
         }
 
-        item(key = "entry-drift-diagnostic") {
-            EntryDriftDiagnosticCard(onSetRecording = actions.setDriftRecording)
-        }
-
         }
 
         }
@@ -1517,8 +1513,6 @@ internal fun sensorSourceUnavailableTag(source: SensorSource): String =
     "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
 
 internal const val SENSOR_HOST_SUMMARY_TAG = "ui.settings.sensor.HOST_SUMMARY"
-internal const val DRIFT_LOG_TOGGLE_TAG = "ui.settings.drift.TOGGLE"
-internal const val DRIFT_LOG_STATUS_TAG = "ui.settings.drift.STATUS"
 
 /** The door-open threshold the measurement is judged against (EntryProfileSettings default). */
 private const val ENTRY_OPEN_THRESHOLD_DEG = 15
@@ -1607,67 +1601,6 @@ private fun SensorLockBanner(notice: String, onChangeUse: () -> Unit) {
  * outlives the screen it is started from. It reports rather than decides — the verdict
  * line states the measurement against the threshold and stops there.
  */
-@Composable
-private fun EntryDriftDiagnosticCard(onSetRecording: (Boolean) -> Unit) {
-    val status by SensorService.driftRecorderStatus.collectAsState()
-    SettingsCard(title = PresentationTextCatalog.DRIFT_LOG_TITLE) {
-        Text(
-            text = PresentationTextCatalog.DRIFT_LOG_EXPLANATION,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        status?.let { current ->
-            Text(
-                text = PresentationTextCatalog.driftLogStatusLine(
-                    recording = current.recording,
-                    sensorName = current.sensorName,
-                    elapsedMinutes = current.elapsedMs / 60_000L,
-                    rows = current.rowCount,
-                    maxTwistDeg = current.maxTwistDeg,
-                ),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .padding(top = 6.dp)
-                    .testTag(DRIFT_LOG_STATUS_TAG),
-            )
-            Text(
-                text = PresentationTextCatalog.driftLogVerdict(
-                    maxTwistDeg = current.maxTwistDeg,
-                    thresholdDeg = ENTRY_OPEN_THRESHOLD_DEG,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = current.fileName,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
-        val recording = status?.recording == true
-        OutlinedButton(
-            onClick = { onSetRecording(!recording) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .testTag(DRIFT_LOG_TOGGLE_TAG),
-            border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.8f)),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
-            shape = RoundedCornerShape(12.dp),
-        ) {
-            Text(
-                text = if (recording) {
-                    PresentationTextCatalog.DRIFT_LOG_STOP
-                } else {
-                    PresentationTextCatalog.DRIFT_LOG_START
-                },
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
-}
-
 /**
  * Offered only while something actually diverges: a button that restores what is already
  * in place teaches the owner nothing and invites a pointless write.

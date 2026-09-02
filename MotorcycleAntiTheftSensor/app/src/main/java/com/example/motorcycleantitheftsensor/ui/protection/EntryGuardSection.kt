@@ -111,6 +111,12 @@ fun EntryGuardSection(
                 ) {
                     Text("เริ่มปรับเทียบ")
                 }
+                // Part of setting the door watch up, not a diagnostic: what this measures
+                // decides whether this phone may be offered the watch at all.
+                EntryDriftMeasurementCard(
+                    alertAngleDeg = selectedAngle,
+                    onSetRecording = actions.setDriftRecording,
+                )
             } else if (profile.setupState == ProfileSetupState.READY) {
                 Text("พร้อมเฝ้าระวังทางเข้า", style = MaterialTheme.typography.headlineMedium)
                 Text("แจ้งเมื่อเกิน ${profile.entryAngleDegrees ?: 15}° จากตำแหน่งปิด")

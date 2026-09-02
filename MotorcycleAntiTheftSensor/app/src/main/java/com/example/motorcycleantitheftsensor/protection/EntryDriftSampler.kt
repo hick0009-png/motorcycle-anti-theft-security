@@ -35,6 +35,7 @@ class EntryDriftSampler(
     private var baseline: EntryQuaternion? = null
     private var startedAtMs: Long? = null
     private var lastRowAtMs: Long? = null
+    private var lastSampleAtMs: Long? = null
 
     var rowCount: Int = 0
         private set
@@ -54,6 +55,7 @@ class EntryDriftSampler(
      * starts at its own origin and a reader never has to assume where it began.
      */
     fun onSample(timestampMs: Long, quaternion: EntryQuaternion): EntryDriftRow? {
+        lastSampleAtMs = timestampMs
         val frozen = baseline
         if (frozen == null) {
             baseline = quaternion
@@ -102,6 +104,32 @@ class EntryDriftSampler(
         if (row.totalDeg > maxTotalDeg) maxTotalDeg = row.totalDeg
         if (row.twistDeg > maxTwistDeg) maxTwistDeg = row.twistDeg
         if (row.swingDeg > maxSwingDeg) maxSwingDeg = row.swingDeg
+    }
+
+    /** How long this recording has been running, by its own samples. */
+    val measuredMs: Long
+        get() {
+            val start = startedAtMs ?: return 0L
+            return ((lastSampleAtMs ?: start) - start).coerceAtLeast(0L)
+        }
+
+    /**
+     * What this recording has learned about the phone, in the form the rest of the app reads.
+     *
+     * The rate is the *peak* angle over the elapsed time, not the endpoint over it. Drift
+     * wanders rather than marching: a phone can sit at eight degrees for an hour and come back
+     * to two, and what would have tripped the gate is the eight. Reporting the endpoint would
+     * quietly excuse exactly the excursion the owner needs protecting from.
+     */
+    fun measurement(sourceLabel: String, wallClockMs: Long): EntryDriftMeasurement {
+        val elapsed = measuredMs
+        val hours = elapsed / 3_600_000.0
+        return EntryDriftMeasurement(
+            sourceLabel = sourceLabel,
+            degPerHour = if (hours <= 0.0) 0.0 else maxTwistDeg / hours,
+            measuredMs = elapsed,
+            measuredAtWallMs = wallClockMs,
+        )
     }
 
     companion object {
