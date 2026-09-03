@@ -21,6 +21,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.ui.ChargingRowState
+import com.example.motorcycleantitheftsensor.theme.StatusHealthy
+import com.example.motorcycleantitheftsensor.theme.StatusWarning
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.powerCommissioningFailureText
 import com.example.motorcycleantitheftsensor.ui.ProtectionProfileUiState
@@ -221,8 +223,9 @@ fun PowerGuardSection(
     }
 }
 
-private val PowerHealthy = Color(0xFF047857)
-private val PowerWarning = Color(0xFFB45309)
+// The same two states everything else in the app names, in the same two colours.
+private val PowerHealthy = StatusHealthy
+private val PowerWarning = StatusWarning
 
 @Composable
 private fun SignalRow(glyph: String, text: String, tint: Color) {

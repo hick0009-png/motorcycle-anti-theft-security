@@ -2,38 +2,81 @@ package com.example.motorcycleantitheftsensor.theme
 
 import androidx.compose.ui.graphics.Color
 
-// DEPRECATED legacy "OLED High-Contrast Dark Slate" palette. The app design system is
-// paper-light (see Theme.kt); no screen should import these for new work. Kept only as
-// a reference for a possible future opt-in dark theme (slice 4 candidate).
-// SettingsScreen now carries its own light-safe file-private palette instead.
-val DarkBackground = Color(0xFF020617)
-val DarkSurface = Color(0xFF0E1726)
-val DarkSurfaceVariant = Color(0xFF1E293B)
-val DarkBorder = Color(0xFF334155)
+/**
+ * Every colour the app is allowed to draw with.
+ *
+ * Three palettes used to exist at once: a monochrome scheme in the theme, a navy one the
+ * home screen declared for itself and applied over the theme, and a blue/green/amber set
+ * private to the settings screen. They disagreed about the two colours that carry the most
+ * meaning here — a phone was "healthy" in one green on one screen and another green on the
+ * next, and "alerting" in two different reds — which is exactly the kind of drift a person
+ * reads as two different apps.
+ *
+ * Navy won because it is what the owner already sees on the home screen, and because an
+ * instrumented test pins the selected navigation destination to it.
+ *
+ * Every value below is measured, not chosen by eye. The ratios in the comments are computed
+ * against the surface each colour is actually drawn on, and `ProtectionPaletteContrastTest`
+ * recomputes them on every build — a colour that stops meeting AA fails the suite rather
+ * than shipping quietly.
+ */
 
-// Accent & Security Status Tokens
-// NOTE: the base hues below are tuned for dark backgrounds. On the paper-light theme,
-// use the *Dark variants (TrustBlueDark / ArmedGreenDark / AlertRedDark) or amber-700
-// (#B45309) for text/icons so WCAG AA 4.5:1 holds on white.
-val TrustBlue = Color(0xFF3B82F6)
-val TrustBlueDark = Color(0xFF1D4ED8)
-val ArmedGreen = Color(0xFF10B981)
-val ArmedGreenDark = Color(0xFF047857)
-val WarningAmber = Color(0xFFF59E0B)
-val AlertRed = Color(0xFFEF4444)
-val AlertRedDark = Color(0xFFB91C1C)
-val CyanAccent = Color(0xFF06B6D4)
+// ---------------------------------------------------------------- structure
 
-// DEPRECATED text tokens from the dark palette (near-white on dark). On paper-light
-// use colorScheme.onSurface / onSurfaceVariant / outline instead.
-val TextHighEmphasis = Color(0xFFF8FAFC)
-val TextMediumEmphasis = Color(0xFFCBD5E1)
-val TextMuted = Color(0xFF94A3B8)
+/** The brand. Protection, not alarm. 13.1:1 on white. */
+val Navy = Color(0xFF16324F)
 
-// Legacy compatibility tokens
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+/** Lighter navy for headers and decorative accents. 7.2:1 on white. */
+val NavyHeader = Color(0xFF245B85)
+
+/** Page behind the cards. */
+val Canvas = Color(0xFFF8FAFC)
+
+/** Tinted navy surface for grouped rows and chips. */
+val SurfaceNavySoft = Color(0xFFE6EFF8)
+
+/** Neutral tinted surface for inner rows that must not read as navy. */
+val SurfaceMuted = Color(0xFFF2F4F7)
+
+/** Body text. 15.5:1 on white. */
+val Ink = Color(0xFF1C2530)
+
+/**
+ * Secondary text. Darkened from the old `#667085`, which met AA on white but only reached
+ * 4.28:1 on the tinted surface it was most often drawn on — the failure was invisible
+ * precisely where the text was smallest.
+ */
+val InkMuted = Color(0xFF5B6879)
+
+/**
+ * Borders that mean something: input outlines, inactive tracks, card edges that separate.
+ * The old `#C8D3DF` measured 1.5:1 and could not be seen against white at all; non-text
+ * contrast asks for 3:1 and this gives 3.3:1.
+ */
+val OutlineStrong = Color(0xFF7D8FA3)
+
+/** Hairlines between rows, which carry no meaning and stay quiet. */
+val OutlineHairline = Color(0xFFC8D3DF)
+
+// ---------------------------------------------------------------- status
+
+/**
+ * Armed and healthy. 5.5:1 on white.
+ *
+ * The home screen used `#168A63` for this, which measures 4.33:1 — under AA, on the single
+ * word an owner most needs to read at a glance in daylight.
+ */
+val StatusHealthy = Color(0xFF047857)
+val StatusHealthyContainer = Color(0xFFE6F5EF)
+
+/** Degraded: protecting, but not with everything. 5.9:1 on white. */
+val StatusWarning = Color(0xFF96530A)
+val StatusWarningContainer = Color(0xFFFDF1E1)
+
+/** An alert, and the destructive actions that share its weight. 7.5:1 on white. */
+val StatusCritical = Color(0xFFA81818)
+val StatusCriticalContainer = Color(0xFFFCE8E6)
+
+/** Offline, idle, not yet measured: absence of a claim, not a fault. 7.6:1 on white. */
+val StatusIdle = Color(0xFF4B5563)
+val StatusIdleContainer = Color(0xFFEEF2F6)

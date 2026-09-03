@@ -70,6 +70,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.motorcycleantitheftsensor.autostart.BackgroundKeepAliveManager
+import com.example.motorcycleantitheftsensor.theme.Navy
+import com.example.motorcycleantitheftsensor.theme.NavyHeader
+import com.example.motorcycleantitheftsensor.theme.OutlineStrong
+import com.example.motorcycleantitheftsensor.theme.StatusCritical
+import com.example.motorcycleantitheftsensor.theme.StatusHealthy
+import com.example.motorcycleantitheftsensor.theme.StatusWarning
+import com.example.motorcycleantitheftsensor.theme.SurfaceMuted
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
@@ -110,7 +117,7 @@ import kotlin.math.roundToInt
  * only accents without a scheme equivalent are defined here. Every pairing meets
  * WCAG AA (≥4.5:1) on white.
  */
-private val RowSurface = Color(0xFFF2F2F0)   // inner rows / chips
+private val RowSurface = SurfaceMuted        // inner rows / chips
 
 /**
  * Dimming for controls a profile has locked. Matches the M3 disabled-content alpha.
@@ -119,12 +126,21 @@ private val RowSurface = Color(0xFFF2F2F0)   // inner rows / chips
  * the explanation next to them).
  */
 private const val LockedContentAlpha = 0.38f
-private val BorderNeutral = Color(0xFFC9C9C6) // borders / inactive tracks
-private val ActionBlue = Color(0xFF1D4ED8)    // actions/links on white (6.3:1)
-private val StatusGreen = Color(0xFF047857)   // armed/healthy text (5.2:1)
-private val StatusAmber = Color(0xFFB45309)   // warning text (4.7:1)
-private val StatusRed = Color(0xFFB91C1C)     // error text / destructive fill
-private val ProgressCyan = Color(0xFF0891B2)  // decorative progress only
+private val BorderNeutral = OutlineStrong     // borders / inactive tracks (3.3:1, was 1.9:1)
+
+/**
+ * Actions on this screen are the brand, not a fourth accent.
+ *
+ * This screen used its own blue for every link and button while the home screen used navy
+ * for the same job — two answers to "what does a tappable thing look like here". Navy reads
+ * as the action colour app-wide now, and the blue is gone rather than renamed.
+ */
+private val BrandAction = Navy
+
+private val StatusGreen = StatusHealthy       // armed/healthy text (5.5:1)
+private val StatusAmber = StatusWarning       // warning text (5.9:1, was 5.0:1)
+private val StatusRed = StatusCritical        // error text / destructive fill (7.5:1)
+private val ProgressAccent = NavyHeader       // decorative progress only
 
 private enum class SettingsPage(
     val title: String,
@@ -235,7 +251,7 @@ fun SettingsScreen(
                     Text(
                         "กำลังรีเฟรชการตั้งค่า...",
                         style = MaterialTheme.typography.bodySmall,
-                        color = ProgressCyan,
+                        color = ProgressAccent,
                     )
                 }
                 state.settingsError?.let { error ->
@@ -250,7 +266,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     ) {
                         Text("ลองใหม่อีกครั้ง")
                     }
@@ -318,9 +334,9 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Surface(
-                                color = ActionBlue.copy(alpha = 0.15f),
+                                color = BrandAction.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.3f)),
                             ) {
                                 Text(
                                     text = "$sensitivityDraft/10",
@@ -364,7 +380,7 @@ fun SettingsScreen(
                                         modifier = Modifier
                                             .weight(1f)
                                             .heightIn(min = 48.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                                         shape = RoundedCornerShape(12.dp),
                                     ) {
                                         Text("$choice°", fontWeight = FontWeight.Bold)
@@ -636,7 +652,7 @@ fun SettingsScreen(
                                     .weight(1f)
                                     .heightIn(min = 48.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ActionBlue,
+                                    containerColor = BrandAction,
                                     contentColor = Color.White,
                                 ),
                                 shape = RoundedCornerShape(12.dp),
@@ -681,7 +697,7 @@ fun SettingsScreen(
                         text = "รูปแบบ: กำหนดเอง",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = ProgressCyan,
+                            color = ProgressAccent,
                         ),
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -761,15 +777,15 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Surface(
-                                    color = ActionBlue.copy(alpha = 0.15f),
+                                    color = BrandAction.copy(alpha = 0.15f),
                                     shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
+                                    border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.3f)),
                                 ) {
                                     Text(
                                         text = "ระดับการตรวจจับ $sliderValue/10",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = ProgressCyan,
+                                            color = ProgressAccent,
                                         ),
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     )
@@ -809,8 +825,8 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.8f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
+                    border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("กำหนดบทบาทเซ็นเซอร์ขั้นสูง", fontWeight = FontWeight.SemiBold)
@@ -972,7 +988,7 @@ fun SettingsScreen(
                     confirmButton = {
                         Button(
                             onClick = { showAdvancedDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text("เสร็จสิ้น", fontWeight = FontWeight.Bold)
@@ -1066,9 +1082,9 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
+                        focusedBorderColor = BrandAction,
                         unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
+                        focusedLabelColor = BrandAction,
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
@@ -1083,7 +1099,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingBotToken) {
@@ -1139,9 +1155,9 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
+                        focusedBorderColor = BrandAction,
                         unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
+                        focusedLabelColor = BrandAction,
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
@@ -1154,9 +1170,9 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
+                        focusedBorderColor = BrandAction,
                         unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
+                        focusedLabelColor = BrandAction,
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
@@ -1173,7 +1189,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingSmsFallback) {
@@ -1234,7 +1250,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("ขอสิทธิการเข้าถึงที่ขาด", fontWeight = FontWeight.Bold)
@@ -1282,7 +1298,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) StatusGreen else ActionBlue,
+                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) StatusGreen else BrandAction,
                     ),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -1303,8 +1319,8 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        border = BorderStroke(1.dp, ActionBlue),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
+                        border = BorderStroke(1.dp, BrandAction),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandAction),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("เปิดการตั้งค่า Auto-Start (${keepAliveStatus.manufacturer})", fontWeight = FontWeight.SemiBold)
@@ -1462,7 +1478,7 @@ private fun SettingsLoadState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (loading) CircularProgressIndicator(color = ActionBlue)
+            if (loading) CircularProgressIndicator(color = BrandAction)
             Text(
                 text = if (loading) "กำลังโหลดการตั้งค่า..." else "ไม่สามารถโหลดการตั้งค่าได้",
                 style = MaterialTheme.typography.titleLarge.copy(
@@ -1476,7 +1492,7 @@ private fun SettingsLoadState(
                 Button(
                     onClick = retry,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("ลองใหม่อีกครั้ง")
@@ -1586,7 +1602,7 @@ private fun SensorLockBanner(notice: String, onChangeUse: () -> Unit) {
                 Text(
                     text = PresentationTextCatalog.SENSOR_LOCK_CHANGE_USE,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = ActionBlue,
+                    color = BrandAction,
                 )
             }
         }
@@ -1632,7 +1648,7 @@ private fun RestoreRecommendedRow(line: String, onRestore: () -> Unit) {
                 Text(
                     text = PresentationTextCatalog.SENSOR_RESTORE_RECOMMENDED,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = ActionBlue,
+                    color = BrandAction,
                 )
             }
         }
@@ -1852,7 +1868,7 @@ private fun SensorRoleRow(
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = when (candidate) {
                                     SensorRole.PRIMARY -> StatusGreen
-                                    SensorRole.SUPPORTING -> ActionBlue
+                                    SensorRole.SUPPORTING -> BrandAction
                                     SensorRole.OFF -> StatusRed
                                 },
                                 contentColor = Color.White,
@@ -1903,7 +1919,7 @@ private fun SensorRoleRow(
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                         ),
-                        color = ActionBlue,
+                        color = BrandAction,
                     )
                 }
                 if (expanded) {
@@ -2032,8 +2048,8 @@ private fun AccessibleSensitivitySlider(
             steps = 8,
             enabled = enabled,
             colors = SliderDefaults.colors(
-                thumbColor = ActionBlue,
-                activeTrackColor = ActionBlue,
+                thumbColor = BrandAction,
+                activeTrackColor = BrandAction,
                 inactiveTrackColor = BorderNeutral,
             ),
             modifier = Modifier
@@ -2228,7 +2244,7 @@ private fun RemoteControlReadinessCard(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .testTag("readiness_primary_action"),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                 ) {
                     Text(label, fontWeight = FontWeight.Bold)
                 }
@@ -2271,7 +2287,7 @@ private fun SettingsOverviewCard(
                 text = "เปิดการตั้งค่า",
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontWeight = FontWeight.SemiBold,
-                    color = ActionBlue,
+                    color = BrandAction,
                 ),
             )
         }

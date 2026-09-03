@@ -23,7 +23,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -39,6 +38,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.theme.MotorcycleAntiTheftSensorTheme
 import com.example.motorcycleantitheftsensor.ui.events.EventsScreen
 import com.example.motorcycleantitheftsensor.ui.protection.ProtectionScreen
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
@@ -92,7 +92,9 @@ fun ProtectionAppScreen(
         }
     }
 
-    MaterialTheme(colorScheme = MotoGuardNavyColorScheme) {
+    // The app's theme, applied here too so this screen renders the same palette when it is
+    // hosted on its own — previews and instrumented tests call it without MainActivity.
+    MotorcycleAntiTheftSensorTheme {
         Scaffold(
             modifier = modifier.safeDrawingPadding(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -109,7 +111,7 @@ fun ProtectionAppScreen(
                     modifier = Modifier
                         .height(80.dp)
                         .testTag(PRIMARY_NAVIGATION_TAG),
-                    color = CanvasWhite,
+                    color = MaterialTheme.colorScheme.surface,
                 ) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
@@ -139,7 +141,7 @@ fun ProtectionAppScreen(
                                 ),
                             ) {
                                 Surface(
-                                    color = if (selected) Navy else Color.Transparent,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                                     shape = RoundedCornerShape(16.dp),
                                 ) {
                                     Box(
@@ -151,7 +153,11 @@ fun ProtectionAppScreen(
                                         Icon(
                                             painter = painterResource(item.iconResource),
                                             contentDescription = null,
-                                            tint = if (selected) Color.White else Navy,
+                                            tint = if (selected) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            },
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .testTag(
@@ -163,7 +169,11 @@ fun ProtectionAppScreen(
                                 Text(
                                     text = destinationLabel,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = if (selected) Navy else MutedInk,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     modifier = Modifier.testTag(
                                         "primary_destination_label_${item.name}",
                                     ),
@@ -196,56 +206,6 @@ fun ProtectionAppScreen(
         }
     }
 }
-
-private val Navy = Color(0xFF16324F)
-private val HeaderNavy = Color(0xFF245B85)
-private val Canvas = Color(0xFFF8FAFC)
-private val CanvasWhite = Color.White
-private val SoftNavySurface = Color(0xFFE6EFF8)
-private val MutedInk = Color(0xFF667085)
-private val Ink = Color(0xFF1C2530)
-private val Outline = Color(0xFFC8D3DF)
-private val HealthyGreen = Color(0xFF168A63)
-
-// Thai-first Moto Guard palette: navy communicates protection, white keeps dense controls legible.
-private val MotoGuardNavyColorScheme = lightColorScheme(
-    primary = Navy,
-    onPrimary = Color.White,
-    primaryContainer = SoftNavySurface,
-    onPrimaryContainer = Navy,
-    inversePrimary = HeaderNavy,
-    secondary = HeaderNavy,
-    onSecondary = Color.White,
-    secondaryContainer = SoftNavySurface,
-    onSecondaryContainer = Navy,
-    tertiary = HealthyGreen,
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFE6F5EF),
-    onTertiaryContainer = HealthyGreen,
-    background = Canvas,
-    onBackground = Ink,
-    surface = CanvasWhite,
-    onSurface = Ink,
-    surfaceVariant = SoftNavySurface,
-    onSurfaceVariant = MutedInk,
-    surfaceTint = Color.Transparent,
-    inverseSurface = Navy,
-    inverseOnSurface = Color.White,
-    error = Color(0xFFA81818),
-    onError = Color.White,
-    errorContainer = Color(0xFFFCE8E6),
-    onErrorContainer = Color(0xFFA81818),
-    outline = Outline,
-    outlineVariant = SoftNavySurface,
-    scrim = Color.Black,
-    surfaceBright = CanvasWhite,
-    surfaceContainer = CanvasWhite,
-    surfaceContainerHigh = Canvas,
-    surfaceContainerHighest = SoftNavySurface,
-    surfaceContainerLow = CanvasWhite,
-    surfaceContainerLowest = CanvasWhite,
-    surfaceDim = Canvas,
-)
 
 private enum class PrimaryDestination(
     val destination: ProtectionDestination,
