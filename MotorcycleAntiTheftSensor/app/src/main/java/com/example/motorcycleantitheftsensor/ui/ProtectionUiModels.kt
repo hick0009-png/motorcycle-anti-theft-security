@@ -386,7 +386,7 @@ interface ProtectionSettingsGateway {
     fun saveSensitivity(level: Int)
     suspend fun replaceBotToken(token: String): SettingsOperationResult
     suspend fun resetPairing(): SettingsOperationResult
-    fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
+    fun saveSmsFallback(destination: String): SettingsOperationResult
     fun saveSensorConfiguration(config: com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration): SettingsOperationResult =
         SettingsOperationResult(applied = true, message = "Sensor configuration updated")
 }

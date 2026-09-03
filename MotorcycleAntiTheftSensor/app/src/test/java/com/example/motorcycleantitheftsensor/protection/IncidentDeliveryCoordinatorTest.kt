@@ -133,7 +133,7 @@ class IncidentDeliveryCoordinatorTest {
     }
 
     @Test
-    fun smsFallbackUsesRedactedSmsMessageWithoutCoordinatesOrMapsUrl() = runTest {
+    fun smsFallbackCarriesCoordinatesButNotTheGeocodedLabelOrMapsUrl() = runTest {
         var deliveredSmsMessage: String? = null
         var deliveredTelegramMessage: String? = null
         val coordinator = IncidentDeliveryCoordinator(
@@ -157,11 +157,10 @@ class IncidentDeliveryCoordinatorTest {
         assertTrue(deliveredTelegramMessage != null && deliveredTelegramMessage!!.contains("maps.google.com"))
         assertTrue(deliveredTelegramMessage!!.contains("Bangkok, Thailand"))
 
-        // SMS received redacted content
+        // SMS carries the coordinates a searcher can act on, and nothing the network paid for
         assertTrue(deliveredSmsMessage != null)
+        assertTrue(deliveredSmsMessage!!.contains("13.75630,100.50180"))
         assertFalse(deliveredSmsMessage!!.contains("maps.google.com"))
-        assertFalse(deliveredSmsMessage!!.contains("13.7563"))
-        assertFalse(deliveredSmsMessage!!.contains("100.5018"))
         assertFalse(deliveredSmsMessage!!.contains("Bangkok, Thailand"))
     }
 

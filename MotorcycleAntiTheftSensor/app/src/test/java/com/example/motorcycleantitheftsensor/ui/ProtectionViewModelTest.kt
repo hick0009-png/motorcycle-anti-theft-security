@@ -297,7 +297,7 @@ class ProtectionViewModelTest {
             settings = FakeProtectionSettingsGateway(smsFallbackFailure = "provider failed: $secret"),
         )
 
-        fixture.viewModel.configureSmsFallback("+15555550123", secret)
+        fixture.viewModel.configureSmsFallback("+15555550123")
         advanceUntilIdle()
 
         assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
@@ -782,7 +782,7 @@ class ProtectionViewModelTest {
         val vm = ViewModelProvider(store, factory)[ProtectionViewModel::class.java]
 
         try {
-            vm.configureSmsFallback("+15555550123", "key123")
+            vm.configureSmsFallback("+15555550123")
 
             assertTrue("Fake SMS save should have started", smsStarted.await(2, TimeUnit.SECONDS))
 
@@ -2180,7 +2180,7 @@ private class FakeProtectionSettingsGateway(
         return SettingsOperationResult(applied = true, message = "Pairing reset")
     }
 
-    override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
+    override fun saveSmsFallback(destination: String): SettingsOperationResult {
         smsFallbackStarted?.countDown()
         allowSmsFallbackLatch?.let { gate ->
             require(gate.await(5, TimeUnit.SECONDS)) { "SMS save gate timed out" }

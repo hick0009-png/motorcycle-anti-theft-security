@@ -140,7 +140,7 @@ class IncidentMessageFormatterTest {
     }
 
     @Test
-    fun formatSmsNeverIncludesMapsUrlCoordinatesOrLabel() {
+    fun formatSmsCarriesCoordinatesButNeitherMapsUrlNorGeocodedLabel() {
         val incident = criticalIncident().copy(
             type = IncidentType.TAMPER,
             evidence = listOf(
@@ -166,11 +166,56 @@ class IncidentMessageFormatterTest {
         )
 
         val message = formatter.formatSms(incident)
+        // Coordinates are the point of an offline alert; the reverse-geocoded label and the
+        // maps URL are not, because resolving one needs the network this channel replaces.
+        assertTrue(message.contains("📍 พิกัด: 13.75630,100.50180 (~8m)"))
         assertFalse(message.contains("maps.google.com"))
-        assertFalse(message.contains("13.7563"))
-        assertFalse(message.contains("100.5018"))
-        assertFalse(message.contains("ตำแหน่ง"))
-        assertFalse(message.contains("พิกัด"))
+        assertFalse(message.contains("ตำแหน่ง:"))
+    }
+
+    @Test
+    fun formatSmsCarriesCoordinatesThroughTheTypedEntryAndPowerCopy() {
+        val entry = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                IncidentEvidence(
+                    kind = SensorKind.VIBRATION,
+                    eventElapsedMs = 0L,
+                    wallClockMs = 0L,
+                    normalizedValue = 25.0,
+                    baselineDelta = 2.5,
+                    diagnostic = ProtectionDiagnostics.ENTRY_DOOR_OPEN,
+                ),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+            location = IncidentLocation(13.7563, 100.5018, 8f, 1000L),
+        )
+
+        val message = formatter.formatSms(entry)
+        assertTrue(message.startsWith("ประตูเปิด 25° จากตำแหน่งปิด"))
+        assertTrue(message.contains("📍 พิกัด: 13.75630,100.50180 (~8m)"))
+    }
+
+    @Test
+    fun formatSmsWithoutAFixSaysNothingAboutWhereTheVehicleIs() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            lifecycle = IncidentLifecycle.OPEN,
+            location = null,
+        )
+
+        assertFalse(formatter.formatSms(incident).contains("พิกัด"))
+    }
+
+    @Test
+    fun formatSmsDropsCoordinatesOnceTheIncidentIsClosed() {
+        val closed = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            lifecycle = IncidentLifecycle.CLOSED,
+            location = IncidentLocation(13.7563, 100.5018, 8f, 1000L),
+        )
+
+        assertFalse(formatter.formatSms(closed).contains("พิกัด"))
     }
 
     @Test

@@ -33,6 +33,7 @@ class SmsFallbackManager internal constructor(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val sendTimeoutMs: Long = DEFAULT_SEND_TIMEOUT_MS,
     private val minIntervalMs: Long = DEFAULT_MIN_INTERVAL_MS,
+    private val maxPayloadBytes: Int = DEFAULT_MAX_PAYLOAD_BYTES,
 ) {
     private val lastSmsSentMs = java.util.concurrent.atomic.AtomicLong(0L)
     private val sendMutex = kotlinx.coroutines.sync.Mutex()
@@ -41,24 +42,32 @@ class SmsFallbackManager internal constructor(
         context: Context,
         prefsManager: EncryptedPrefsManager,
     ) : this(
-        smsKeyProvider = prefsManager::getSmsAesKey,
+        smsKeyProvider = prefsManager::getOrCreateSmsAesKey,
         dispatcher = AndroidSmsDispatcher(context.applicationContext),
     )
 
+    /**
+     * Seals [message] — the same incident copy Telegram would have carried — and sends it
+     * to [destinationNumber]. The message is truncated to [maxPayloadBytes] first, because
+     * the ciphertext expands by a third through Base64 and an unbounded Thai alert would
+     * turn one event into a dozen SMS parts, each its own chance to arrive alone.
+     */
     suspend fun sendEncryptedSmsAlert(
         destinationNumber: String,
-        alertType: String,
-        gpsLocation: String? = null,
+        message: String,
     ): Boolean = sendMutex.withLock {
-        val secretPass = smsKeyProvider() ?: return@withLock false
+        val deviceKey = smsKeyProvider()?.takeIf { EncryptedSmsCodec.isValidKeyBase64(it) }
+            ?: return@withLock false
         if (destinationNumber.isBlank()) return@withLock false
         val now = nowMs()
         val last = lastSmsSentMs.get()
         if (last > 0L && now - last in 0 until minIntervalMs) {
             return@withLock false
         }
-        val payload = "ALERT:$alertType|TIME:$now"
-        val encryptedBody = EncryptedSmsCodec.encryptSmsPayload(payload, secretPass)
+        // Body first, timestamp last: if only the leading parts of a multipart SMS arrive,
+        // what happened is worth more than exactly when.
+        val payload = "${truncateUtf8(message, maxPayloadBytes)}\nTIME:$now"
+        val encryptedBody = EncryptedSmsCodec.encryptSmsPayload(payload, deviceKey)
         return try {
             val result = withTimeoutOrNull(sendTimeoutMs) {
                 suspendCancellableCoroutine { continuation ->
@@ -78,9 +87,36 @@ class SmsFallbackManager internal constructor(
         }
     }
 
+    /**
+     * Cuts [text] to at most [maxBytes] UTF-8 bytes on a codepoint boundary, so a Thai
+     * character is never split into a byte pair that decodes to nothing.
+     */
+    private fun truncateUtf8(text: String, maxBytes: Int): String {
+        if (text.toByteArray(Charsets.UTF_8).size <= maxBytes) return text
+        val budget = maxBytes - ELLIPSIS_UTF8_BYTES
+        var used = 0
+        var end = 0
+        while (end < text.length) {
+            val codePoint = text.codePointAt(end)
+            val charCount = Character.charCount(codePoint)
+            val width = String(Character.toChars(codePoint)).toByteArray(Charsets.UTF_8).size
+            if (used + width > budget) break
+            used += width
+            end += charCount
+        }
+        return text.substring(0, end).trimEnd() + "…"
+    }
+
     private companion object {
         const val DEFAULT_SEND_TIMEOUT_MS = 30_000L
         const val DEFAULT_MIN_INTERVAL_MS = 60_000L
+
+        /**
+         * 300 plaintext bytes seals into ~440 Base64 characters, which with the scheme
+         * prefix stays inside three concatenated GSM-7 parts.
+         */
+        const val DEFAULT_MAX_PAYLOAD_BYTES = 300
+        const val ELLIPSIS_UTF8_BYTES = 3
     }
 }
 

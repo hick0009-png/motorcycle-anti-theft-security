@@ -72,7 +72,7 @@ class ProfileDeviceSupportUiTest {
                     changeSensitivity = {},
                     requestPermissions = {},
                     replaceBotToken = {},
-                    configureSmsFallback = { _, _ -> },
+                    configureSmsFallback = { _ -> },
                     retry = {},
                     retrySettings = {},
                     resetPairing = {},

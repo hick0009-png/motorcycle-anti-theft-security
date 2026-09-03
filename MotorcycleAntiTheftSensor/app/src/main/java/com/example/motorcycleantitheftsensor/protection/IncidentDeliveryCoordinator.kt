@@ -159,7 +159,7 @@ class IncidentDeliveryCoordinator(
             pending.severity == IncidentSeverity.CRITICAL &&
             configuration.smsConfigured
         val smsSent = if (smsEligible) {
-            val smsMessage = formatter.formatSms(update)
+            val smsMessage = formatter.formatSms(update, pending.location)
             try {
                 sms.send(smsMessage)
             } catch (error: Exception) {

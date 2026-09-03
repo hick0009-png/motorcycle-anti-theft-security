@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.protection
 
 import com.example.motorcycleantitheftsensor.location.LocationPresentation
 import java.util.Locale
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 class IncidentMessageFormatter(
@@ -96,7 +97,34 @@ class IncidentMessageFormatter(
         presentation: LocationPresentation? = null,
     ): String = formatTelegram(incident.toDefaultUpdate(), presentation)
 
-    fun formatSms(update: IncidentUpdate): String {
+    /**
+     * The SMS fallback copy. [location] is appended as raw coordinates rather than the
+     * reverse-geocoded label and maps URL Telegram gets: a label costs a network round
+     * trip this channel exists precisely because the device cannot make, and every byte
+     * here is paid for in SMS parts.
+     *
+     * Coordinates are withheld from closed updates, matching how the Telegram channel
+     * drops its location block once an incident is over.
+     */
+    fun formatSms(update: IncidentUpdate, location: IncidentLocation? = null): String {
+        val body = smsBody(update)
+        if (body.isEmpty() || location == null) return body
+        val incident = update.incidentOrNull() ?: return body
+        if (update is IncidentUpdate.Closed || incident.lifecycle == IncidentLifecycle.CLOSED) {
+            return body
+        }
+        return "$body\n${coordinateLine(location)}"
+    }
+
+    private fun coordinateLine(location: IncidentLocation): String = String.format(
+        Locale.US,
+        "📍 พิกัด: %.5f,%.5f (~%dm)",
+        location.latitude,
+        location.longitude,
+        ceil(location.accuracyMeters.toDouble()).toInt().coerceAtLeast(1),
+    )
+
+    private fun smsBody(update: IncidentUpdate): String {
         val incident = update.incidentOrNull() ?: return ""
         if (incident.type == IncidentType.ENTRY_DOOR) {
             return entryMessage(update, incident)
@@ -169,7 +197,8 @@ class IncidentMessageFormatter(
         return message
     }
 
-    fun formatSms(incident: SecurityIncident): String = formatSms(incident.toDefaultUpdate())
+    fun formatSms(incident: SecurityIncident): String =
+        formatSms(incident.toDefaultUpdate(), incident.location)
 
     fun format(update: IncidentUpdate): String = formatTelegram(update, null)
 

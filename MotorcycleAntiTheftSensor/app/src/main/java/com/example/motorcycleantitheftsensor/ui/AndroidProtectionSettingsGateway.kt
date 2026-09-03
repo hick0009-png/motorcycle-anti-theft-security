@@ -60,8 +60,7 @@ class AndroidProtectionSettingsGateway internal constructor(
             pairedOwnerCount = allowedChatIds.size,
             pairingCode = pairingCode,
             sensitivity = operations.getSensitivity(),
-            smsFallbackConfigured = !operations.getSmsDestination().isNullOrBlank() &&
-                !operations.getSmsAesKey().isNullOrBlank(),
+            smsFallbackConfigured = !operations.getSmsDestination().isNullOrBlank(),
             missingPermissions = missingPermissions,
             sensorConfiguration = sensorConfig,
             sensorDisplayPreset = displayPreset,
@@ -112,17 +111,21 @@ class AndroidProtectionSettingsGateway internal constructor(
         )
     }
 
-    override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
+    /**
+     * The owner supplies a destination and nothing else. The encryption key is generated on
+     * the device and stays there — asking a human to invent a secret that only this phone
+     * ever uses bought no security and cost a brute-forceable passphrase.
+     */
+    override fun saveSmsFallback(destination: String): SettingsOperationResult {
         val cleanDestination = destination.trim()
-        val cleanKey = aesKey.trim()
-        if (cleanDestination.isBlank() || cleanKey.isBlank()) {
+        if (cleanDestination.isBlank()) {
             return SettingsOperationResult(
                 applied = false,
-                message = "SMS destination and encryption key are required",
+                message = "SMS destination is required",
             )
         }
+        operations.ensureSmsAesKey()
         operations.saveSmsDestination(cleanDestination)
-        operations.saveSmsAesKey(cleanKey)
         return SettingsOperationResult(applied = true, message = "SMS fallback updated")
     }
 
@@ -140,11 +143,10 @@ internal interface AndroidProtectionSettingsOperations {
     fun getBotToken(): String?
     fun getSensitivity(): Int
     fun getSmsDestination(): String?
-    fun getSmsAesKey(): String?
     fun setSensitivity(level: Int)
     fun saveBotToken(token: String)
     fun saveSmsDestination(destination: String)
-    fun saveSmsAesKey(aesKey: String)
+    fun ensureSmsAesKey()
     suspend fun verifyBotToken(token: String): TelegramBotVerificationResult
     fun refreshControlService()
     fun getSensorConfiguration(): SensorFusionConfiguration? = null
@@ -176,11 +178,12 @@ private class EncryptedAndroidProtectionSettingsOperations(
     override fun getBotToken(): String? = preferences.getBotToken()
     override fun getSensitivity(): Int = preferences.getSensitivity()
     override fun getSmsDestination(): String? = preferences.getSmsDestination()
-    override fun getSmsAesKey(): String? = preferences.getSmsAesKey()
     override fun setSensitivity(level: Int) = preferences.setSensitivity(level)
     override fun saveBotToken(token: String) = preferences.saveBotToken(token)
     override fun saveSmsDestination(destination: String) = preferences.saveSmsDestination(destination)
-    override fun saveSmsAesKey(aesKey: String) = preferences.saveSmsAesKey(aesKey)
+    override fun ensureSmsAesKey() {
+        preferences.getOrCreateSmsAesKey()
+    }
     override suspend fun verifyBotToken(token: String): TelegramBotVerificationResult {
         return telegram.verifyBotTokenResult(token)
     }

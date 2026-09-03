@@ -58,7 +58,7 @@ data class ProtectionAppActions(
     val changeSensitivity: (Int) -> Unit,
     val requestPermissions: () -> Unit,
     val replaceBotToken: (String) -> Unit,
-    val configureSmsFallback: (String, String) -> Unit,
+    val configureSmsFallback: (String) -> Unit,
     val retry: () -> Unit,
     val retrySettings: () -> Unit,
     val resetPairing: () -> Unit,

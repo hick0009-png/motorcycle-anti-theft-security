@@ -183,7 +183,6 @@ private class FakeAndroidProtectionSettingsOperations(
 
     override fun getSmsDestination(): String? = null
 
-    override fun getSmsAesKey(): String? = null
 
     override fun setSensitivity(level: Int) = Unit
 
@@ -194,7 +193,7 @@ private class FakeAndroidProtectionSettingsOperations(
 
     override fun saveSmsDestination(destination: String) = Unit
 
-    override fun saveSmsAesKey(aesKey: String) = Unit
+    override fun ensureSmsAesKey() = Unit
 
     override suspend fun verifyBotToken(token: String): com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult {
         events += "verify:$token"

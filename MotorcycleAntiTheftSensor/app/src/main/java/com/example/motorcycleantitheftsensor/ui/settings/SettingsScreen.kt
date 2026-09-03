@@ -168,7 +168,6 @@ fun SettingsScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     var replacementToken by remember { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
-    var smsKey by remember { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
     var advancedDiagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -181,7 +180,6 @@ fun SettingsScreen(
     DisposableEffect(Unit) {
         onDispose {
             replacementToken = ""
-            smsKey = ""
         }
     }
 
@@ -1144,7 +1142,9 @@ fun SettingsScreen(
                     if (state.settings.smsFallbackConfigured) "พร้อมใช้งาน" else "ยังไม่ได้ตั้งค่า",
                 )
                 Text(
-                    text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)",
+                    text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น " +
+                        "ข้อความจะมีสาเหตุที่ตรวจพบและพิกัดล่าสุด เข้ารหัส AES-256-GCM ด้วยกุญแจที่เครื่องสร้างเองและไม่ออกจากเครื่อง " +
+                        "อ่านข้อความได้โดยส่งต่อทั้งข้อความให้บอทด้วยคำสั่ง /decode",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -1165,30 +1165,12 @@ fun SettingsScreen(
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
-                OutlinedTextField(
-                    value = smsKey,
-                    onValueChange = { smsKey = it },
-                    label = { Text("คีย์เข้ารหัส SMS (Encryption Key)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = BrandAction,
-                        unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = BrandAction,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.outline,
-                    ),
-                )
                 Button(
                     onClick = {
-                        val destination = smsDestination
-                        val key = smsKey
-                        actions.configureSmsFallback(destination, key)
+                        actions.configureSmsFallback(smsDestination)
                         smsDestination = ""
-                        smsKey = ""
                     },
-                    enabled = smsDestination.isNotBlank() && smsKey.isNotBlank() &&
+                    enabled = smsDestination.isNotBlank() &&
                         !state.settingsOperationInFlight,
                     modifier = Modifier
                         .fillMaxWidth()

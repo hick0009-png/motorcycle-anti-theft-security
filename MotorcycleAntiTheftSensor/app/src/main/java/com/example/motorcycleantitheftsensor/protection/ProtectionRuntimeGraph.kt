@@ -162,12 +162,12 @@ object ProtectionRuntimeGraph {
             repository = repository,
             formatter = IncidentMessageFormatter { coordinator.snapshot.value },
             telegram = IncidentTransport(telegram::sendTelegramAlert),
-            sms = IncidentTransport { _ ->
+            sms = IncidentTransport { message ->
                 val destination = preferences.getSmsDestination()
-                if (destination.isNullOrBlank() || preferences.getSmsAesKey().isNullOrBlank()) {
+                if (destination.isNullOrBlank()) {
                     false
                 } else {
-                    sms.sendEncryptedSmsAlert(destination, "SECURITY_INCIDENT")
+                    sms.sendEncryptedSmsAlert(destination, message)
                 }
             },
             labelResolver = labelResolver,
@@ -237,8 +237,9 @@ object ProtectionRuntimeGraph {
                         delivery.deliver(
                             update = update,
                             configuration = DeliveryConfiguration(
-                                smsConfigured = !preferences.getSmsDestination().isNullOrBlank() &&
-                                    !preferences.getSmsAesKey().isNullOrBlank(),
+                                // The key is generated on demand, so a destination is the
+                                // only thing the owner still has to supply.
+                                smsConfigured = !preferences.getSmsDestination().isNullOrBlank(),
                             ),
                         )
                     }

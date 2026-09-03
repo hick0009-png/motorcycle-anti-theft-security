@@ -265,16 +265,17 @@ class TelegramBotClient(
             RemoteCommand.Disarm -> delegate(chatId, commandId, command, updateId)
 
             is RemoteCommand.Decode -> {
-                val secretPass = prefsManager.getSmsAesKey()
-                if (secretPass == null) {
-                    sendTelegramMessage(chatId, "⚠️ SMS AES key not configured. Set it first in Security Settings.")
+                // Current alerts open under the device key; anything still in the owner's
+                // inbox from before the key was randomised opens under the old passphrase.
+                val decrypted =
+                    EncryptedSmsCodec.decryptSmsPayload(command.payload, prefsManager.getOrCreateSmsAesKey())
+                        ?: prefsManager.getLegacySmsAesKey()?.let { legacyKey ->
+                            EncryptedSmsCodec.decryptSmsPayload(command.payload, legacyKey)
+                        }
+                if (decrypted != null) {
+                    sendTelegramMessage(chatId, "🔓 *Decrypted SMS Alarm Payload:*\n`$decrypted`")
                 } else {
-                    val decrypted = EncryptedSmsCodec.decryptSmsPayload(command.payload, secretPass)
-                    if (decrypted != null) {
-                        sendTelegramMessage(chatId, "🔓 *Decrypted SMS Alarm Payload:*\n`$decrypted`")
-                    } else {
-                        sendTelegramMessage(chatId, "❌ Failed to decrypt SMS. Ensure message starts with `[ENC_ALARM_V2]` and key matches.")
-                    }
+                    sendTelegramMessage(chatId, "❌ Failed to decrypt SMS. Forward the whole message, starting at `[ENC_ALARM_`.")
                 }
                 commitUpdateId(updateId)
             }

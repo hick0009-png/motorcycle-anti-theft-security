@@ -745,13 +745,13 @@ class ProtectionViewModel(
         }
     }
 
-    fun configureSmsFallback(destination: String, aesKey: String) = runSettingsCommand(SettingsOperation.SAVE_SMS_FALLBACK, GuidanceCode.SETTINGS_SAVE_FAILED) {
-        val result = settings.saveSmsFallback(destination, aesKey)
+    fun configureSmsFallback(destination: String) = runSettingsCommand(SettingsOperation.SAVE_SMS_FALLBACK, GuidanceCode.SETTINGS_SAVE_FAILED) {
+        val result = settings.saveSmsFallback(destination)
         if (result.applied) {
             publishMessage(
                 GuidanceContent(
                     titleTh = "บันทึก SMS สำรองสำเร็จ",
-                    bodyTh = "บันทึกเบอร์ปลายทางและคีย์เข้ารหัสเรียบร้อยแล้ว",
+                    bodyTh = "บันทึกเบอร์ปลายทางแล้ว กุญแจเข้ารหัสถูกสร้างในเครื่องให้อัตโนมัติ",
                     telegramTh = null,
                     severity = GuidanceSeverity.SUCCESS,
                     action = GuidanceAction.NONE,
