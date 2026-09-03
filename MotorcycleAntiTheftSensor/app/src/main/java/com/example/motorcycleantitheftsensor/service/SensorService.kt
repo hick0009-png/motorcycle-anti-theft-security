@@ -27,6 +27,10 @@ import com.example.motorcycleantitheftsensor.data.removeLegacyAuthenticatorState
 import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.ForegroundStartController
+import com.example.motorcycleantitheftsensor.protection.BlackBoxHeader
+import com.example.motorcycleantitheftsensor.protection.BlackBoxRecorder
+import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
+import com.example.motorcycleantitheftsensor.protection.BlackBoxWriter
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
@@ -47,6 +51,7 @@ import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
 import com.example.motorcycleantitheftsensor.telegram.TelegramCommandHandler
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -122,6 +127,8 @@ class SensorService : Service(), ServiceEnvironment {
     private lateinit var heartbeatPinger: com.example.motorcycleantitheftsensor.telegram.HeartbeatPinger
     private var driftRecorder: EntryDriftRecorder? = null
     private var driftHandlerThread: HandlerThread? = null
+    private var blackBox: BlackBoxRecorder? = null
+    private val blackBoxState = BlackBoxStateMapper()
 
     override fun onCreate() {
         super.onCreate()
@@ -153,6 +160,9 @@ class SensorService : Service(), ServiceEnvironment {
         heartbeatPinger.startHeartbeat()
         acquireWakeLock()
         serviceScope.launch {
+            // Off the main thread: the first row of the day creates the file, and onCreate is
+            // not a place to touch a disk.
+            withContext(Dispatchers.IO) { startBlackBox() }
             val legacyCleanup = withContext(Dispatchers.IO) {
                 preferences.removeLegacyAuthenticatorState()
             }
@@ -162,6 +172,12 @@ class SensorService : Service(), ServiceEnvironment {
             recoveryGate = ProtectionRecoveryGate(loadRecoveryState())
             serviceScope.launch {
                 graph.coordinator.snapshot.collect(::handleSnapshot)
+            }
+            serviceScope.launch {
+                graph.coordinator.snapshot.collect { snapshot ->
+                    val state = blackBoxState.map(snapshot)
+                    withContext(Dispatchers.IO) { blackBox?.observe(state) }
+                }
             }
             serviceScope.launch {
                 while (currentCoroutineContext().isActive) {
@@ -592,6 +608,56 @@ class SensorService : Service(), ServiceEnvironment {
 
     private fun commandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
+    /**
+     * Starts the minute record.
+     *
+     * It runs for as long as the service does, armed or not, because the value of a minute
+     * row is that it is unconditional: a row that only appears while armed cannot distinguish
+     * a disarmed night from a killed one, which is the distinction the record exists to make.
+     */
+    private fun startBlackBox() {
+        if (blackBox != null) return
+        val wallMs = System.currentTimeMillis()
+        val elapsed = SystemClock.elapsedRealtime()
+        val recorder = BlackBoxRecorder(
+            writer = BlackBoxWriter(
+                directory = File(filesDir, BlackBoxWriter.DIRECTORY),
+                header = BlackBoxHeader(
+                    device = "${Build.MANUFACTURER}/${Build.MODEL}",
+                    androidSdk = Build.VERSION.SDK_INT,
+                    appVersion = appVersionName(),
+                    // The boot, not the process: rows on either side of a kill carry the same
+                    // id, which is what separates "the app was killed" from "the phone rebooted".
+                    bootId = ((wallMs - elapsed) / 1_000L).toString(),
+                    wallAnchorMs = wallMs,
+                    elapsedAtAnchorMs = elapsed,
+                    sensors = blackBoxSensorInventory(),
+                ),
+                wallClockMs = System::currentTimeMillis,
+            ),
+            elapsedMs = SystemClock::elapsedRealtime,
+            wallClockMs = System::currentTimeMillis,
+        )
+        blackBox = recorder
+        recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
+    }
+
+    /**
+     * The cover page of the file: raw numbers with no statement of which sensor produced them,
+     * at what resolution, cannot be interpreted afterwards by anyone, including us.
+     */
+    private fun blackBoxSensorInventory(): String =
+        graph.sensorCatalog?.descriptors().orEmpty()
+            .filterValues { descriptor -> descriptor.isAvailable }
+            .entries
+            .joinToString(";") { (source, descriptor) ->
+                "${source.name}:${descriptor.name}:${descriptor.vendor}:${descriptor.resolution}"
+            }
+
+    private fun appVersionName(): String = runCatching {
+        packageManager.getPackageInfo(packageName, 0).versionName
+    }.getOrNull() ?: "unknown"
+
     private fun startDriftRecording() {
         if (driftRecorder?.isRecording == true) return
         val thread = driftHandlerThread ?: HandlerThread("EntryDriftRecorder").apply { start() }
@@ -628,6 +694,11 @@ class SensorService : Service(), ServiceEnvironment {
 
     override fun onDestroy() {
         try {
+            // Written before anything else is torn down. This row is the only thing that
+            // tells a reader the service was stopped rather than killed, and every minute
+            // gap in the file is read against it.
+            blackBox?.stop()
+            blackBox = null
             stopDriftRecording()
             driftHandlerThread?.quitSafely()
             driftHandlerThread = null

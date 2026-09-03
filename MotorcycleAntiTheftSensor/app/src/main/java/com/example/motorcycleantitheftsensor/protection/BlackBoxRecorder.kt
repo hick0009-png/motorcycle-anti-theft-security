@@ -1,0 +1,195 @@
+package com.example.motorcycleantitheftsensor.protection
+
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+
+interface BlackBoxScheduler {
+    val isShutdown: Boolean
+
+    fun scheduleAtFixedRate(initialDelayMs: Long, periodMs: Long, task: () -> Unit)
+
+    fun shutdownNow()
+}
+
+/**
+ * One thread, and it is not the sensor thread. Everything the black box does to a disk
+ * happens here.
+ */
+private class ExecutorBlackBoxScheduler(
+    private val executor: ScheduledExecutorService,
+) : BlackBoxScheduler {
+    override val isShutdown: Boolean get() = executor.isShutdown
+
+    override fun scheduleAtFixedRate(initialDelayMs: Long, periodMs: Long, task: () -> Unit) {
+        executor.scheduleAtFixedRate(task, initialDelayMs, periodMs, TimeUnit.MILLISECONDS)
+    }
+
+    override fun shutdownNow() {
+        executor.shutdownNow()
+    }
+}
+
+/**
+ * Writes the minute rows, and the rows that say what changed between them.
+ *
+ * The minute row is the whole point of the phase. It carries little information and it
+ * carries it constantly, which is what turns its absence into information: a run of minutes
+ * with no row, bracketed by rows on either side and no `stop` row between them, is this
+ * app being killed by the phone. That question — was there protection at three in the
+ * morning, or only the belief in it — has no other answer available, because every other
+ * signal the app could send requires the app to still be alive to send it.
+ *
+ * A `stop` row is therefore load-bearing rather than tidy. Without it every ordinary
+ * shutdown reads exactly like a kill.
+ */
+class BlackBoxRecorder(
+    private val writer: BlackBoxWriter,
+    private val elapsedMs: () -> Long,
+    private val wallClockMs: () -> Long,
+    private var scheduler: BlackBoxScheduler? = null,
+    private val periodMs: Long = MINUTE_MS,
+) {
+
+    private var lastState: BlackBoxState = BlackBoxState.UNKNOWN
+    private var started = false
+
+    @Synchronized
+    fun start(state: BlackBoxState) {
+        if (started && scheduler?.isShutdown == false) return
+        lastState = state
+        write(BlackBoxRowType.STATE, state, note = NOTE_START)
+        if (scheduler == null || scheduler?.isShutdown == true) {
+            scheduler = ExecutorBlackBoxScheduler(Executors.newSingleThreadScheduledExecutor())
+        }
+        scheduler?.scheduleAtFixedRate(periodMs, periodMs) { tick() }
+        started = true
+    }
+
+    /**
+     * Takes the newest state, and marks it only when something worth marking moved.
+     *
+     * Battery and charging change constantly and are already carried by every minute row, so
+     * a state row for them would bury the four transitions a reader actually looks for.
+     */
+    @Synchronized
+    fun observe(state: BlackBoxState) {
+        val note = blackBoxStateChange(previous = lastState, current = state)
+        lastState = state
+        if (note != null) write(BlackBoxRowType.STATE, state, note = note)
+    }
+
+    @Synchronized
+    fun stop(state: BlackBoxState? = null) {
+        if (!started) return
+        val closing = state ?: lastState
+        lastState = closing
+        write(BlackBoxRowType.STATE, closing, note = NOTE_STOP)
+        scheduler?.shutdownNow()
+        scheduler = null
+        started = false
+    }
+
+    @Synchronized
+    private fun tick() {
+        write(BlackBoxRowType.MINUTE, lastState, note = "")
+    }
+
+    private fun write(type: BlackBoxRowType, state: BlackBoxState, note: String) {
+        writer.append(
+            BlackBoxRow(
+                type = type,
+                // Both clocks, because neither is enough on its own: the elapsed clock matches
+                // the sensor timestamps but resets at boot and names no hour, and the wall
+                // clock names the hour the owner will ask about but jumps whenever the phone
+                // syncs time.
+                elapsedMs = elapsedMs(),
+                wallMs = wallClockMs(),
+                state = state,
+                note = note,
+            ),
+        )
+    }
+
+    companion object {
+        const val MINUTE_MS = 60_000L
+        const val NOTE_START = "start"
+        const val NOTE_STOP = "stop"
+    }
+}
+
+/**
+ * What changed between two states, in the words an `S` row carries, or null if nothing did.
+ *
+ * Only the owner's decisions count: arm, disarm, mode, settings. The source mask is left out
+ * on purpose, and it was left out after measuring rather than on taste — on the test phone it
+ * flickers between healthy and stale about every five seconds as sensors cross the freshness
+ * window, which is roughly thirty-five thousand state rows a day. That fills the day's file
+ * ceiling in around fourteen hours, and a full file stops recording, so a row meant to say
+ * "a sensor went quiet" would have silenced the record overnight — the one stretch it exists
+ * to cover. The mask still rides on every minute row, which answers the same question at the
+ * resolution this layer actually claims.
+ */
+internal fun blackBoxStateChange(previous: BlackBoxState, current: BlackBoxState): String? {
+    val reasons = buildList {
+        if (previous.armed != current.armed) add(if (current.armed) "arm" else "disarm")
+        if (previous.mode != current.mode) add("mode")
+        if (previous.configFingerprint != current.configFingerprint) add("config")
+    }
+    return reasons.takeIf { it.isNotEmpty() }?.joinToString("+")
+}
+
+/**
+ * Turns the live protection snapshot into the few fields the black box keeps.
+ *
+ * Stateful only for the incident count, which the snapshot cannot give directly: it names
+ * the last incident, not how many there have been. Counting distinct ids as they appear
+ * makes the column something a reader can subtract across two rows to see what a minute held.
+ */
+class BlackBoxStateMapper {
+
+    private var lastIncidentId: String? = null
+    private var incidents: Int = 0
+
+    fun map(snapshot: ProtectionSnapshot): BlackBoxState {
+        val incidentId = snapshot.lastIncident?.id
+        if (incidentId != null && incidentId != lastIncidentId) {
+            lastIncidentId = incidentId
+            incidents += 1
+        }
+        return BlackBoxState(
+            armed = snapshot.state in ARMED_STATES,
+            mode = snapshot.armedProfileSnapshot?.profile?.name ?: BlackBoxState.MODE_NONE,
+            sourceMask = sourceMaskOf(snapshot),
+            incidents = incidents,
+            batteryPercent = snapshot.batteryLevelPercent,
+            charging = snapshot.chargingState.chargingConnected,
+            configFingerprint = snapshot.armedProfileSnapshot?.configurationFingerprint,
+        )
+    }
+
+    /**
+     * One bit per sensor kind, set while that kind is delivering fresh data.
+     *
+     * Hardware that exists but is not registered is left out on purpose: the question this
+     * column answers is what was actually watching, not what the phone owns.
+     */
+    private fun sourceMaskOf(snapshot: ProtectionSnapshot): Int {
+        var mask = 0
+        SensorKind.entries.forEach { kind ->
+            if (snapshot.sensorHealth[kind]?.state == SensorHealthState.HEALTHY) {
+                mask = mask or (1 shl kind.ordinal)
+            }
+        }
+        return mask
+    }
+
+    private companion object {
+        val ARMED_STATES = setOf(
+            ProtectionState.ARMING,
+            ProtectionState.ARMED_HEALTHY,
+            ProtectionState.ARMED_DEGRADED,
+            ProtectionState.ALERT_ACTIVE,
+        )
+    }
+}
