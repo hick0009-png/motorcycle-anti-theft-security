@@ -961,14 +961,25 @@ class ProtectionViewModelTest {
     }
 
     @Test
-    fun rejectedArmAndDisarmPublishUpdatedGuidanceTitles() = runTest {
+    fun aRefusedArmSaysArmingFailedRatherThanTheCatchAll() = runTest {
+        // This pinned the opposite: an arm blocked by a missing permission reported
+        // "คำสั่งไม่สำเร็จ", because the refusal was classified by searching its English text
+        // for the word "Arm" and a permission blocker does not contain it.
         val fixture = fixtureWithBlocker("POST_NOTIFICATIONS", testScheduler)
         fixture.viewModel.arm()
         advanceUntilIdle()
 
-        assertEquals("คำสั่งไม่สำเร็จ", fixture.viewModel.uiState.value.message?.content?.titleTh)
-        assertEquals("ไม่สามารถเปิดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
-        assertEquals("ไม่สามารถปลดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED).titleTh)
+        val title = fixture.viewModel.uiState.value.message?.content?.titleTh
+        assertNotEquals("คำสั่งไม่สำเร็จ", title)
+        assertEquals(
+            UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_REJECTED).titleTh,
+            title,
+        )
+        assertEquals("ไม่สามารถเปิดการป้องกันได้", title)
+        assertEquals(
+            "ไม่สามารถปลดการป้องกันได้",
+            UserGuidanceCatalog.content(GuidanceCode.COMMAND_DISARM_REJECTED).titleTh,
+        )
     }
 
     @Test

@@ -49,6 +49,8 @@ import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.ProfileSupportReason
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
+import com.example.motorcycleantitheftsensor.telegram.toGuidanceCode
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
@@ -119,7 +121,9 @@ fun ProtectionScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val stateGuidance = UserGuidanceCatalog.content(protection.state.toGuidanceCode())
+        val stateGuidance = UserGuidanceCatalog.content(
+            protection.state.toGuidanceCode(protection.setupBlocker),
+        )
 
         item(key = "moto-guard-header") {
             Surface(
@@ -697,16 +701,6 @@ private fun StatusRow(label: String, value: String) {
             textAlign = TextAlign.End,
         )
     }
-}
-
-private fun ProtectionState.toGuidanceCode(): com.example.motorcycleantitheftsensor.protection.GuidanceCode = when (this) {
-    ProtectionState.SETUP_REQUIRED -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED
-    ProtectionState.DISARMED_ONLINE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.DISARMED
-    ProtectionState.ARMING -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMING
-    ProtectionState.ARMED_HEALTHY -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_HEALTHY
-    ProtectionState.ARMED_DEGRADED -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_DEGRADED
-    ProtectionState.ALERT_ACTIVE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.ALERT_ACTIVE
-    ProtectionState.OFFLINE -> com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE
 }
 
 

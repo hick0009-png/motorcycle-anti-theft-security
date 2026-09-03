@@ -723,18 +723,27 @@ class ProtectionViewModel(
 
     fun arm() = runProtectionCommand(GuidanceCode.COMMAND_ARM_REJECTED) {
         if (coordinator.snapshot.value.state == ProtectionState.ARMING) return@runProtectionCommand
-        publishResult(coordinator.arm(nextCommandId(), CommandOrigin.LOCAL))
+        publishResult(
+            coordinator.arm(nextCommandId(), CommandOrigin.LOCAL),
+            rejectionFallback = GuidanceCode.COMMAND_ARM_REJECTED,
+        )
     }
 
     fun disarm() = runProtectionCommand(GuidanceCode.COMMAND_DISARM_REJECTED) {
-        publishResult(coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL))
+        publishResult(
+            coordinator.disarm(nextCommandId(), CommandOrigin.LOCAL),
+            rejectionFallback = GuidanceCode.COMMAND_DISARM_REJECTED,
+        )
         pendingEntryRearm = false
         refreshProfile()
     }
 
-    fun changeSensitivity(level: Int) = runSettingsCommand(SettingsOperation.CHANGE_SENSITIVITY, GuidanceCode.COMMAND_UNKNOWN) {
+    fun changeSensitivity(level: Int) = runSettingsCommand(
+        SettingsOperation.CHANGE_SENSITIVITY,
+        GuidanceCode.COMMAND_SENSITIVITY_INVALID,
+    ) {
         val result = coordinator.changeSensitivity(nextCommandId(), level)
-        publishResult(result)
+        publishResult(result, rejectionFallback = GuidanceCode.COMMAND_SENSITIVITY_INVALID)
         if (result.outcome == CommandOutcome.APPLIED) {
             settings.saveSensitivity(level)
             readSettings(settingsSummary.value.missingPermissions)
@@ -1051,7 +1060,16 @@ class ProtectionViewModel(
         }
     }
 
-    private fun publishResult(result: ProtectionCommandResult) {
+    /**
+     * @param rejectionFallback what to say when a refusal carries no typed reason. The caller
+     *   knows which command it issued; this used to be guessed by searching the refusal's
+     *   English text for the word "Arm", so an arm blocked by anything else — a missing
+     *   permission, an uncalibrated profile — announced itself as "คำสั่งไม่สำเร็จ".
+     */
+    private fun publishResult(
+        result: ProtectionCommandResult,
+        rejectionFallback: GuidanceCode = GuidanceCode.COMMAND_UNKNOWN,
+    ) {
         val content = when (result.outcome) {
             CommandOutcome.APPLIED -> when (result.resultingState) {
                 com.example.motorcycleantitheftsensor.protection.ProtectionState.ARMING,
@@ -1073,11 +1091,9 @@ class ProtectionViewModel(
                     )
                     return
                 }
+                // A second press while arming is already under way is not news.
                 if (result.reason.equals("Arming already in progress", ignoreCase = true)) return
-                if (result.reason.contains("Arm", ignoreCase = true)) UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_REJECTED)
-                else if (result.reason.contains("Disarm", ignoreCase = true)) UserGuidanceCatalog.content(GuidanceCode.COMMAND_DISARM_REJECTED)
-                else if (result.reason.contains("Sensitivity", ignoreCase = true)) UserGuidanceCatalog.content(GuidanceCode.COMMAND_SENSITIVITY_INVALID)
-                else UserGuidanceCatalog.content(GuidanceCode.COMMAND_UNKNOWN)
+                UserGuidanceCatalog.content(rejectionFallback)
             }
             CommandOutcome.RECEIVED -> UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS)
             CommandOutcome.UNKNOWN -> UserGuidanceCatalog.content(GuidanceCode.COMMAND_UNKNOWN)

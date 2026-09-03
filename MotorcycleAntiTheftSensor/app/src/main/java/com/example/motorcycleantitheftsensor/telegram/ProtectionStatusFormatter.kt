@@ -3,6 +3,7 @@ package com.example.motorcycleantitheftsensor.telegram
 import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 
 class ProtectionStatusFormatter(
@@ -82,8 +83,21 @@ class ProtectionStatusFormatter(
     }.trimEnd()
 }
 
-fun ProtectionState.toGuidanceCode(): GuidanceCode = when (this) {
-    ProtectionState.SETUP_REQUIRED -> GuidanceCode.SETUP_REQUIRED
+/**
+ * @param setupBlocker why setup is being asked for, when the caller knows.
+ *
+ * SETUP_REQUIRED is reached from six places and every one of them used to produce the same
+ * sentence, which sends the owner to the Telegram settings. Callers that have the typed
+ * reason pass it and get copy that matches; callers that do not keep the old sentence.
+ */
+fun ProtectionState.toGuidanceCode(setupBlocker: SetupBlocker? = null): GuidanceCode = when (this) {
+    ProtectionState.SETUP_REQUIRED -> when (setupBlocker) {
+        SetupBlocker.PROFILE_SETUP_REQUIRED -> GuidanceCode.SETUP_REQUIRED_PROFILE
+        SetupBlocker.RECOMMISSION_REQUIRED -> GuidanceCode.SETUP_REQUIRED_RECOMMISSION
+        SetupBlocker.PROFILE_UNSUPPORTED -> GuidanceCode.PROFILE_UNSUPPORTED
+        SetupBlocker.NO_PRIMARY_SENSOR -> GuidanceCode.SETUP_REQUIRED_SENSOR
+        null -> GuidanceCode.SETUP_REQUIRED
+    }
     ProtectionState.DISARMED_ONLINE -> GuidanceCode.DISARMED
     ProtectionState.ARMING -> GuidanceCode.ARMING
     ProtectionState.ARMED_HEALTHY -> GuidanceCode.ARMED_HEALTHY

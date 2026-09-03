@@ -25,6 +25,8 @@ import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguratio
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
+import com.example.motorcycleantitheftsensor.telegram.toGuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
@@ -365,6 +367,8 @@ data class ProtectionStatusUiState(
     val telegramReachable: Boolean,
     val lastTelegramContactAtMs: Long?,
     val permissionBlockers: Set<String>,
+    /** Why setup is required, when it is, so the card can say which setup. */
+    val setupBlocker: SetupBlocker? = null,
     val sensorHealth: Map<SensorKind, SensorHealth>,
     val degradationReasons: Set<String>,
     val batteryLevelPercent: Int?,
@@ -506,6 +510,7 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
     telegramReachable = telegramReachable,
     lastTelegramContactAtMs = lastTelegramContactAtMs,
     permissionBlockers = permissionBlockers,
+    setupBlocker = setupBlocker,
     sensorHealth = sensorHealth,
     degradationReasons = degradationReasons,
     batteryLevelPercent = batteryLevelPercent,
@@ -527,9 +532,12 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
         // Level 2: Service offline
         !serviceRunning || state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE)
-        // Level 3: Setup required
+        // Level 3: Setup required. Reads the same typed reason the status card reads, or the
+        // two cards sit one above the other saying different things about the same state.
         state == com.example.motorcycleantitheftsensor.protection.ProtectionState.SETUP_REQUIRED ->
-            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED)
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                state.toGuidanceCode(setupBlocker),
+            )
         // Level 4: Telegram unreachable
         !telegramReachable && telegramPolling ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_UNREACHABLE)

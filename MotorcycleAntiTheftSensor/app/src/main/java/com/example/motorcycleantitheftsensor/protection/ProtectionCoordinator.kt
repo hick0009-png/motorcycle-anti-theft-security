@@ -119,6 +119,7 @@ class ProtectionCoordinator(
                     state = ProtectionState.SETUP_REQUIRED,
                     blockers = setOf("No primary sensor configured"),
                     degradations = readiness.degradations,
+                    setupBlocker = SetupBlocker.NO_PRIMARY_SENSOR,
                 )
                 return@withLock result(
                     commandId = commandId,
@@ -154,6 +155,7 @@ class ProtectionCoordinator(
                         state = ProtectionState.SETUP_REQUIRED,
                         blockers = setOf("Device cannot support the selected profile"),
                         degradations = readiness.degradations,
+                        setupBlocker = SetupBlocker.PROFILE_UNSUPPORTED,
                     )
                     return@withLock result(
                         commandId,
@@ -171,6 +173,7 @@ class ProtectionCoordinator(
                         state = ProtectionState.SETUP_REQUIRED,
                         blockers = setOf("Selected profile setup required"),
                         degradations = readiness.degradations,
+                        setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                     )
                     return@withLock result(
                         commandId,
@@ -192,6 +195,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Selected profile setup required"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -215,6 +219,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Entry commissioning invalidated"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.RECOMMISSION_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -239,6 +244,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Selected profile setup required"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -262,6 +268,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Power commissioning invalidated"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.RECOMMISSION_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -1235,6 +1242,7 @@ class ProtectionCoordinator(
         degradations: Set<String>,
         sensorHealth: Map<SensorKind, SensorHealth> = snapshot.value.sensorHealth,
         baseDegradations: Set<String> = degradations,
+        setupBlocker: SetupBlocker? = null,
     ) {
         baseDegradationReasons = baseDegradations
         val now = clock.nowMs()
@@ -1254,6 +1262,9 @@ class ProtectionCoordinator(
                 lastTransitionAtMs = now,
                 protectionActivatedAtMs = nextActivatedAt,
                 permissionBlockers = blockers,
+                // Carried only where it means something; a state that is not asking for setup
+                // must not keep yesterday's reason for having asked.
+                setupBlocker = setupBlocker.takeIf { state == ProtectionState.SETUP_REQUIRED },
                 degradationReasons = degradations,
                 sensorHealth = sensorHealth,
             )

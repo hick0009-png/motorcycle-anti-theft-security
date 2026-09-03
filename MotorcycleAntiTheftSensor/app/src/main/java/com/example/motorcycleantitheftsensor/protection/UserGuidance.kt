@@ -10,6 +10,7 @@ enum class GuidanceCode {
     COMMAND_DISARM_APPLIED, COMMAND_DISARM_REJECTED,
     COMMAND_SENSITIVITY_APPLIED, COMMAND_SENSITIVITY_INVALID, COMMAND_HELP,
     COMMAND_UNKNOWN, PROFILE_UNSUPPORTED, PROFILE_SELECTED,
+    SETUP_REQUIRED_PROFILE, SETUP_REQUIRED_RECOMMISSION, SETUP_REQUIRED_SENSOR,
     SENSOR_HEALTHY, SENSOR_UNAVAILABLE, SENSOR_PERMISSION_MISSING,
     SENSOR_SAMPLE_FAILED, INCIDENT_OPENED, INCIDENT_UPDATED, INCIDENT_ESCALATED,
     INCIDENT_CLOSED, TELEGRAM_DELIVERY_SENDING, TELEGRAM_DELIVERY_SENT,
@@ -73,6 +74,30 @@ object UserGuidanceCatalog {
                 telegramTh = "⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าในแอป",
                 severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_PROFILE -> GuidanceContent(
+                titleTh = "ตั้งค่าการใช้งานนี้ให้เสร็จก่อน",
+                bodyTh = "ปรับเทียบการใช้งานที่เลือกไว้ให้เสร็จ แล้วจึงเปิดการป้องกันได้",
+                telegramTh = "⚠️ การใช้งานที่เลือกไว้ยังปรับเทียบไม่เสร็จ ดูหน้าปกป้องในแอป",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_RECOMMISSION -> GuidanceContent(
+                titleTh = "ต้องปรับเทียบใหม่ก่อนเปิดระบบ",
+                bodyTh = "สิ่งที่ปรับเทียบไว้ไม่ตรงกับเครื่องขณะนี้แล้ว ปรับเทียบใหม่เพื่อให้เชื่อถือได้",
+                telegramTh = "⚠️ การปรับเทียบเดิมใช้ไม่ได้แล้ว ต้องปรับเทียบใหม่",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_SENSOR -> GuidanceContent(
+                titleTh = "ยังไม่มีเซ็นเซอร์หลักที่จะตรวจจับ",
+                bodyTh = "เปิดเซ็นเซอร์อย่างน้อยหนึ่งตัวให้เป็นตัวหลัก ไม่งั้นจะไม่มีอะไรเปิดการแจ้งเตือนได้",
+                telegramTh = "⚠️ ยังไม่ได้ตั้งเซ็นเซอร์หลัก จึงเปิดการป้องกันไม่ได้",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
                 persistent = true
             )
             GuidanceCode.DISARMED -> GuidanceContent(

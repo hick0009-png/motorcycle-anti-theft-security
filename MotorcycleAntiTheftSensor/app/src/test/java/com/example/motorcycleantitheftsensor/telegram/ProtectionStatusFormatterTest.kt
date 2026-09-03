@@ -14,17 +14,56 @@ import com.example.motorcycleantitheftsensor.protection.MicrophoneHealthDetail
 import com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.GuidanceCode
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
+import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.VibrationHealthDetail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.regex.Pattern
 
 class ProtectionStatusFormatterTest {
+
+    @Test
+    fun setupRequiredNamesWhichSetupIsMissing() {
+        // Every one of the six ways into SETUP_REQUIRED produced the same sentence, which
+        // sends the owner to the Telegram settings. An uncalibrated door watch is not that.
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_PROFILE,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.PROFILE_SETUP_REQUIRED),
+        )
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_RECOMMISSION,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.RECOMMISSION_REQUIRED),
+        )
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_SENSOR,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.NO_PRIMARY_SENSOR),
+        )
+        assertEquals(
+            GuidanceCode.PROFILE_UNSUPPORTED,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.PROFILE_UNSUPPORTED),
+        )
+    }
+
+    @Test
+    fun setupRequiredWithNoTypedReasonKeepsTheAccountSetupCopy() {
+        assertEquals(GuidanceCode.SETUP_REQUIRED, ProtectionState.SETUP_REQUIRED.toGuidanceCode())
+    }
+
+    @Test
+    fun profileSetupCopyDoesNotSendTheOwnerToTheTelegramSettings() {
+        val telegramCopy = UserGuidanceCatalog.content(GuidanceCode.SETUP_REQUIRED).bodyTh
+        val profileCopy = UserGuidanceCatalog.content(GuidanceCode.SETUP_REQUIRED_PROFILE).bodyTh
+        assertNotEquals(telegramCopy, profileCopy)
+        assertFalse("Profile setup copy still mentions the bot: $profileCopy", profileCopy.contains("Bot"))
+    }
 
     private val formatter = ProtectionStatusFormatter()
 

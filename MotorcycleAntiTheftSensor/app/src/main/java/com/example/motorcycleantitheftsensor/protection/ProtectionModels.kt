@@ -199,6 +199,27 @@ data class ProtectionCommandResult(
     val unsupported: ProfileDeviceSupport.Unsupported? = null,
 )
 
+/**
+ * Why the system is asking for setup, for the one card that has to explain it.
+ *
+ * SETUP_REQUIRED is reached from six places and the screen showed the same sentence for all
+ * of them: "ตั้งค่า Bot และจับคู่เจ้าของให้ครบ". An owner whose door watch is simply not
+ * calibrated yet was sent to the Telegram settings, where there was nothing wrong.
+ */
+enum class SetupBlocker {
+    /** The selected use has not finished its own calibration. */
+    PROFILE_SETUP_REQUIRED,
+
+    /** A commissioned model no longer matches the phone it was commissioned on. */
+    RECOMMISSION_REQUIRED,
+
+    /** This device cannot carry the selected use at all. */
+    PROFILE_UNSUPPORTED,
+
+    /** Nothing is configured to lead detection, so nothing would open an incident. */
+    NO_PRIMARY_SENSOR,
+}
+
 data class ProtectionSnapshot(
     val state: ProtectionState,
     val lastTransitionAtMs: Long,
@@ -221,6 +242,8 @@ data class ProtectionSnapshot(
     val sensorFusionConfiguration: SensorFusionConfiguration? = null,
     val sensorGenerationId: Long = 0L,
     val armedProfileSnapshot: ArmedProfileSnapshot? = null,
+    /** Why setup is required, when it is. Null outside SETUP_REQUIRED. */
+    val setupBlocker: SetupBlocker? = null,
 ) {
     companion object {
         fun offline(nowMs: Long): ProtectionSnapshot = ProtectionSnapshot(
