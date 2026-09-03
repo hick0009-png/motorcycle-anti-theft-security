@@ -7,7 +7,9 @@
 ## Resume point
 
 - **Worktree:** `D:\security` · **Branch:** `feature/motorcycle-guard-protection`
-- **HEAD:** `9b72d93` — `feat(blackbox): write down the minutes...` (B1 ทำแล้ว)
+- **โค้ดล่าสุด:** `9b72d93` — `feat(blackbox): write down the minutes...` (B1 ทำแล้ว)
+  HEAD จริงจะเป็น commit `docs(plans)` ที่ตามมา — ตัวเลขเทสต์อ้างถึงโค้ดที่ `9b72d93`
+- **ยังไม่ push** สอง commit นี้ยังอยู่แค่เครื่อง (origin = `hick0009-png/motorcycle-anti-theft-security`)
 - **เครื่องทดสอบ:** Huawei INE-LX2 `JUCDU18811013149` — ติดตั้งบิลด์จาก HEAD แล้ว
   ⚠️ **ตอนนี้เครื่อง disarm อยู่** (หลุดตอนทดสอบ force-stop) ต้องเลือกการใช้งานใหม่เอง
 - **เทสต์ ณ HEAD:** host **1091 ผ่าน 0 fail** (เดิม 1072 + 19 ของกล่องดำ) ·
