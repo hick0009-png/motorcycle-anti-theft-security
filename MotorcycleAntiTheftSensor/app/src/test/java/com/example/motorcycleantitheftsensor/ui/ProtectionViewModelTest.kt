@@ -17,6 +17,8 @@ import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
 import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurement
+import com.example.motorcycleantitheftsensor.protection.GuidanceCode
+import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
 import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
@@ -1088,6 +1090,39 @@ class ProtectionViewModelTest {
         assertEquals(
             ProfileDeviceSupport.Supported,
             viewModel.uiState.value.profileDeviceSupport.getValue(ProtectionProfile.ENTRY),
+        )
+    }
+
+    @Test
+    fun choosingAUseIsReportedAsChoosingAUseNotAsDisarming() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        // An applied command used to be named after the state it left behind, and choosing a
+        // use while disarmed leaves the system disarmed.
+        val content = viewModel.uiState.value.message?.content
+        assertNotNull(content)
+        assertNotEquals("ปลดการป้องกันสำเร็จ", content!!.titleTh)
+        assertEquals(
+            UserGuidanceCatalog.content(GuidanceCode.PROFILE_SELECTED).titleTh,
+            content.titleTh,
         )
     }
 

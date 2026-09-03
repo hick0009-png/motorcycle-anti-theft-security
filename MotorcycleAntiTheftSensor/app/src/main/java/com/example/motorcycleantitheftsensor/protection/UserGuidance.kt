@@ -9,7 +9,7 @@ enum class GuidanceCode {
     COMMAND_STATUS_SUCCESS, COMMAND_ARM_APPLIED, COMMAND_ARM_REJECTED,
     COMMAND_DISARM_APPLIED, COMMAND_DISARM_REJECTED,
     COMMAND_SENSITIVITY_APPLIED, COMMAND_SENSITIVITY_INVALID, COMMAND_HELP,
-    COMMAND_UNKNOWN, PROFILE_UNSUPPORTED,
+    COMMAND_UNKNOWN, PROFILE_UNSUPPORTED, PROFILE_SELECTED,
     SENSOR_HEALTHY, SENSOR_UNAVAILABLE, SENSOR_PERMISSION_MISSING,
     SENSOR_SAMPLE_FAILED, INCIDENT_OPENED, INCIDENT_UPDATED, INCIDENT_ESCALATED,
     INCIDENT_CLOSED, TELEGRAM_DELIVERY_SENDING, TELEGRAM_DELIVERY_SENT,
@@ -266,6 +266,14 @@ object UserGuidanceCatalog {
                 telegramTh = "ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
+                persistent = false
+            )
+            GuidanceCode.PROFILE_SELECTED -> GuidanceContent(
+                titleTh = "เลือกการใช้งานแล้ว",
+                bodyTh = "ตรวจสอบการตั้งค่าของการใช้งานนี้ก่อนเปิดระบบ",
+                telegramTh = null,
+                severity = GuidanceSeverity.INFO,
+                action = GuidanceAction.OPEN_PROTECTION,
                 persistent = false
             )
             GuidanceCode.PROFILE_UNSUPPORTED -> GuidanceContent(

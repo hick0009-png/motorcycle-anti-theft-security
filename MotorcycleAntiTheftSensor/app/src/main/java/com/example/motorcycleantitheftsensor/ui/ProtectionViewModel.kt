@@ -271,9 +271,25 @@ class ProtectionViewModel(
             refreshProfile()
             return@runProtectionCommand
         }
-        publishResult(coordinator.selectProfile(nextCommandId(), profile))
+        publishProfileSelection(coordinator.selectProfile(nextCommandId(), profile))
         pendingSwitchTarget = null
         refreshProfile()
+    }
+
+    /**
+     * Reports a profile selection as a profile selection.
+     *
+     * [publishResult] names an applied command after the state it left behind, and choosing
+     * a use while disarmed leaves the system disarmed — so picking the door watch announced
+     * "ปลดการป้องกันสำเร็จ", which is true of the state and says nothing about what the
+     * owner just did. A refusal still goes the ordinary way; only the success is renamed.
+     */
+    private fun publishProfileSelection(result: ProtectionCommandResult) {
+        if (result.outcome != CommandOutcome.APPLIED) {
+            publishResult(result)
+            return
+        }
+        publishMessage(UserGuidanceCatalog.content(GuidanceCode.PROFILE_SELECTED))
     }
 
     fun confirmProfileSwitch() = runProtectionCommand(GuidanceCode.COMMAND_UNKNOWN) {

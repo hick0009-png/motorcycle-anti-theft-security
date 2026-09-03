@@ -9,6 +9,36 @@ import org.junit.Test
 class PresentationTextCatalogTest {
 
     @Test
+    fun anHourIsTheFloorBelowWhichTheNumberIsNotSaid() {
+        // A refusal reported "ราว 0 ชั่วโมง" on the device, which reads as no answer at all.
+        assertEquals("ไม่ถึงหนึ่งชั่วโมง", PresentationTextCatalog.hoursPhrase(0))
+        assertEquals("ไม่ถึงหนึ่งชั่วโมง", PresentationTextCatalog.hoursPhrase(null))
+        assertEquals("ราว 3 ชั่วโมง", PresentationTextCatalog.hoursPhrase(3))
+    }
+
+    @Test
+    fun aRefusalUnderAnHourNeverPrintsZeroHours() {
+        val support = ProfileDeviceSupport.Unsupported(
+            missing = emptySet(),
+            reason = ProfileSupportReason.DRIFT_TOO_FAST,
+            trustedHours = 0,
+        )
+        val text = PresentationTextCatalog.profileSupport(support)
+        assertNotNull(text)
+        assertFalse("Refusal still says zero hours: $text", text!!.contains("0 ชั่วโมง"))
+        assertTrue(text.contains("ไม่ถึงหนึ่งชั่วโมง"))
+    }
+
+    @Test
+    fun theDriftBudgetLineNeverPrintsZeroHoursEither() {
+        val text = PresentationTextCatalog.driftBudgetLine(
+            EntryDriftVerdict.Unusable(hoursToThreshold = 0.25),
+        )
+        assertFalse("Budget line still says zero hours: $text", text.contains("0 ชั่วโมง"))
+        assertTrue(text.contains("ไม่ถึงหนึ่งชั่วโมง"))
+    }
+
+    @Test
     fun allCapabilitiesHaveNonEmptyThaiNames() {
         SensorCapability.entries.forEach { capability ->
             val name = PresentationTextCatalog.capabilityName(capability)

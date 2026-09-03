@@ -187,8 +187,8 @@ object PresentationTextCatalog {
                 "เครื่องนี้ไม่มีไจโรสโคป จะวัดมุมด้วยเข็มทิศอย่างเดียว " +
                     "ต้องใช้เวลายืนยันนานขึ้น"
             ProfileSupportReason.DRIFT_LIMITS_SESSION ->
-                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเอง เฝ้าต่อเนื่องได้ราว " +
-                    "${support.trustedHours ?: 0} ชั่วโมง นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด " +
+                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเอง เฝ้าต่อเนื่องได้" +
+                    "${hoursPhrase(support.trustedHours)} นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด " +
                     "— ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
             ProfileSupportReason.NO_MOVEMENT_SENSOR, ProfileSupportReason.NO_ANGLE_SENSOR,
             ProfileSupportReason.DRIFT_TOO_FAST -> null
@@ -200,7 +200,7 @@ object PresentationTextCatalog {
                 "เครื่องนี้ไม่มีมาตรวัดความเร่ง จึงตรวจการขยับหรือเคลื่อนย้ายไม่ได้"
             ProfileSupportReason.DRIFT_TOO_FAST ->
                 "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเองเร็วเกินไป " +
-                    "(ถึงเกณฑ์แจ้งเตือนในราว ${support.trustedHours ?: 0} ชั่วโมง) " +
+                    "(ถึงเกณฑ์แจ้งเตือนใน${hoursPhrase(support.trustedHours)}) " +
                     "จะเตือนทั้งที่ประตูไม่ได้เปิด จึงใช้โหมดนี้บนเครื่องนี้ไม่ได้"
             ProfileSupportReason.NO_LIGHT_SENSOR, ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY,
             ProfileSupportReason.DRIFT_LIMITS_SESSION -> null
@@ -329,6 +329,16 @@ object PresentationTextCatalog {
     }
 
     /**
+     * Hours the owner can plan around, said the way a person would say them.
+     *
+     * A rate fast enough to matter rounds down to zero, and "ราว 0 ชั่วโมง" told an owner
+     * nothing at the exact moment they were being refused the use and needed to understand
+     * why. Below an hour the number is not the point; that it is under an hour is.
+     */
+    fun hoursPhrase(hours: Int?): String =
+        if (hours == null || hours < 1) "ไม่ถึงหนึ่งชั่วโมง" else "ราว $hours ชั่วโมง"
+
+    /**
      * What the measurement means for this owner's sessions, in hours they can plan around.
      *
      * Never a grade for the phone. The question an owner has is "can I leave it armed while I
@@ -338,13 +348,13 @@ object PresentationTextCatalog {
         EntryDriftVerdict.NotMeasured ->
             "ยังวัดไม่นานพอ (ต้องอย่างน้อย 5 นาที) — วางเครื่องนิ่ง ๆ แล้วปล่อยไว้"
         is EntryDriftVerdict.Trustworthy ->
-            "เครื่องนี้นิ่งพอ — มุมจะไหลถึงเกณฑ์ก็ต่อเมื่อเปิดค้างราว " +
-                "${verdict.hoursToThreshold.toInt()} ชั่วโมง เฝ้าข้ามคืนหรือทั้งวันทำงานได้"
+            "เครื่องนี้นิ่งพอ — มุมจะไหลถึงเกณฑ์ก็ต่อเมื่อเปิดค้าง" +
+                "${hoursPhrase(verdict.hoursToThreshold.toInt())} เฝ้าข้ามคืนหรือทั้งวันทำงานได้"
         is EntryDriftVerdict.Limited ->
-            "เฝ้าต่อเนื่องได้ราว ${verdict.hoursToThreshold.toInt()} ชั่วโมง " +
+            "เฝ้าต่อเนื่องได้${hoursPhrase(verdict.hoursToThreshold.toInt())} " +
                 "นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด — ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
         is EntryDriftVerdict.Unusable ->
-            "มุมของเครื่องนี้ไหลถึงเกณฑ์ในราว ${verdict.hoursToThreshold.toInt()} ชั่วโมง " +
+            "มุมของเครื่องนี้ไหลถึงเกณฑ์ใน${hoursPhrase(verdict.hoursToThreshold.toInt())} " +
                 "จะเตือนผิดจนใช้งานจริงไม่ได้"
     }
 
