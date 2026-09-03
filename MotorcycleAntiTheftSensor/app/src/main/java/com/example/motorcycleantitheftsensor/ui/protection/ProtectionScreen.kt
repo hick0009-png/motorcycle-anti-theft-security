@@ -46,6 +46,7 @@ import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.ProfileSupportReason
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
@@ -233,6 +234,7 @@ fun ProtectionScreen(
                     selectedSetupState = null,
                     deviceSupport = state.profileDeviceSupport,
                     onProfileSelected = actions.selectProfile,
+                    onClearDriftMeasurement = actions.clearDriftMeasurement,
                     headingText = "คุณกำลังปกป้องอะไร?",
                 )
             }
@@ -243,6 +245,7 @@ fun ProtectionScreen(
                     selectedSetupState = state.profile.setupState,
                     deviceSupport = state.profileDeviceSupport,
                     onProfileSelected = actions.selectProfile,
+                    onClearDriftMeasurement = actions.clearDriftMeasurement,
                 )
             }
         }
@@ -481,6 +484,7 @@ private fun ChangeUseSection(
     selectedSetupState: ProfileSetupState?,
     deviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
+    onClearDriftMeasurement: () -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     StatusCard(title = "การใช้งานปัจจุบัน") {
@@ -505,6 +509,7 @@ private fun ChangeUseSection(
                     expanded = false
                     onProfileSelected(profile)
                 },
+                onClearDriftMeasurement = onClearDriftMeasurement,
                 headingText = "เลือกการใช้งานใหม่",
             )
         }
@@ -525,6 +530,7 @@ private fun ProfilePickerSection(
     selectedSetupState: ProfileSetupState?,
     deviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>,
     onProfileSelected: (com.example.motorcycleantitheftsensor.protection.ProtectionProfile) -> Unit,
+    onClearDriftMeasurement: () -> Unit,
     headingText: String,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -598,6 +604,27 @@ private fun ProfilePickerSection(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+            // Outside the card on purpose: the card itself is disabled, and a refusal the
+            // owner can undo needs a control they can actually press. A measurement taken
+            // while the phone was being handled is the only refusal here that is undoable.
+            if (support is ProfileDeviceSupport.Unsupported &&
+                support.reason == ProfileSupportReason.DRIFT_TOO_FAST
+            ) {
+                Text(
+                    text = PresentationTextCatalog.DRIFT_LOG_CLEAR_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = onClearDriftMeasurement,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag(DRIFT_MEASUREMENT_CLEAR_TAG),
+                ) {
+                    Text(PresentationTextCatalog.DRIFT_LOG_CLEAR)
                 }
             }
         }

@@ -303,6 +303,19 @@ object PresentationTextCatalog {
     const val DRIFT_LOG_START = "เริ่มบันทึก"
     const val DRIFT_LOG_STOP = "หยุดบันทึก"
 
+    /**
+     * The way out of a measurement taken while the phone was being handled.
+     *
+     * The store keeps the longer recording rather than the newer one, so an eight-hour
+     * measurement that caught someone picking the phone up can only be replaced by an even
+     * longer one. Without a way to throw it away, that phone is refused the door watch
+     * forever over a number that was never about drift.
+     */
+    const val DRIFT_LOG_CLEAR = "ลบผลวัดเดิม แล้ววัดใหม่"
+    const val DRIFT_LOG_CLEAR_HINT =
+        "ถ้ามีใครจับเครื่องหรือเปิดประตูระหว่างวัด ค่าที่ได้จะสูงเกินจริง — ลบแล้ววัดใหม่ได้"
+
+
     fun driftLogStatusLine(
         recording: Boolean,
         sensorName: String,

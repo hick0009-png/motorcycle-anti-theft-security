@@ -40,6 +40,7 @@ import com.example.motorcycleantitheftsensor.service.SensorService
 fun EntryDriftMeasurementCard(
     alertAngleDeg: Int,
     onSetRecording: (Boolean) -> Unit,
+    onClearMeasurement: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val status by SensorService.driftRecorderStatus.collectAsState()
@@ -110,6 +111,24 @@ fun EntryDriftMeasurementCard(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+            // Offered here as well as on a refused picker card: this is where an owner
+            // stands when they realise the recording caught them holding the phone.
+            if (!recording) {
+                Text(
+                    text = PresentationTextCatalog.DRIFT_LOG_CLEAR_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = onClearMeasurement,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag(DRIFT_MEASUREMENT_CLEAR_TAG),
+                ) {
+                    Text(PresentationTextCatalog.DRIFT_LOG_CLEAR)
+                }
+            }
         }
     }
 }
@@ -120,4 +139,5 @@ private fun ratePerHour(maxTwistDeg: Double, elapsedMs: Long): Double {
 }
 
 const val DRIFT_MEASUREMENT_TOGGLE_TAG = "ui.protection.drift.TOGGLE"
+const val DRIFT_MEASUREMENT_CLEAR_TAG = "ui.protection.drift.CLEAR"
 const val DRIFT_MEASUREMENT_STATUS_TAG = "ui.protection.drift.STATUS"

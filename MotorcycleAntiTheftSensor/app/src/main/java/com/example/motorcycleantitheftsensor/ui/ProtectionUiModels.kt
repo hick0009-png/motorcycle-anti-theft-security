@@ -26,6 +26,7 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
 import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import kotlin.math.ceil
@@ -171,6 +172,8 @@ data class ProtectionProfileUiState(
     val showPicker: Boolean = false,
     val pendingSwitchTarget: ProtectionProfile? = null,
     val entryAngleDegrees: Int? = null,
+    /** What this phone measured about its own orientation drift, against [entryAngleDegrees]. */
+    val entryDriftVerdict: EntryDriftVerdict = EntryDriftVerdict.NotMeasured,
     val entryRequiresControlledRearm: Boolean = false,
     val commissioning: EntryCommissioningUiState? = null,
     val powerCommissioning: PowerCommissioningUiState? = null,
@@ -427,12 +430,22 @@ data class ProtectionUiState(
     val sensorRecommendation: SensorRecommendationUiModel
         get() = SensorRecommendationUiModel.from(profile.selectedProfile)
 
-    /** What each protection use can do on this device. Derived, for the same reason. */
+    /**
+     * What each protection use can do on this device. Derived, for the same reason.
+     *
+     * The drift verdict is passed in because the arm path passes it: a picker that judged
+     * hardware alone would keep offering the door watch as pressable on a phone the
+     * coordinator refuses, and the refusal reached the owner as "คำสั่งไม่สำเร็จ".
+     */
     val profileDeviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>
         get() {
             val availability = sensorAvailability.mapValues { (_, model) -> model.availability }
-            return ProtectionProfile.entries.associateWith { profile ->
-                ProfileDeviceSupportPolicy.support(profile, availability)
+            return ProtectionProfile.entries.associateWith { candidate ->
+                ProfileDeviceSupportPolicy.support(
+                    candidate,
+                    availability,
+                    entryDrift = profile.entryDriftVerdict,
+                )
             }
         }
 

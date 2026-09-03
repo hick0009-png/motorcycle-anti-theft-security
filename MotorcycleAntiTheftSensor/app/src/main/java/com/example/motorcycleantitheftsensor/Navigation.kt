@@ -113,8 +113,13 @@ fun MainNavigation(
             incidents = graph.incidents,
             settings = settingsGateway,
             profileRepository = graph.profileRepository,
+            // Both roles are the same runtime object. Leaving the entry one null made
+            // เริ่มปรับเทียบ return before it registered a listener, so the door watch could
+            // never reach READY on a real phone while every unit test passed.
+            entryRuntime = graph.runtime,
             powerRuntime = graph.runtime,
             powerArmChallenge = graph.powerArmChallenge,
+            driftMeasurementStore = graph.driftMeasurementStore,
             sensorCatalog = graph.sensorCatalog,
             initialMissingPermissions = missingPermissions,
         )
@@ -157,6 +162,7 @@ fun MainNavigation(
             cancelProfileSwitch = protectionViewModel::cancelProfileSwitch,
             restoreRecommendedProfile = protectionViewModel::restoreRecommendedProfile,
             setDriftRecording = setDriftRecording,
+            clearDriftMeasurement = protectionViewModel::clearEntryDriftMeasurement,
             entrySetAngle = protectionViewModel::setEntryAngle,
             entryStartCommissioning = protectionViewModel::startEntryCommissioning,
             entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,

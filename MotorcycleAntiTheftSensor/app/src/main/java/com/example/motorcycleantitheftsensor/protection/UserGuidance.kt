@@ -9,7 +9,7 @@ enum class GuidanceCode {
     COMMAND_STATUS_SUCCESS, COMMAND_ARM_APPLIED, COMMAND_ARM_REJECTED,
     COMMAND_DISARM_APPLIED, COMMAND_DISARM_REJECTED,
     COMMAND_SENSITIVITY_APPLIED, COMMAND_SENSITIVITY_INVALID, COMMAND_HELP,
-    COMMAND_UNKNOWN,
+    COMMAND_UNKNOWN, PROFILE_UNSUPPORTED,
     SENSOR_HEALTHY, SENSOR_UNAVAILABLE, SENSOR_PERMISSION_MISSING,
     SENSOR_SAMPLE_FAILED, INCIDENT_OPENED, INCIDENT_UPDATED, INCIDENT_ESCALATED,
     INCIDENT_CLOSED, TELEGRAM_DELIVERY_SENDING, TELEGRAM_DELIVERY_SENT,
@@ -44,6 +44,14 @@ sealed class GuidanceDetail {
     data class IncidentTypeValue(val incidentType: IncidentType) : GuidanceDetail()
     data class SensorKindValue(val sensorKind: SensorKind) : GuidanceDetail()
     data class SafeReason(val reason: ReasonLabel) : GuidanceDetail()
+
+    /**
+     * Why this phone cannot carry a protection use, carried whole rather than as a code.
+     *
+     * The sentence the owner reads names a missing sensor or a measured drift rate with the
+     * hours behind it, so the text cannot be looked up from an enum alone.
+     */
+    data class ProfileSupportValue(val support: ProfileDeviceSupport) : GuidanceDetail()
 }
 
 data class GuidanceContent(
@@ -260,6 +268,14 @@ object UserGuidanceCatalog {
                 action = GuidanceAction.NONE,
                 persistent = false
             )
+            GuidanceCode.PROFILE_UNSUPPORTED -> GuidanceContent(
+                titleTh = "ใช้โหมดนี้บนเครื่องนี้ไม่ได้",
+                bodyTh = "{profileSupport}",
+                telegramTh = "⚠️ ใช้โหมดนี้บนเครื่องนี้ไม่ได้: {profileSupport}",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = false
+            )
             GuidanceCode.SENSOR_HEALTHY -> GuidanceContent(
                 titleTh = "เซนเซอร์พร้อมใช้งาน",
                 bodyTh = "{sensorName} กำลังอ่านค่า",
@@ -421,6 +437,10 @@ object UserGuidanceCatalog {
             ?: ""
         val sensorName = (detail as? GuidanceDetail.SensorKindValue)?.sensorKind?.name ?: ""
         val safeReason = (detail as? GuidanceDetail.SafeReason)?.reason?.name ?: ""
+        val profileSupport = (detail as? GuidanceDetail.ProfileSupportValue)
+            ?.support
+            ?.let(PresentationTextCatalog::profileSupport)
+            ?: "เครื่องนี้ไม่มีเซ็นเซอร์ที่โหมดนี้ต้องใช้"
         val permissionName = "Permission"
         val featureName = "Feature"
 
@@ -431,6 +451,7 @@ object UserGuidanceCatalog {
                 ?.replace("{incidentType}", incidentType)
                 ?.replace("{sensorName}", sensorName)
                 ?.replace("{safeReason}", safeReason)
+                ?.replace("{profileSupport}", profileSupport)
                 ?.replace("{reason}", safeReason)
                 ?.replace("{permissionName}", permissionName)
                 ?.replace("{featureName}", featureName)

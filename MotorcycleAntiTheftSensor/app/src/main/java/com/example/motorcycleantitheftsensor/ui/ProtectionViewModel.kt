@@ -7,9 +7,13 @@ import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.GuidanceAction
 import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.GuidanceContent
+import com.example.motorcycleantitheftsensor.protection.GuidanceDetail
 import com.example.motorcycleantitheftsensor.protection.GuidanceSeverity
 import com.example.motorcycleantitheftsensor.protection.EntryCommissioningEnvironment
 import com.example.motorcycleantitheftsensor.protection.EntryCommissioningPolicy
+import com.example.motorcycleantitheftsensor.protection.EntryDriftBudgetPolicy
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
+import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationMath
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileOverrides
@@ -81,6 +85,13 @@ class ProtectionViewModel(
     private val powerRuntime: ProtectionRuntime? = null,
     private val powerArmChallenge: PowerArmChallengeRegistry? = null,
     private val sensorCatalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog? = null,
+    /**
+     * What this phone measured about its own drift, read by the picker for the same reason
+     * the coordinator reads it: a card the owner can press must be a card that will be
+     * accepted. Null leaves the picker exactly as it was — drift-blind, which is what a
+     * phone that never measured deserves anyway.
+     */
+    private val driftMeasurementStore: EntryDriftMeasurementStore? = null,
     private val initialMissingPermissions: Set<String> = emptySet(),
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val ticker: Flow<Unit> = flow {
@@ -584,6 +595,37 @@ class ProtectionViewModel(
         refreshProfile()
     }
 
+    /**
+     * This phone's drift verdict, read the same way the arm path reads it.
+     *
+     * A measurement taken on a source the phone no longer uses is discarded rather than
+     * trusted, which is why the current source is asked for here rather than assumed.
+     */
+    private fun entryDriftVerdict(alertAngleDeg: Int): EntryDriftVerdict {
+        val store = driftMeasurementStore ?: return EntryDriftVerdict.NotMeasured
+        return runCatching {
+            EntryDriftBudgetPolicy.verdict(
+                measurement = store.load(),
+                alertAngleDeg = alertAngleDeg,
+                currentSource = entryRuntime?.entryOrientationSource(),
+            )
+        }.getOrDefault(EntryDriftVerdict.NotMeasured)
+    }
+
+    /**
+     * Throws away what this phone measured about itself, so it can measure again.
+     *
+     * The store keeps the longer recording rather than the newer one, which is right when
+     * both were honest and wrong when the first was taken with the phone in someone's hand:
+     * without this the owner can never replace a contaminated overnight measurement, and the
+     * door watch stays refused on a phone that is fine.
+     */
+    fun clearEntryDriftMeasurement() = runProtectionCommand(GuidanceCode.COMMAND_UNKNOWN) {
+        val store = driftMeasurementStore ?: return@runProtectionCommand
+        withContext(dispatcher) { store.clear() }
+        refreshProfile()
+    }
+
     private suspend fun refreshProfile() {
         val repository = profileRepository ?: return
         val state = try {
@@ -596,6 +638,14 @@ class ProtectionViewModel(
             runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
         }
         val entryAngle = (resolved?.specificSettings as? EntryProfileSettings)?.angleThresholdDegrees
+        // The door watch is offered against the angle the owner set for it, whether or not
+        // it is the use currently selected — the picker has to judge every card, not the
+        // one already chosen.
+        val entryAlertAngle = runCatching {
+            (profilePolicy.resolve(state, ProtectionProfile.ENTRY).specificSettings as? EntryProfileSettings)
+                ?.angleThresholdDegrees
+        }.getOrNull() ?: DEFAULT_ENTRY_ALERT_ANGLE_DEG
+        val driftVerdict = entryDriftVerdict(entryAlertAngle)
         val powerWitnessModel = state.profiles[selected]?.powerWitnessModel
         selectedPowerWitnessModel.value = powerWitnessModel
         val snapshot = coordinator.snapshot.value
@@ -614,6 +664,7 @@ class ProtectionViewModel(
             showPicker = selected == null,
             pendingSwitchTarget = pendingSwitchTarget,
             entryAngleDegrees = entryAngle,
+            entryDriftVerdict = driftVerdict,
             entryRequiresControlledRearm = pendingEntryRearm,
             powerSummary = if (selected == ProtectionProfile.POWER) {
                 powerSummaryRows(
@@ -995,6 +1046,17 @@ class ProtectionViewModel(
                 else -> UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS)
             }
             CommandOutcome.REJECTED -> {
+                // A device-support refusal says something the owner can act on, and it is the
+                // only refusal that arrives typed. Everything below is still string matching.
+                result.unsupported?.let { support ->
+                    publishMessage(
+                        UserGuidanceCatalog.content(
+                            GuidanceCode.PROFILE_UNSUPPORTED,
+                            GuidanceDetail.ProfileSupportValue(support),
+                        ),
+                    )
+                    return
+                }
                 if (result.reason.equals("Arming already in progress", ignoreCase = true)) return
                 if (result.reason.contains("Arm", ignoreCase = true)) UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_REJECTED)
                 else if (result.reason.contains("Disarm", ignoreCase = true)) UserGuidanceCatalog.content(GuidanceCode.COMMAND_DISARM_REJECTED)
@@ -1034,6 +1096,9 @@ class ProtectionViewModel(
 
     private companion object {
         const val UI_SNAPSHOT_PROJECTION_INTERVAL_MS = 1_000L
+
+        /** Matches the arm path's default when no angle has been stored yet. */
+        const val DEFAULT_ENTRY_ALERT_ANGLE_DEG = 15
 
         /**
          * An on-change light sensor reports its current value as soon as it is

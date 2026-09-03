@@ -188,6 +188,15 @@ data class ProtectionCommandResult(
     val outcome: CommandOutcome,
     val resultingState: ProtectionState,
     val reason: String,
+    /**
+     * Set when it was the device-support gate that refused, and never otherwise.
+     *
+     * [reason] is an English sentence for a log. What the owner has to be told depends on
+     * which sensor is missing, or how fast this phone measured itself drifting, and no
+     * substring match on that sentence can tell those apart — the screen used to fall
+     * through to "คำสั่งไม่สำเร็จ" and the real reason died here.
+     */
+    val unsupported: ProfileDeviceSupport.Unsupported? = null,
 )
 
 data class ProtectionSnapshot(

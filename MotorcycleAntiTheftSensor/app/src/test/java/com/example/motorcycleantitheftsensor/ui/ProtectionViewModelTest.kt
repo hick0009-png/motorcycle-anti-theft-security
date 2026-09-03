@@ -16,6 +16,8 @@ import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissionin
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurement
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
 import com.example.motorcycleantitheftsensor.protection.EntryQuaternion
@@ -25,6 +27,8 @@ import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.ProfileSupportReason
 import com.example.motorcycleantitheftsensor.protection.ProtectionClock
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -43,6 +47,9 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
+import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.sensor.SensorCatalog
+import com.example.motorcycleantitheftsensor.sensor.SensorDescriptor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -960,6 +967,128 @@ class ProtectionViewModelTest {
         assertEquals("คำสั่งไม่สำเร็จ", fixture.viewModel.uiState.value.message?.content?.titleTh)
         assertEquals("ไม่สามารถเปิดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
         assertEquals("ไม่สามารถปลดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED).titleTh)
+    }
+
+    @Test
+    fun refusedProfileSaysWhatThisPhoneCannotDoRatherThanCommandFailed() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+                deviceSupport = { profile ->
+                    if (profile == ProtectionProfile.ENTRY) {
+                        ProfileDeviceSupport.Unsupported(
+                            missing = emptySet(),
+                            reason = ProfileSupportReason.DRIFT_TOO_FAST,
+                            trustedHours = 1,
+                        )
+                    } else {
+                        ProfileDeviceSupport.Supported
+                    }
+                },
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value.message?.content
+        assertNotNull(content)
+        // The refusal used to arrive as the catalogue's catch-all, which named neither the
+        // use nor the reason and left the owner with nothing to do about it.
+        assertNotEquals("คำสั่งไม่สำเร็จ", content!!.titleTh)
+        assertTrue(
+            "Refusal body should carry the measured-drift explanation: ${content.bodyTh}",
+            content.bodyTh.contains("ไหลเอง"),
+        )
+    }
+
+    @Test
+    fun pickerRefusesTheDoorWatchOnAPhoneThatMeasuredItselfDrifting() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val store = FakeDriftMeasurementStore(
+            EntryDriftMeasurement(
+                sourceLabel = "game-rotation-vector",
+                // Reaches a 15 degree alert angle in a quarter of an hour: below the two-hour floor.
+                degPerHour = 60.0,
+                measuredMs = 8L * 3_600_000L,
+                measuredAtWallMs = 1_000L,
+            ),
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            sensorCatalog = FullSensorCatalog(),
+            driftMeasurementStore = store,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        val support = viewModel.uiState.value.profileDeviceSupport.getValue(ProtectionProfile.ENTRY)
+        assertTrue("Expected the picker to refuse, but got $support", support is ProfileDeviceSupport.Unsupported)
+        assertEquals(
+            ProfileSupportReason.DRIFT_TOO_FAST,
+            (support as ProfileDeviceSupport.Unsupported).reason,
+        )
+        assertFalse(support.selectable)
+    }
+
+    @Test
+    fun clearingTheMeasurementOffersTheDoorWatchAgain() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val store = FakeDriftMeasurementStore(
+            EntryDriftMeasurement(
+                sourceLabel = "game-rotation-vector",
+                degPerHour = 60.0,
+                measuredMs = 8L * 3_600_000L,
+                measuredAtWallMs = 1_000L,
+            ),
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            sensorCatalog = FullSensorCatalog(),
+            driftMeasurementStore = store,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.clearEntryDriftMeasurement()
+        advanceUntilIdle()
+
+        assertNull(store.load())
+        assertEquals(
+            ProfileDeviceSupport.Supported,
+            viewModel.uiState.value.profileDeviceSupport.getValue(ProtectionProfile.ENTRY),
+        )
     }
 
     // --- Task 7: Profile picker and armed-change confirmation ---
@@ -1918,6 +2047,7 @@ private fun fakeCoordinator(
     blockers: Set<String> = emptySet(),
     profileRepository: ProtectionProfileRepository? = null,
     powerIntegrityChallenge: (() -> Boolean)? = null,
+    deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = { ProfileDeviceSupport.Supported },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = snapshot(state = state, lastTransitionAtMs = 1_000L),
     runtime = FakeRuntime(blockers),
@@ -1925,7 +2055,45 @@ private fun fakeCoordinator(
     clock = ProtectionClock { 2_000L },
     profileRepository = profileRepository,
     powerIntegrityChallenge = powerIntegrityChallenge,
+    deviceSupport = deviceSupport,
 )
+
+/** Every source present, so the support policy judges rather than short-circuiting. */
+private class FullSensorCatalog : SensorCatalog {
+    override fun descriptors(): Map<SensorSource, SensorDescriptor> =
+        SensorSource.entries.associateWith(::descriptor)
+
+    override fun descriptor(source: SensorSource): SensorDescriptor = SensorDescriptor(
+        source = source,
+        androidType = 1,
+        name = source.name,
+        vendor = "Fake",
+        reportingMode = 1,
+        isWakeUp = false,
+        minDelayUs = 1_000,
+        maxDelayUs = 200_000,
+        maximumRange = 100f,
+        resolution = 0.01f,
+        powerMa = 0.5f,
+        isAvailable = true,
+    )
+
+    override fun isAvailable(source: SensorSource): Boolean = true
+}
+
+private class FakeDriftMeasurementStore(
+    private var measurement: EntryDriftMeasurement?,
+) : EntryDriftMeasurementStore {
+    override fun load(): EntryDriftMeasurement? = measurement
+
+    override fun save(measurement: EntryDriftMeasurement) {
+        this.measurement = measurement
+    }
+
+    override fun clear() {
+        measurement = null
+    }
+}
 
 private class ViewModelProfileRepositoryFake(
     private var state: ProtectionProfileStoreState,

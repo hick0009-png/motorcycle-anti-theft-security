@@ -159,6 +159,7 @@ class ProtectionCoordinator(
                         commandId,
                         CommandOutcome.REJECTED,
                         "Device cannot support $selectedProfile: ${support.reason}",
+                        unsupported = support,
                     )
                 }
                 val resolved = profilePolicy.resolve(profileState, selectedProfile)
@@ -638,6 +639,7 @@ class ProtectionCoordinator(
                 commandId,
                 CommandOutcome.REJECTED,
                 "Device cannot support $profile: ${support.reason}",
+                unsupported = support,
             )
         }
         val updateResult = repository.update { state ->
@@ -1262,11 +1264,13 @@ class ProtectionCoordinator(
         commandId: String,
         outcome: CommandOutcome,
         reason: String,
+        unsupported: ProfileDeviceSupport.Unsupported? = null,
     ): ProtectionCommandResult = ProtectionCommandResult(
         commandId = commandId,
         outcome = outcome,
         resultingState = snapshot.value.state,
         reason = reason,
+        unsupported = unsupported,
     )
 
     private inline fun updateSnapshot(transform: (ProtectionSnapshot) -> ProtectionSnapshot) {

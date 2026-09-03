@@ -72,6 +72,8 @@ data class ProtectionAppActions(
     val restoreRecommendedProfile: () -> Unit = {},
     /** Diagnostic: starts or stops the overnight orientation-drift recording. */
     val setDriftRecording: (Boolean) -> Unit = {},
+    /** Throws away the stored drift measurement so this phone can measure itself again. */
+    val clearDriftMeasurement: () -> Unit = {},
 )
 
 @Composable

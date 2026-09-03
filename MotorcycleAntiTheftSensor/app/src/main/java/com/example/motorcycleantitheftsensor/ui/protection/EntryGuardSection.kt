@@ -116,6 +116,7 @@ fun EntryGuardSection(
                 EntryDriftMeasurementCard(
                     alertAngleDeg = selectedAngle,
                     onSetRecording = actions.setDriftRecording,
+                    onClearMeasurement = actions.clearDriftMeasurement,
                 )
             } else if (profile.setupState == ProfileSetupState.READY) {
                 Text("พร้อมเฝ้าระวังทางเข้า", style = MaterialTheme.typography.headlineMedium)
