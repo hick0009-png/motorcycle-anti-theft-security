@@ -637,6 +637,7 @@ class SensorService : Service(), ServiceEnvironment {
             ),
             elapsedMs = SystemClock::elapsedRealtime,
             wallClockMs = System::currentTimeMillis,
+            sensors = graph.blackBoxSensorTap?.let { tap -> tap::drain },
         )
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))

@@ -95,6 +95,40 @@ class BlackBoxRecorderTest {
     }
 
     @Test
+    fun theMinuteRowCarriesTheSensorSummaryAndTakesItOnlyOnce() {
+        val drains = mutableListOf<Int>()
+        var minute = 0
+        val recorder = recorder(
+            sensors = {
+                minute += 1
+                drains.add(minute)
+                BlackBoxSensorSummary(samples = minute * 10, lux = 4.5)
+            },
+        )
+        recorder.start(state(armed = true))
+        // A state row in the middle must not take the minute's evidence and file it under an arm.
+        recorder.observe(state(armed = false))
+        scheduler.advance()
+
+        val minuteRow = rows().single { row -> row.type == BlackBoxRowType.MINUTE }
+        assertEquals(listOf(1), drains)
+        assertEquals(10, minuteRow.sensors.samples)
+        assertEquals(4.5, minuteRow.sensors.lux!!, 0.001)
+        assertEquals(null, rows().first { row -> row.type == BlackBoxRowType.STATE }.sensors.samples)
+    }
+
+    @Test
+    fun aSensorSummaryThatThrowsCostsItsColumnsAndNotTheRow() {
+        val recorder = recorder(sensors = { throw IllegalStateException("tap broke") })
+        recorder.start(state(armed = true))
+        scheduler.advance()
+
+        val minuteRow = rows().single { row -> row.type == BlackBoxRowType.MINUTE }
+        assertEquals(null, minuteRow.sensors.samples)
+        assertEquals(true, minuteRow.state.armed)
+    }
+
+    @Test
     fun theNewestObservedStateIsWhatTheNextMinuteRowCarries() {
         val recorder = recorder()
         recorder.start(state(armed = true, batteryPercent = 90))
@@ -167,7 +201,7 @@ class BlackBoxRecorderTest {
         assertEquals(true, armed.charging)
     }
 
-    private fun recorder() = BlackBoxRecorder(
+    private fun recorder(sensors: (() -> BlackBoxSensorSummary)? = null) = BlackBoxRecorder(
         writer = BlackBoxWriter(
             directory = temporaryFolder.newFolder(),
             header = BlackBoxHeader(
@@ -184,6 +218,7 @@ class BlackBoxRecorderTest {
         elapsedMs = { elapsedMs },
         wallClockMs = { nowMs },
         scheduler = scheduler,
+        sensors = sensors,
     )
 
     private lateinit var writer: BlackBoxWriter

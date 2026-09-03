@@ -49,6 +49,13 @@ class BlackBoxRecorder(
     private val wallClockMs: () -> Long,
     private var scheduler: BlackBoxScheduler? = null,
     private val periodMs: Long = MINUTE_MS,
+    /**
+     * What the sensors delivered since the last minute row, taken and reset here rather than
+     * accumulated anywhere else. Absent until the tap is wired, and absent for every row that
+     * is not a minute row: a state row that drained the counters would take a minute's
+     * evidence and file it under an arm.
+     */
+    private val sensors: (() -> BlackBoxSensorSummary)? = null,
 ) {
 
     private var lastState: BlackBoxState = BlackBoxState.UNKNOWN
@@ -92,10 +99,16 @@ class BlackBoxRecorder(
 
     @Synchronized
     private fun tick() {
-        write(BlackBoxRowType.MINUTE, lastState, note = "")
+        val summary = runCatching { sensors?.invoke() }.getOrNull() ?: BlackBoxSensorSummary()
+        write(BlackBoxRowType.MINUTE, lastState, note = "", sensors = summary)
     }
 
-    private fun write(type: BlackBoxRowType, state: BlackBoxState, note: String) {
+    private fun write(
+        type: BlackBoxRowType,
+        state: BlackBoxState,
+        note: String,
+        sensors: BlackBoxSensorSummary = BlackBoxSensorSummary(),
+    ) {
         writer.append(
             BlackBoxRow(
                 type = type,
@@ -106,6 +119,7 @@ class BlackBoxRecorder(
                 elapsedMs = elapsedMs(),
                 wallMs = wallClockMs(),
                 state = state,
+                sensors = sensors,
                 note = note,
             ),
         )

@@ -48,6 +48,13 @@ class DefaultSensorCapabilityController(
     private val policy: SensorConfigurationPolicy = SensorConfigurationPolicy(),
     private val handlerOwner: SensorHandlerOwner? = null,
     adapterFactory: ((SensorSource) -> SensorSourceAdapter)? = null,
+    /**
+     * The black box's view of the same samples, and nothing more than a view: it is handed
+     * what the detection path was already handed, it cannot alter it, and it cannot stop it.
+     * Registering a second listener instead would raise the sampling rate of the watch itself,
+     * because Android gives every client the fastest rate any one of them requested.
+     */
+    private val sampleTap: ((RawSensorSample) -> Unit)? = null,
 ) : SensorCapabilityController {
 
     private val generationCounter = AtomicLong(1L)
@@ -126,6 +133,17 @@ class DefaultSensorCapabilityController(
                     val started = adapter.start(config.effectiveSamplingProfile(source)) { sample ->
                         val activeGen = sourceGenerations[sample.source] ?: 0L
                         if (isRunning && activeGen == genId) {
+                            // Before the detection work and outside it: a black box that
+                            // throws must cost its own row, never an alarm. This is the
+                            // sensor thread, so whatever the tap does it must not block.
+                            val tap = sampleTap
+                            if (tap != null) {
+                                try {
+                                    tap(sample)
+                                } catch (_: Throwable) {
+                                    // Recording is not worth a detector.
+                                }
+                            }
                             calibrationManager.recordSample(genId, sample)
                             val readiness = calibrationManager.getReadiness(sample.source, genId, safeElapsedRealtime())
                             val obs = normalizer.normalize(

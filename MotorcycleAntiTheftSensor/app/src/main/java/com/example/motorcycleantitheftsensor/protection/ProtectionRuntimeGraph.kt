@@ -68,6 +68,12 @@ object ProtectionRuntimeGraph {
          * file by name would be reading someone else's ciphertext.
          */
         val driftMeasurementStore: EntryDriftMeasurementStore? = null,
+        /**
+         * Counts sensor samples for the black box's minute rows. Shared rather than rebuilt:
+         * it is filled by the one controller that owns the sensor registrations and emptied
+         * by the recorder in the service, and a second instance would be filled by nobody.
+         */
+        val blackBoxSensorTap: BlackBoxSensorTap? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -454,6 +460,7 @@ object ProtectionRuntimeGraph {
         val sensorNormalizer = com.example.motorcycleantitheftsensor.sensor.SensorObservationNormalizer()
         val sensorCalibrationManager = com.example.motorcycleantitheftsensor.sensor.SensorCalibrationManager()
         val sensorPolicy = SensorConfigurationPolicy()
+        val blackBoxSensorTap = BlackBoxSensorTap()
         val sensorController = com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController(
             sensorManager = sensorManager,
             catalog = sensorCatalog,
@@ -461,6 +468,11 @@ object ProtectionRuntimeGraph {
             normalizer = sensorNormalizer,
             policy = sensorPolicy,
             handlerOwner = sensorHandlerOwner,
+            // Values are copied out inside the tap; the array this hands over is the
+            // platform's own and is rewritten by the next event.
+            sampleTap = { sample ->
+                blackBoxSensorTap.onSample(sample.source, sample.values, sample.accuracy)
+            },
         )
         val sharedPrefs = try {
             androidx.security.crypto.EncryptedSharedPreferences.create(
@@ -640,6 +652,7 @@ object ProtectionRuntimeGraph {
             powerArmChallenge = graphPowerArmChallenge,
             sensorCatalog = sensorCatalog,
             driftMeasurementStore = driftMeasurementStore,
+            blackBoxSensorTap = blackBoxSensorTap,
         )
     }
 
