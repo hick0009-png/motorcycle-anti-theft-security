@@ -74,6 +74,8 @@ object ProtectionRuntimeGraph {
          * by the recorder in the service, and a second instance would be filled by nobody.
          */
         val blackBoxSensorTap: BlackBoxSensorTap? = null,
+        /** Where the black box's day files are written, and the only handle allowed to copy them. */
+        val blackBoxWriter: BlackBoxWriter? = null,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -461,6 +463,14 @@ object ProtectionRuntimeGraph {
         val sensorCalibrationManager = com.example.motorcycleantitheftsensor.sensor.SensorCalibrationManager()
         val sensorPolicy = SensorConfigurationPolicy()
         val blackBoxSensorTap = BlackBoxSensorTap()
+        // Built here rather than in the service because two things need the same instance:
+        // the recorder that appends to it, and the export that has to copy it under the very
+        // lock the recorder appends with.
+        val blackBoxWriter = BlackBoxWriter(
+            directory = File(context.filesDir, BlackBoxWriter.DIRECTORY),
+            header = blackBoxHeader(context, sensorCatalog),
+            wallClockMs = System::currentTimeMillis,
+        )
         val sensorController = com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController(
             sensorManager = sensorManager,
             catalog = sensorCatalog,
@@ -653,6 +663,43 @@ object ProtectionRuntimeGraph {
             sensorCatalog = sensorCatalog,
             driftMeasurementStore = driftMeasurementStore,
             blackBoxSensorTap = blackBoxSensorTap,
+            blackBoxWriter = blackBoxWriter,
+        )
+    }
+
+    /**
+     * The cover page of every day file.
+     *
+     * Raw numbers with no statement of which sensor produced them, at what resolution, cannot
+     * be interpreted afterwards by anyone, us included. The boot is identified rather than the
+     * process: two runs separated by a kill share a boot id, and that is what separates "the
+     * app was killed" from "the phone rebooted".
+     */
+    private fun blackBoxHeader(
+        context: Context,
+        catalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog,
+    ): BlackBoxHeader {
+        val wallMs = System.currentTimeMillis()
+        val elapsed = SystemClock.elapsedRealtime()
+        val version = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "unknown"
+        val sensors = runCatching {
+            catalog.descriptors()
+                .filterValues { descriptor -> descriptor.isAvailable }
+                .entries
+                .joinToString(";") { (source, descriptor) ->
+                    "${source.name}:${descriptor.name}:${descriptor.vendor}:${descriptor.resolution}"
+                }
+        }.getOrNull().orEmpty()
+        return BlackBoxHeader(
+            device = "${android.os.Build.MANUFACTURER}/${android.os.Build.MODEL}",
+            androidSdk = android.os.Build.VERSION.SDK_INT,
+            appVersion = version,
+            bootId = ((wallMs - elapsed) / 1_000L).toString(),
+            wallAnchorMs = wallMs,
+            elapsedAtAnchorMs = elapsed,
+            sensors = sensors,
         )
     }
 

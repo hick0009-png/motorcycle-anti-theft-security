@@ -70,6 +70,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.motorcycleantitheftsensor.autostart.BackgroundKeepAliveManager
+import com.example.motorcycleantitheftsensor.ui.protection.BlackBoxExportCard
 import com.example.motorcycleantitheftsensor.theme.Navy
 import com.example.motorcycleantitheftsensor.theme.NavyHeader
 import com.example.motorcycleantitheftsensor.theme.OutlineStrong
@@ -481,6 +482,9 @@ fun SettingsScreen(
         }
 
         if (advancedDiagnosticsExpanded) {
+        item(key = "blackbox-export") {
+            BlackBoxExportCard()
+        }
         item(key = "sensor-fusion-settings") {
             var showAdvancedDialog by rememberSaveable { mutableStateOf(false) }
             var showNoPrimaryWarningDialog by rememberSaveable { mutableStateOf(false) }

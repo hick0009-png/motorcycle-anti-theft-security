@@ -1,7 +1,9 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,9 +73,34 @@ class BlackBoxWriter(
         }
     }
 
-    /** Day files present, oldest first. The export of B3 reads this; nothing else needs it. */
+    /** Day files present, oldest first. The export reads this; nothing else needs it. */
     @Synchronized
     fun files(): List<File> = dayFiles()
+
+    /**
+     * Copies every day file into [sink], oldest first, while holding the lock that `append`
+     * holds.
+     *
+     * That shared lock is the whole point. Without it an export taken while the recorder is
+     * mid-write copies a row that stops in the middle of a number — and unlike the torn last
+     * line of a killed process, which the reader drops on sight, a torn line in the middle of
+     * an exported file sits between two intact ones and looks like data. The writer thread
+     * waits for the copy, which costs at most a delayed minute row and never a sample.
+     *
+     * Returns how many day files went in.
+     */
+    @Synchronized
+    fun snapshot(sink: OutputStream): Int {
+        var copied = 0
+        dayFiles().forEach { file ->
+            runCatching {
+                FileInputStream(file).use { input -> input.copyTo(sink) }
+                copied += 1
+            }
+        }
+        sink.flush()
+        return copied
+    }
 
     private fun fileForToday(): File? {
         val stamp = dayStampFormat.format(Date(wallClockMs()))

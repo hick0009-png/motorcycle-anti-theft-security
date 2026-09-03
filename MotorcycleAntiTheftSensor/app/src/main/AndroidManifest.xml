@@ -118,6 +118,21 @@
             </intent-filter>
         </receiver>
 
+        <!--
+          Hands out the black box export, and nothing else. Not exported, granting read on a
+          single URI at a time: the file leaves the app only when the owner picks a
+          destination in the share sheet.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.blackbox"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/blackbox_paths" />
+        </provider>
+
     </application>
 
 </manifest>

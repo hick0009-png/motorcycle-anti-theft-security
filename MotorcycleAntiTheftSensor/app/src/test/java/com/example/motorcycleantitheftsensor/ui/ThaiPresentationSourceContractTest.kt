@@ -68,6 +68,7 @@ class ThaiPresentationSourceContractTest {
         "ui/protection/ProtectionScreen.kt",
         "ui/protection/EntryGuardSection.kt",
         "ui/protection/PowerGuardSection.kt",
+        "ui/protection/BlackBoxExportCard.kt",
         "ui/events/EventsScreen.kt",
         "ui/settings/SettingsScreen.kt",
         "protection/PresentationTextCatalog.kt",

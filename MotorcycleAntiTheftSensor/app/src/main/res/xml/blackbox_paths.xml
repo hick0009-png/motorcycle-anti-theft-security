@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The one folder the black box may be handed out of.
+
+  Only the export copy is shared, never the recording itself: the day files stay in private
+  storage, and the share sheet is given a single compressed snapshot the owner asked for.
+-->
+<paths>
+    <cache-path
+        name="blackbox-export"
+        path="blackbox-export/" />
+</paths>

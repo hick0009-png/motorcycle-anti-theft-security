@@ -27,10 +27,8 @@ import com.example.motorcycleantitheftsensor.data.removeLegacyAuthenticatorState
 import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.ForegroundStartController
-import com.example.motorcycleantitheftsensor.protection.BlackBoxHeader
 import com.example.motorcycleantitheftsensor.protection.BlackBoxRecorder
 import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
-import com.example.motorcycleantitheftsensor.protection.BlackBoxWriter
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
@@ -51,7 +49,6 @@ import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
 import com.example.motorcycleantitheftsensor.telegram.TelegramCommandHandler
-import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -617,24 +614,10 @@ class SensorService : Service(), ServiceEnvironment {
      */
     private fun startBlackBox() {
         if (blackBox != null) return
-        val wallMs = System.currentTimeMillis()
-        val elapsed = SystemClock.elapsedRealtime()
         val recorder = BlackBoxRecorder(
-            writer = BlackBoxWriter(
-                directory = File(filesDir, BlackBoxWriter.DIRECTORY),
-                header = BlackBoxHeader(
-                    device = "${Build.MANUFACTURER}/${Build.MODEL}",
-                    androidSdk = Build.VERSION.SDK_INT,
-                    appVersion = appVersionName(),
-                    // The boot, not the process: rows on either side of a kill carry the same
-                    // id, which is what separates "the app was killed" from "the phone rebooted".
-                    bootId = ((wallMs - elapsed) / 1_000L).toString(),
-                    wallAnchorMs = wallMs,
-                    elapsedAtAnchorMs = elapsed,
-                    sensors = blackBoxSensorInventory(),
-                ),
-                wallClockMs = System::currentTimeMillis,
-            ),
+            // The graph's writer, not one of our own: the export copies the record under the
+            // same lock this appends with, and a second writer would be a second lock.
+            writer = graph.blackBoxWriter ?: return,
             elapsedMs = SystemClock::elapsedRealtime,
             wallClockMs = System::currentTimeMillis,
             sensors = graph.blackBoxSensorTap?.let { tap -> tap::drain },
@@ -642,22 +625,6 @@ class SensorService : Service(), ServiceEnvironment {
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
     }
-
-    /**
-     * The cover page of the file: raw numbers with no statement of which sensor produced them,
-     * at what resolution, cannot be interpreted afterwards by anyone, including us.
-     */
-    private fun blackBoxSensorInventory(): String =
-        graph.sensorCatalog?.descriptors().orEmpty()
-            .filterValues { descriptor -> descriptor.isAvailable }
-            .entries
-            .joinToString(";") { (source, descriptor) ->
-                "${source.name}:${descriptor.name}:${descriptor.vendor}:${descriptor.resolution}"
-            }
-
-    private fun appVersionName(): String = runCatching {
-        packageManager.getPackageInfo(packageName, 0).versionName
-    }.getOrNull() ?: "unknown"
 
     private fun startDriftRecording() {
         if (driftRecorder?.isRecording == true) return
