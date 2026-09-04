@@ -48,7 +48,7 @@ class BlackBoxWriterTest {
         val files = directory.listFiles().orEmpty().map { file -> file.name }.sorted()
         assertEquals(listOf("blackbox-$firstDay.csv", "blackbox-$secondDay.csv"), files)
         val second = File(directory, "blackbox-$secondDay.csv").readText()
-        assertTrue(second.startsWith("# blackbox v1\n"))
+        assertTrue(second.startsWith("# blackbox v${BlackBoxCsv.VERSION}\n"))
         assertTrue(second.contains(BlackBoxCsv.COLUMN_HEADER))
         assertEquals(1, BlackBoxCsv.readRows(File(directory, "blackbox-$secondDay.csv")).size)
     }
@@ -61,7 +61,7 @@ class BlackBoxWriterTest {
 
         val file = File(directory, "blackbox-${dayStamp.format(Date(nowMs))}.csv")
         assertEquals(2, BlackBoxCsv.readRows(file).size)
-        assertEquals(1, file.readText().split("# blackbox v1").size - 1)
+        assertEquals(1, file.readText().split("# blackbox v${BlackBoxCsv.VERSION}").size - 1)
     }
 
     @Test
@@ -133,6 +133,36 @@ class BlackBoxWriterTest {
         maxDirectoryBytes = maxDirectoryBytes,
         maxFileBytes = maxFileBytes,
     )
+
+    @Test
+    fun theRowAfterFailedWritesSaysHowManyWereLost() {
+        val directory = temporaryFolder.newFolder("blackbox")
+        // A directory where the day file belongs: every write to it throws, which is what a
+        // full disk or a revoked directory looks like from in here.
+        val blocker = File(directory, "blackbox-${dayStamp.format(Date(nowMs))}.csv")
+        assertTrue(blocker.mkdir())
+
+        val writer = writer(directory)
+        repeat(3) { index -> assertFalse(writer.append(row(elapsedMs = index * 60_000L))) }
+        assertEquals(3, writer.failureCount)
+
+        assertTrue(blocker.delete())
+        assertTrue(writer.append(row(elapsedMs = 180_000L)))
+
+        val rows = BlackBoxCsv.readRows(File(directory, "blackbox-${dayStamp.format(Date(nowMs))}.csv"))
+        assertEquals(1, rows.size)
+        // Without this the three dropped rows are a gap, and a gap reads as a kill.
+        assertEquals(3, rows.single().writeFailures)
+    }
+
+    @Test
+    fun aRowWrittenBeforeTheColumnExistedStillReads() {
+        val v1 = "M,60000,1756800060000,1,ENTRY,3,,,,,,,0,84,0,"
+        val row = BlackBoxCsv.parse(v1)
+
+        assertEquals(60_000L, row?.elapsedMs)
+        assertEquals(0, row?.writeFailures)
+    }
 
     private fun existingDay(directory: File, atMs: Long, sizeBytes: Int): File =
         File(directory, "blackbox-${dayStamp.format(Date(atMs))}.csv").apply {

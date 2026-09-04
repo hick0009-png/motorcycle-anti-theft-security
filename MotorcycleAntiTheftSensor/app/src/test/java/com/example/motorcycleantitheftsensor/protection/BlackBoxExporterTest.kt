@@ -75,7 +75,7 @@ class BlackBoxExporterTest {
         writer.append(row(0L))
 
         val onDisk = writer.files().single().readText()
-        assertTrue(onDisk.startsWith("# blackbox v1"))
+        assertTrue(onDisk.startsWith("# blackbox v${BlackBoxCsv.VERSION}"))
         assertTrue(onDisk.contains(BlackBoxCsv.COLUMN_HEADER))
     }
 

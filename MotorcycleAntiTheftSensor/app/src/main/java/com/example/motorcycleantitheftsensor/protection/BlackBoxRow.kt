@@ -82,6 +82,23 @@ data class BlackBoxRow(
     val sensors: BlackBoxSensorSummary = BlackBoxSensorSummary(),
     /** Why an `S` row was written, or which incident an `E` row refers to. Empty on `M`. */
     val note: String = "",
+    /**
+     * Rows the writer could not put on disk before this one landed, counted since the process
+     * started. Stamped by [BlackBoxWriter], never by the caller — a number the caller could
+     * forget to set is a number the file cannot be read against.
+     *
+     * A missing minute row has three possible causes and, until this column existed, one
+     * signature: the app was killed, the minute tick never fired, or the write itself failed.
+     * The third is the one no other evidence covers, and it is the one that most looks like
+     * the first — a phone whose disk filled at midnight goes on running, goes on ticking, and
+     * leaves behind exactly the gap that reads as a kill. The counter for it was already kept
+     * and was read by nothing, so the file said the same thing either way.
+     *
+     * Non-zero on the first row after a gap means that gap holds dropped rows, not a death.
+     * It resets to zero with the process, which is unambiguous: a reset is always accompanied
+     * by the `start` row that opens the new process.
+     */
+    val writeFailures: Int = 0,
 )
 
 /** The identifying block at the top of every day file. */
@@ -111,13 +128,21 @@ data class BlackBoxHeader(
  */
 object BlackBoxCsv {
 
-    const val VERSION = 1
+    /** v2 appended `writeFails`. v1 files stay readable; see [parse]. */
+    const val VERSION = 2
 
     const val COLUMN_HEADER =
         "type,elapsedMs,wallMs,armed,mode,srcMask,samples,accMaxG,accRmsG," +
-            "rotMaxDeg,lux,accuracyMin,incidents,battPct,charging,note"
+            "rotMaxDeg,lux,accuracyMin,incidents,battPct,charging,note,writeFails"
 
-    private const val COLUMN_COUNT = 16
+    private const val COLUMN_COUNT = 17
+
+    /**
+     * The v1 width. New columns go on the end and old widths keep parsing, so a phone that
+     * upgrades mid-day carries on appending to a file whose earlier rows are one column short
+     * — and both halves still read.
+     */
+    private const val COLUMN_COUNT_V1 = 16
 
     fun header(header: BlackBoxHeader): String = buildString {
         append("# blackbox v").append(VERSION).append('\n')
@@ -147,7 +172,8 @@ object BlackBoxCsv {
         append(row.state.incidents).append(',')
         append(row.state.batteryPercent.orBlank()).append(',')
         append(row.state.charging.orBlank()).append(',')
-        append(sanitize(row.note))
+        append(sanitize(row.note)).append(',')
+        append(row.writeFailures)
     }
 
     /**
@@ -157,7 +183,7 @@ object BlackBoxCsv {
     fun parse(line: String): BlackBoxRow? {
         if (line.isEmpty() || line.startsWith("#") || line.startsWith("type,")) return null
         val fields = line.split(",")
-        if (fields.size != COLUMN_COUNT) return null
+        if (fields.size != COLUMN_COUNT && fields.size != COLUMN_COUNT_V1) return null
         val type = BlackBoxRowType.entries.firstOrNull { entry -> entry.code == fields[0] }
             ?: return null
         val elapsedMs = fields[1].toLongOrNull() ?: return null
@@ -186,6 +212,9 @@ object BlackBoxCsv {
                 accuracyMin = fields[11].toIntOrNull(),
             ),
             note = fields[15],
+            // Absent in v1, and absent is not the same as zero — but zero is what a v1 file
+            // meant by saying nothing, since nothing was counting.
+            writeFailures = fields.getOrNull(16)?.toIntOrNull() ?: 0,
         )
     }
 

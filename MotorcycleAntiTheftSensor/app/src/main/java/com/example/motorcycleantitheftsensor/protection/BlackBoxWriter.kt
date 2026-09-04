@@ -42,14 +42,26 @@ class BlackBoxWriter(
     private var currentBytes: Long = 0L
     private var dayIsFull = false
 
-    /** Rows that could not be written. Non-zero means the record has holes that are not kills. */
+    /**
+     * Rows that could not be written. Non-zero means the record has holes that are not kills.
+     *
+     * Every row carries the count as its `writeFails` column, which is the whole point of
+     * keeping it: held only in memory it died with the process that had the answer, and a
+     * full disk was indistinguishable from a kill in the one file built to tell them apart.
+     *
+     * The day-file ceiling does not count here. A capped file stops taking rows altogether,
+     * so no later row could report the number anyway; the `# capped` line written at the
+     * moment of capping is that case's own mark in the file.
+     */
     @Volatile
     var failureCount: Int = 0
         private set
 
     @Synchronized
     fun append(row: BlackBoxRow): Boolean {
-        val line = BlackBoxCsv.format(row) + "\n"
+        // Stamped here rather than by the recorder: this is the only object that knows the
+        // count, and a row is only worth reading against it if every row carries it.
+        val line = BlackBoxCsv.format(row.copy(writeFailures = failureCount)) + "\n"
         return try {
             val target = fileForToday() ?: return false
             val bytes = line.toByteArray(Charsets.UTF_8)
