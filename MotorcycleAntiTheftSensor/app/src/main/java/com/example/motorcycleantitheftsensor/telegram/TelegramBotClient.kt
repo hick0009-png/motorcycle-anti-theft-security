@@ -3,6 +3,8 @@ package com.example.motorcycleantitheftsensor.telegram
 import android.content.Context
 import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
+import com.example.motorcycleantitheftsensor.protection.BreadcrumbDetail
+import com.example.motorcycleantitheftsensor.protection.BreadcrumbEvent
 import com.example.motorcycleantitheftsensor.network.TlsPinningClient
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.PairingResult
@@ -37,6 +39,14 @@ class TelegramBotClient(
     private val commandHandler: TelegramCommandExecutor? = null,
     private val onTelegramContact: (Long) -> Unit = {},
     private val httpClient: okhttp3.OkHttpClient = TlsPinningClient.client,
+    /**
+     * Leaves a mark in the black box for what this client did.
+     *
+     * The domain is fixed rather than passed, so a caller here cannot file a crumb under
+     * somebody else's allowance. Nothing identifying goes through it: the parameter types are
+     * closed enums, and a chat id could not be expressed even deliberately.
+     */
+    private val breadcrumb: (BreadcrumbEvent, List<BreadcrumbDetail>) -> Unit = { _, _ -> },
 ) {
 
     private val pairingCodePolicy = PairingCodePolicy()
@@ -204,11 +214,22 @@ class TelegramBotClient(
                     }
 
                     if (!prefsManager.isChatIdAllowed(chatId)) {
+                        // Somebody who is not the owner found the bot and is talking to it.
+                        // Nothing recorded this before, so an owner had no way of learning
+                        // that their bot was being probed at all — and the refusal below
+                        // confirms to the prober that it is live.
+                        breadcrumb(BreadcrumbEvent.DENIED, emptyList())
                         sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.UNAUTHORIZED_COMMAND).telegramTh!!)
                         commitUpdateId(updateId)
                         continue
                     }
 
+                    // Recorded before it runs, and whatever it answers. The owner is the
+                    // only person who should ever ask where the vehicle is; a request they
+                    // did not make is the signal, and the outcome does not change that.
+                    if (command is RemoteCommand.Where) {
+                        breadcrumb(BreadcrumbEvent.WHERE, emptyList())
+                    }
                     handleAuthorizedCommand(chatId, commandId, command, updateId)
                 }
             }
@@ -362,11 +383,26 @@ class TelegramBotClient(
         if (isDuplicateMessage(chatId, textMarkdown, nowMs)) {
             return true
         }
-        val botToken = prefsManager.getBotToken() ?: return false
-        val sent = sendTelegramMessageToApi(httpClient, botToken, chatId, textMarkdown)
+        // A missing token is a send that never left the phone, and it is the failure most
+        // likely to be silent: nothing is broken, nothing times out, the owner is simply
+        // never told anything again.
+        val botToken = prefsManager.getBotToken() ?: run {
+            breadcrumb(BreadcrumbEvent.FAILED, listOf(BreadcrumbDetail.UNKNOWN))
+            return false
+        }
+        var status: Int? = null
+        val sent = sendTelegramMessageToApi(httpClient, botToken, chatId, textMarkdown) { code ->
+            // The worst status of the parts wins: a message split into chunks has not been
+            // delivered if any chunk was refused.
+            if (status == null) status = code
+        }
+        val tookMs = System.currentTimeMillis() - nowMs
         if (sent) {
             recordSentMessage(chatId, textMarkdown, nowMs)
             onTelegramContact(nowMs)
+            breadcrumb(BreadcrumbEvent.OK, listOf(BreadcrumbDetail.latency(tookMs)))
+        } else {
+            breadcrumb(BreadcrumbEvent.FAILED, listOf(BreadcrumbDetail.httpClass(status)))
         }
         return sent
     }
@@ -475,12 +511,20 @@ internal fun sendTelegramMessageToApi(
     httpClient: okhttp3.OkHttpClient,
     botToken: String,
     chatId: String,
-    text: String
+    text: String,
+    /**
+     * Reports the HTTP status of a part that failed, or null when it never got one.
+     *
+     * Optional and ignored by default so that every existing caller is unchanged. It carries a
+     * status code and nothing else on purpose — the response body of a Telegram error names
+     * the chat it was about, and that must not be within reach of the file.
+     */
+    onFailure: (Int?) -> Unit = {},
 ): Boolean {
     val messages = splitTelegramMessage(text)
     var allSuccess = true
     for (msg in messages) {
-        val sent = sendSingleTelegramMessageToApi(httpClient, botToken, chatId, msg)
+        val sent = sendSingleTelegramMessageToApi(httpClient, botToken, chatId, msg, onFailure)
         if (!sent) {
             allSuccess = false
         }
@@ -492,7 +536,8 @@ private fun sendSingleTelegramMessageToApi(
     httpClient: okhttp3.OkHttpClient,
     botToken: String,
     chatId: String,
-    text: String
+    text: String,
+    onFailure: (Int?) -> Unit = {},
 ): Boolean {
     return try {
         val cleanToken = normalizeTelegramBotToken(botToken)
@@ -512,11 +557,14 @@ private fun sendSingleTelegramMessageToApi(
                 ?.let { org.json.JSONObject(it).optBoolean("ok", false) } == true
             if (!ok) {
                 Log.w(TRANSPORT_TAG, "Telegram send failed")
+                onFailure(response.code)
             }
             ok
         }
     } catch (_: Exception) {
         Log.w(TRANSPORT_TAG, "Telegram send failed")
+        // No status at all: a timeout, a refused socket, no route out of the phone.
+        onFailure(null)
         false
     }
 }

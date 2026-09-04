@@ -36,7 +36,12 @@ import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
 import com.example.motorcycleantitheftsensor.protection.FileBlackBoxExitMarkStore
 import com.example.motorcycleantitheftsensor.protection.ClockChangeWatcher
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
+import com.example.motorcycleantitheftsensor.protection.BreadcrumbDetail
+import com.example.motorcycleantitheftsensor.protection.BreadcrumbDomain
+import com.example.motorcycleantitheftsensor.protection.BreadcrumbEvent
 import com.example.motorcycleantitheftsensor.protection.EntryDriftAutoMeasure
+import com.example.motorcycleantitheftsensor.protection.NetworkWatcher
+import com.example.motorcycleantitheftsensor.protection.PermissionWatcher
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
@@ -137,6 +142,18 @@ class SensorService : Service(), ServiceEnvironment {
     private var driftHandlerThread: HandlerThread? = null
     private var blackBox: BlackBoxRecorder? = null
     private val clockWatcher = ClockChangeWatcher { cause -> blackBox?.noteClockChange(cause) }
+    private val networkWatcher = NetworkWatcher { event, transport ->
+        blackBox?.note(BreadcrumbDomain.NET, event, listOf(transport))
+    }
+    private val permissionWatcher = PermissionWatcher(
+        holds = ::holdsCapability,
+        onBaseline = { held ->
+            blackBox?.note(BreadcrumbDomain.PERMISSION, BreadcrumbEvent.HAVE, held)
+        },
+        onChanged = { event, permission ->
+            blackBox?.note(BreadcrumbDomain.PERMISSION, event, listOf(permission))
+        },
+    )
     private val blackBoxState = BlackBoxStateMapper()
 
     override fun onCreate() {
@@ -152,6 +169,9 @@ class SensorService : Service(), ServiceEnvironment {
                 locationFinder = graph.onDemandLocationFinder,
             ),
             onTelegramContact = graph.coordinator::recordTelegramContact,
+            breadcrumb = { event, details ->
+                blackBox?.note(BreadcrumbDomain.TELEGRAM, event, details)
+            },
         )
         telegramRefreshBoundary = TelegramPollingRefreshBoundary(
             stopAndAwait = telegramClient::stopPollingAndAwait,
@@ -196,6 +216,9 @@ class SensorService : Service(), ServiceEnvironment {
                     lastServiceHeartbeatAtMs = nowMs
                     graph.coordinator.recordServiceHeartbeat(nowMs)
                     graph.coordinator.evaluateFreshness(nowMs)
+                    // Holds its own interval, so this five second loop does not become a five
+                    // second permission poll.
+                    permissionWatcher.poll(nowMs)
                     handleSnapshot(graph.coordinator.snapshot.value)
                     delay(SERVICE_HEARTBEAT_INTERVAL_MS)
                 }
@@ -633,6 +656,34 @@ class SensorService : Service(), ServiceEnvironment {
      * row is that it is unconditional: a row that only appears while armed cannot distinguish
      * a disarmed night from a killed one, which is the distinction the record exists to make.
      */
+    /**
+     * Whether the app is holding one watched capability right now.
+     *
+     * Asked of the service rather than of the watcher so that the watcher stays free of
+     * Android, and so the mapping from a capability to the permission that grants it lives in
+     * one place. Notifications count as held below API 33: there was no permission to hold,
+     * and reporting "revoked" for something the platform never asked about would be a lie
+     * about the phone rather than a fact about it.
+     */
+    private fun holdsCapability(capability: BreadcrumbDetail): Boolean = when (capability) {
+        BreadcrumbDetail.PERM_LOCATION ->
+            hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        BreadcrumbDetail.PERM_MICROPHONE ->
+            hasPermission(Manifest.permission.RECORD_AUDIO)
+        BreadcrumbDetail.PERM_NOTIFICATION ->
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                hasPermission(Manifest.permission.POST_NOTIFICATIONS)
+        BreadcrumbDetail.PERM_SMS ->
+            hasPermission(Manifest.permission.SEND_SMS)
+        BreadcrumbDetail.PERM_BATTERY_UNRESTRICTED ->
+            (getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                ?.isIgnoringBatteryOptimizations(packageName) == true
+        else -> false
+    }
+
+    private fun hasPermission(name: String): Boolean =
+        checkSelfPermission(name) == PackageManager.PERMISSION_GRANTED
+
     private fun startBlackBox() {
         if (blackBox != null) return
         // The graph's writer, not one of our own: the export copies the record under the
@@ -663,6 +714,10 @@ class SensorService : Service(), ServiceEnvironment {
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
         clockWatcher.start(applicationContext)
+        networkWatcher.start(applicationContext)
+        // After the recorder exists, so the baseline row lands under this run's `start` row
+        // and describes the run it belongs to.
+        permissionWatcher.baseline(System.currentTimeMillis())
 
         // After the start row, so the explanation of a gap sits directly beneath the row that
         // opens the run which found it.
@@ -716,6 +771,7 @@ class SensorService : Service(), ServiceEnvironment {
             // tells a reader the service was stopped rather than killed, and every minute
             // gap in the file is read against it.
             clockWatcher.stop(applicationContext)
+            networkWatcher.stop()
             blackBox?.stop()
             blackBox = null
             stopDriftRecording()

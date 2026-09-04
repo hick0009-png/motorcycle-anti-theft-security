@@ -95,6 +95,38 @@ enum class BreadcrumbDetail(val code: String) {
     ACCURACY_UNDER_10M("lt10"),
     ACCURACY_10_TO_50M("10_50"),
     ACCURACY_OVER_50M("gt50"),
+    ;
+
+    companion object {
+        /**
+         * An HTTP status as a class, which is all a reader can act on and all this may carry.
+         *
+         * 429 keeps its own value because it is the one an owner can do something about — it
+         * means the app is being told to slow down, not that anything is broken. `null` is a
+         * request that never got a status: a timeout, a refused socket, no route.
+         */
+        fun httpClass(code: Int?): BreadcrumbDetail = when {
+            code == null -> TIMEOUT
+            code == 429 -> HTTP_429
+            code in 400..499 -> HTTP_4XX
+            code in 500..599 -> HTTP_5XX
+            else -> UNKNOWN
+        }
+
+        /** How long something took, in the only granularity worth a row. */
+        fun latency(ms: Long): BreadcrumbDetail = when {
+            ms < 2_000L -> UNDER_2S
+            ms < 10_000L -> UNDER_10S
+            else -> OVER_10S
+        }
+
+        /** How good a fix was. Metres never reach the file; the band does. */
+        fun accuracy(metres: Float): BreadcrumbDetail = when {
+            metres < 10f -> ACCURACY_UNDER_10M
+            metres <= 50f -> ACCURACY_10_TO_50M
+            else -> ACCURACY_OVER_50M
+        }
+    }
 }
 
 /**
