@@ -270,13 +270,33 @@ class BlackBoxStateMapper {
             lastIncidentId = incidentId
             incidents += 1
         }
+        val sourceMask = sourceMaskOf(snapshot)
+        // Battery is only a reading while something is reading it. `PowerThermalMonitor`
+        // registers ACTION_BATTERY_CHANGED in `startPowerStatusMonitoring`, which is called
+        // from the view model and nowhere else — so a phone sitting disarmed with no UI open
+        // has nothing refreshing the number, and the snapshot carries the last value it ever
+        // saw forward for as long as that lasts. On the test phone that was 306 consecutive
+        // rows asserting 100% and not charging while the phone actually fell to 92% on a
+        // charger, and the value only corrected when the UI was opened.
+        //
+        // The snapshot is right to hold the last value: its readers want the most recent
+        // answer there is. The file is not a reader like that. Every row here is a claim
+        // about one minute, and a stale value repeated is a claim that the battery was
+        // measured that minute and did not move — the one thing a black box must never say.
+        // Blank costs a reader nothing; a confident wrong number costs them the incident.
+        //
+        // Gated on the mask so the two columns cannot contradict each other, the same way
+        // `sourceMaskOf` was made to stop claiming kinds the profile had switched off. The
+        // fix stops at the record, as that one did: `ProtectionSnapshot` is read by arming,
+        // the alert text and the UI, and this is not the place to change what they see.
+        val powerIsReporting = sourceMask and (1 shl SensorKind.POWER_THERMAL.ordinal) != 0
         return BlackBoxState(
             armed = snapshot.state in ARMED_STATES,
             mode = snapshot.armedProfileSnapshot?.profile?.name ?: BlackBoxState.MODE_NONE,
-            sourceMask = sourceMaskOf(snapshot),
+            sourceMask = sourceMask,
             incidents = incidents,
-            batteryPercent = snapshot.batteryLevelPercent,
-            charging = snapshot.chargingState.chargingConnected,
+            batteryPercent = snapshot.batteryLevelPercent.takeIf { powerIsReporting },
+            charging = snapshot.chargingState.chargingConnected.takeIf { powerIsReporting },
             configFingerprint = snapshot.armedProfileSnapshot?.configurationFingerprint,
         )
     }

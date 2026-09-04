@@ -182,6 +182,50 @@ class BlackBoxRecorderTest {
     }
 
     @Test
+    fun theBatteryColumnsGoBlankWhileNothingIsReadingTheBattery() {
+        // `startPowerStatusMonitoring` is called from the view model and nowhere else, so a
+        // phone sitting disarmed with no UI open has nothing registered for
+        // ACTION_BATTERY_CHANGED and the snapshot carries its last value forward. On the test
+        // phone that was 306 rows claiming 100% and not charging across five hours in which
+        // the battery actually fell to 92% on a charger.
+        val mapper = BlackBoxStateMapper()
+
+        val mapped = mapper.map(
+            snapshot().copy(
+                sensorHealth = mapOf(
+                    SensorKind.VIBRATION to SensorHealth(state = SensorHealthState.HEALTHY),
+                    SensorKind.LIGHT to SensorHealth(state = SensorHealthState.HEALTHY),
+                ),
+                batteryLevelPercent = 100,
+                chargingState = ChargingState.CHARGING,
+            ),
+        )
+
+        assertNull(mapped.batteryPercent)
+        assertNull(mapped.charging)
+    }
+
+    @Test
+    fun theBatteryColumnsAreWrittenWhileThePowerSourceIsReporting() {
+        val mapper = BlackBoxStateMapper()
+
+        val mapped = mapper.map(
+            snapshot().copy(
+                state = ProtectionState.ARMED_HEALTHY,
+                sensorHealth = SensorKind.entries.associateWith {
+                    SensorHealth(state = SensorHealthState.HEALTHY)
+                },
+                armedProfileSnapshot = armedProfile(ProtectionProfile.POWER),
+                batteryLevelPercent = 54,
+                chargingState = ChargingState.CHARGING,
+            ),
+        )
+
+        assertEquals(54, mapped.batteryPercent)
+        assertEquals(true, mapped.charging)
+    }
+
+    @Test
     fun aProfileThatSwitchesAKindOffNeverReportsItAsWatching() {
         val mapper = BlackBoxStateMapper()
         // What Power Guard actually looked like on the test phone: the health map calls every
@@ -312,6 +356,10 @@ class BlackBoxRecorderTest {
         val armed = mapper.map(
             snapshot().copy(
                 state = ProtectionState.ARMED_HEALTHY,
+                // Reporting, so the battery columns are a reading rather than a memory.
+                sensorHealth = mapOf(
+                    SensorKind.POWER_THERMAL to SensorHealth(state = SensorHealthState.HEALTHY),
+                ),
                 batteryLevelPercent = 77,
                 chargingState = ChargingState.CHARGING,
             ),
