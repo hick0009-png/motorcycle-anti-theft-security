@@ -28,8 +28,12 @@ import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvid
 import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.ForegroundServiceTypePolicy
 import com.example.motorcycleantitheftsensor.location.ForegroundStartController
+import com.example.motorcycleantitheftsensor.protection.AndroidBlackBoxExitSource
+import com.example.motorcycleantitheftsensor.protection.BlackBoxExitWitness
+import com.example.motorcycleantitheftsensor.protection.BlackBoxProcessStateSummary
 import com.example.motorcycleantitheftsensor.protection.BlackBoxRecorder
 import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
+import com.example.motorcycleantitheftsensor.protection.FileBlackBoxExitMarkStore
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
@@ -38,6 +42,7 @@ import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryPolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryGate
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryHints
 import com.example.motorcycleantitheftsensor.protection.ProtectionPersistenceOutcome
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionPersistenceRequest
 import com.example.motorcycleantitheftsensor.protection.ProtectionRuntimeGraph
 import com.example.motorcycleantitheftsensor.protection.ProtectionRecoveryState
@@ -50,6 +55,7 @@ import com.example.motorcycleantitheftsensor.protection.SnapshotProjectionGate
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telegram.ProtectionStatusFormatter
 import com.example.motorcycleantitheftsensor.telegram.TelegramCommandHandler
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -83,6 +89,8 @@ class SensorService : Service(), ServiceEnvironment {
         private const val WAKE_LOCK_LEASE_MS = 60 * 60 * 1_000L
         private const val WAKE_LOCK_RENEW_BEFORE_MS = 5 * 60 * 1_000L
         private const val TAG = "SensorService"
+        /** Outside the black box directory: a marker swept up by the prune retells old deaths. */
+        private const val EXIT_MARK_FILE = "blackbox_exit_mark"
         const val ACTION_START_SERVICE = "ACTION_START_SERVICE"
         const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
         const val ACTION_ARM = "ACTION_ARM"
@@ -610,16 +618,44 @@ class SensorService : Service(), ServiceEnvironment {
      */
     private fun startBlackBox() {
         if (blackBox != null) return
+        // The graph's writer, not one of our own: the export copies the record under the
+        // same lock this appends with, and a second writer would be a second lock.
+        val writer = graph.blackBoxWriter ?: return
+        val bootIdHash = graph.blackBoxBootIdHash
         val recorder = BlackBoxRecorder(
-            // The graph's writer, not one of our own: the export copies the record under the
-            // same lock this appends with, and a second writer would be a second lock.
-            writer = graph.blackBoxWriter ?: return,
+            writer = writer,
             elapsedMs = SystemClock::elapsedRealtime,
             wallClockMs = System::currentTimeMillis,
             sensors = graph.blackBoxSensorTap?.let { tap -> tap::drain },
+            publishStateSummary = { state, elapsed ->
+                AndroidBlackBoxExitSource.publishStateSummary(
+                    context = applicationContext,
+                    summary = BlackBoxProcessStateSummary.encode(
+                        state = state,
+                        elapsedMs = elapsed,
+                        bootIdHash = bootIdHash,
+                        // Back from the name the row carries rather than out of the snapshot
+                        // again: the blob has to describe the state that was written, and a
+                        // second read could catch a profile change between the two.
+                        profileOrdinal = ProtectionProfile.entries
+                            .firstOrNull { profile -> profile.name == state.mode }?.ordinal,
+                    ),
+                )
+            },
         )
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
+
+        // After the start row, so the explanation of a gap sits directly beneath the row that
+        // opens the run which found it.
+        val described = BlackBoxExitWitness(
+            writer = writer,
+            source = { AndroidBlackBoxExitSource.readExits(applicationContext) },
+            markStore = FileBlackBoxExitMarkStore(File(filesDir, EXIT_MARK_FILE)),
+            elapsedMs = SystemClock::elapsedRealtime,
+            currentBootIdHash = bootIdHash,
+        ).recordNewExits()
+        if (described > 0) Log.i(TAG, "Black box described $described process exit(s)")
     }
 
     private fun startDriftRecording() {

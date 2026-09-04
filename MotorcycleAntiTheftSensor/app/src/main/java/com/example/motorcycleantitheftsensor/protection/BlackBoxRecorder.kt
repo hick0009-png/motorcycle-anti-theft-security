@@ -56,6 +56,13 @@ class BlackBoxRecorder(
      * evidence and file it under an arm.
      */
     private val sensors: (() -> BlackBoxSensorSummary)? = null,
+    /**
+     * Leaves the current state with the system, so that a kill can be described by the run
+     * that was killed. Called on every minute row and nowhere else: republishing it on state
+     * rows too would double the calls to buy a freshness no reader of an `X` row can use, and
+     * the value of the blob is that a recent one always exists, not that the newest one does.
+     */
+    private val publishStateSummary: ((BlackBoxState, Long) -> Unit)? = null,
 ) {
 
     private var lastState: BlackBoxState = BlackBoxState.UNKNOWN
@@ -100,7 +107,12 @@ class BlackBoxRecorder(
     @Synchronized
     private fun tick() {
         val summary = runCatching { sensors?.invoke() }.getOrNull() ?: BlackBoxSensorSummary()
+        val now = elapsedMs()
         write(BlackBoxRowType.MINUTE, lastState, note = "", sensors = summary)
+        // After the row, not before: if only one of the two can happen this minute, the row on
+        // disk is worth more than the blob, because the blob is only ever read to explain the
+        // absence of rows.
+        runCatching { publishStateSummary?.invoke(lastState, now) }
     }
 
     private fun write(

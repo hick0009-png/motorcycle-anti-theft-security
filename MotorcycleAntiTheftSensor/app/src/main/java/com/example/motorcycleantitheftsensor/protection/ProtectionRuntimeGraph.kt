@@ -76,6 +76,12 @@ object ProtectionRuntimeGraph {
         val blackBoxSensorTap: BlackBoxSensorTap? = null,
         /** Where the black box's day files are written, and the only handle allowed to copy them. */
         val blackBoxWriter: BlackBoxWriter? = null,
+        /**
+         * This boot, hashed, from the same string the day file's header carries. Taken from
+         * the header rather than derived again so the two can never disagree about which boot
+         * they are describing.
+         */
+        val blackBoxBootIdHash: Int = 0,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -469,9 +475,10 @@ object ProtectionRuntimeGraph {
         // Built here rather than in the service because two things need the same instance:
         // the recorder that appends to it, and the export that has to copy it under the very
         // lock the recorder appends with.
+        val blackBoxFileHeader = blackBoxHeader(context, sensorCatalog)
         val blackBoxWriter = BlackBoxWriter(
             directory = File(context.filesDir, BlackBoxWriter.DIRECTORY),
-            header = blackBoxHeader(context, sensorCatalog),
+            header = blackBoxFileHeader,
             wallClockMs = System::currentTimeMillis,
         )
         val sensorController = com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController(
@@ -667,6 +674,7 @@ object ProtectionRuntimeGraph {
             driftMeasurementStore = driftMeasurementStore,
             blackBoxSensorTap = blackBoxSensorTap,
             blackBoxWriter = blackBoxWriter,
+            blackBoxBootIdHash = blackBoxFileHeader.bootId.hashCode(),
         )
     }
 

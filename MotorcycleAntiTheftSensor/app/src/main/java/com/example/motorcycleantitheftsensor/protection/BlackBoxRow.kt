@@ -16,11 +16,18 @@ import java.util.Locale
  *
  * `E` refers an opened incident back to `protection_incidents.bin`. Nothing emits it yet;
  * it is named here so that adding it later does not reshape a file already on phones.
+ *
+ * `X` is the system's account of a death of ours, read back after the fact. It is the only
+ * row type whose `wallMs` points behind the rows around it, because it describes something
+ * that happened before the process that wrote it existed. Its state columns are the dying
+ * process's own last state, recovered from the summary it left with the OS — so the row that
+ * explains a gap is filled in by the run that fell into it.
  */
 enum class BlackBoxRowType(val code: String) {
     MINUTE("M"),
     STATE("S"),
     EVENT("E"),
+    EXIT("X"),
 }
 
 /**
