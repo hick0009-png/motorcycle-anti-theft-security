@@ -224,12 +224,6 @@ class TelegramBotClient(
                         continue
                     }
 
-                    // Recorded before it runs, and whatever it answers. The owner is the
-                    // only person who should ever ask where the vehicle is; a request they
-                    // did not make is the signal, and the outcome does not change that.
-                    if (command is RemoteCommand.Where) {
-                        breadcrumb(BreadcrumbEvent.WHERE, emptyList())
-                    }
                     handleAuthorizedCommand(chatId, commandId, command, updateId)
                 }
             }
@@ -319,6 +313,18 @@ class TelegramBotClient(
             return
         }
         if (!claimCommand(commandId)) return
+        // Here rather than where the update arrives, because the update id is committed only
+        // after the command has finished: while a location fix is being taken, Telegram keeps
+        // redelivering the same message, and one `/where` recorded four times is not a record
+        // of anything. `claimCommand` is the point at which the app decides to act on a
+        // command exactly once, so it is the point worth remembering.
+        //
+        // Still before execution and still regardless of outcome: the owner is the only
+        // person who should ever ask where the vehicle is, and a request they did not make is
+        // the signal whether or not it succeeded.
+        if (command is RemoteCommand.Where) {
+            breadcrumb(BreadcrumbEvent.WHERE, emptyList())
+        }
         if (commandQueue.trySend(QueuedCommand(chatId, commandId, command, updateId)).isFailure) {
             releaseCommand(commandId)
             sendTelegramMessage(chatId, com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE).telegramTh!!)
