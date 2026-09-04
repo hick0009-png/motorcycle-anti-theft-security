@@ -139,7 +139,8 @@ class UserGuidanceCatalogTest {
         assertEquals("คำสั่งที่ใช้ได้", c_COMMAND_HELP.titleTh)
         assertEquals("ดูรายการคำสั่งใน Telegram", c_COMMAND_HELP.bodyTh)
         assertEquals(
-            "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+            "ℹ️ คำสั่ง: /status, /where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
+                "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                 "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
             c_COMMAND_HELP.telegramTh,
         )

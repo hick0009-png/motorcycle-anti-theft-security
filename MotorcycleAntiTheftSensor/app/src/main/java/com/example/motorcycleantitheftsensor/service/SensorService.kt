@@ -148,6 +148,7 @@ class SensorService : Service(), ServiceEnvironment {
             commandHandler = TelegramCommandHandler(
                 coordinator = graph.coordinator,
                 statusFormatter = ProtectionStatusFormatter(),
+                locationFinder = graph.onDemandLocationFinder,
             ),
             onTelegramContact = graph.coordinator::recordTelegramContact,
         )

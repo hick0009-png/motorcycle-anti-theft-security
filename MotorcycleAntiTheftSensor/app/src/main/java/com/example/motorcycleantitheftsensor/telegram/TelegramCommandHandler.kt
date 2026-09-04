@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.telegram
 
+import com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.CommandOutcome
 import com.example.motorcycleantitheftsensor.protection.ProtectionCommandResult
@@ -12,6 +13,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 class TelegramCommandHandler(
     private val coordinator: ProtectionCoordinator,
     private val statusFormatter: ProtectionStatusFormatter,
+    /**
+     * Absent on a build with no location layer wired, in which case the command says so
+     * rather than the handler pretending the feature exists.
+     */
+    private val locationFinder: OnDemandLocationFinder? = null,
     private val commandTimeoutMs: Long = 20_000L,
 ) : TelegramCommandExecutor {
     override suspend fun handle(
@@ -54,6 +60,18 @@ class TelegramCommandHandler(
             )
 
             RemoteCommand.Status -> reply(statusFormatter.format(coordinator.snapshot.value))
+
+            RemoteCommand.Where -> {
+                val finder = locationFinder
+                if (finder == null) {
+                    reply("❌ เครื่องนี้ยังไม่ได้เปิดใช้งานระบบระบุตำแหน่ง")
+                } else {
+                    // Told before waited for. A cold fix takes tens of seconds, and silence
+                    // from the phone is exactly what the owner is afraid of right now.
+                    reply("🔎 กำลังหาตำแหน่ง รอสักครู่…")
+                    reply(LocationAnswerFormatter.format(finder.find()))
+                }
+            }
 
             is RemoteCommand.Sensitivity -> {
                 if (command.level != null) {

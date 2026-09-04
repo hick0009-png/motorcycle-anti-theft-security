@@ -64,4 +64,15 @@ class RemoteCommandTest {
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/disarm@MyGuardBot 123456"))
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/status@MyGuardBot extra"))
     }
+
+    @Test
+    fun whereIsAcceptedUnderEitherSpellingAndOnlyWithoutArguments() {
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/where"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/locate"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/where@MyGuardBot"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("  /WHERE  "))
+
+        // Anything trailing is a typo rather than a request, and a typo must not move the radio.
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/where now"))
+    }
 }

@@ -76,6 +76,8 @@ object ProtectionRuntimeGraph {
         val blackBoxSensorTap: BlackBoxSensorTap? = null,
         /** Where the black box's day files are written, and the only handle allowed to copy them. */
         val blackBoxWriter: BlackBoxWriter? = null,
+        /** Answers `/where` without taking fixes away from whatever is already tracking. */
+        val onDemandLocationFinder: com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder? = null,
         /**
          * This boot, hashed, from the same string the day file's header carries. Taken from
          * the header rather than derived again so the two can never disagree about which boot
@@ -163,7 +165,13 @@ object ProtectionRuntimeGraph {
         )
         val sms = SmsFallbackManager(context, preferences)
         val labelResolver = com.example.motorcycleantitheftsensor.location.AndroidLocationLabelResolver(context)
-        val locationProvider = LocationObservationProvider(context)
+        // Built here rather than inside the provider so the on-demand lookup can share it.
+        // Sharing the client is not sharing a registration: each `register` call returns
+        // its own, which is what keeps a `/where` from disturbing an armed tracker.
+        val locationClient = com.example.motorcycleantitheftsensor.sensor.AndroidLocationUpdatesClient(
+            context.applicationContext,
+        )
+        val locationProvider = LocationObservationProvider(locationClient)
         val delivery = IncidentDeliveryCoordinator(
             repository = repository,
             formatter = IncidentMessageFormatter { coordinator.snapshot.value },
@@ -675,6 +683,11 @@ object ProtectionRuntimeGraph {
             blackBoxSensorTap = blackBoxSensorTap,
             blackBoxWriter = blackBoxWriter,
             blackBoxBootIdHash = blackBoxFileHeader.bootId.hashCode(),
+            onDemandLocationFinder = com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder(
+                tracking = locationProvider,
+                client = locationClient,
+                elapsedMs = SystemClock::elapsedRealtime,
+            ),
         )
     }
 

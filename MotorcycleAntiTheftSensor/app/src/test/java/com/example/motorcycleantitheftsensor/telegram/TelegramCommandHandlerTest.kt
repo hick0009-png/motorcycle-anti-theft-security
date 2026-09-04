@@ -94,7 +94,8 @@ class TelegramCommandHandlerTest {
 
         val reply = replies.single()
         assertEquals(
-            "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+            "ℹ️ คำสั่ง: /status, /where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
+                "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                 "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
             reply,
         )
