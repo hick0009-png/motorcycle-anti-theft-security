@@ -26,6 +26,7 @@ import com.example.motorcycleantitheftsensor.data.LegacyAuthenticatorMigrationRe
 import com.example.motorcycleantitheftsensor.data.removeLegacyAuthenticatorState
 import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
+import com.example.motorcycleantitheftsensor.location.ForegroundServiceTypePolicy
 import com.example.motorcycleantitheftsensor.location.ForegroundStartController
 import com.example.motorcycleantitheftsensor.protection.BlackBoxRecorder
 import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
@@ -365,26 +366,13 @@ class SensorService : Service(), ServiceEnvironment {
         if (foregroundRunning) return
         createNotificationChannel()
         val snapshot = graph.coordinator.snapshot.value
-        val requestedTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (requiresLocationForeground(snapshot)) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            }
-        } else {
-            0
-        }
-        val specialUseOnly = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else {
-            0
-        }
+        val attempts = foregroundAttempts(snapshot)
+        val requestedTypes = attempts.first()
         val text = notificationText(snapshot)
         val notification = createNotification(snapshot)
 
         val result = foregroundStartController.start(
-            requestedTypes = requestedTypes,
-            specialUseOnlyTypes = specialUseOnly,
+            attempts = attempts,
             gateway = { types ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(NOTIFICATION_ID, notification, types)
@@ -394,10 +382,29 @@ class SensorService : Service(), ServiceEnvironment {
             }
         )
         currentForegroundTypes = result.usedForegroundTypes
-        graph.coordinator.recordLocationForegroundRestriction(result.degradedReason != null)
+        // Read from the types actually granted rather than from "something was refused": a
+        // microphone claim the platform declines says nothing about location.
+        graph.coordinator.recordLocationForegroundRestriction(
+            ForegroundServiceTypePolicy.lostLocation(requestedTypes, result.usedForegroundTypes),
+        )
         lastPublishedFingerprint = ForegroundNotificationFingerprint(text, result.usedForegroundTypes)
         foregroundRunning = true
     }
+
+    /**
+     * The claims this service may make right now, best first.
+     *
+     * The microphone is asked for only when the permission is in hand; the audio pipeline is
+     * started by the runtime under the uses that run it, and a claim made without the
+     * permission is refused rather than ignored.
+     */
+    private fun foregroundAttempts(snapshot: ProtectionSnapshot): List<Int> =
+        ForegroundServiceTypePolicy.attempts(
+            sdkInt = Build.VERSION.SDK_INT,
+            locationForeground = requiresLocationForeground(snapshot),
+            microphoneGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
 
     override suspend fun stopForegroundAndSelf() {
         try {
@@ -461,20 +468,8 @@ class SensorService : Service(), ServiceEnvironment {
 
     override fun renderNotification(snapshot: ProtectionSnapshot) {
         if (!foregroundRunning) return
-        val requestedTypes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (requiresLocationForeground(snapshot)) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            }
-        } else {
-            0
-        }
-        val specialUseOnly = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else {
-            0
-        }
+        val attempts = foregroundAttempts(snapshot)
+        val requestedTypes = attempts.first()
         val text = notificationText(snapshot)
         val nextFingerprint = ForegroundNotificationFingerprint(text, requestedTypes)
         if (!foregroundNotificationPolicy.shouldPublish(lastPublishedFingerprint, nextFingerprint)) {
@@ -483,14 +478,15 @@ class SensorService : Service(), ServiceEnvironment {
         val notification = createNotification(snapshot)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && currentForegroundTypes != requestedTypes) {
             val result = foregroundStartController.start(
-                requestedTypes = requestedTypes,
-                specialUseOnlyTypes = specialUseOnly,
+                attempts = attempts,
                 gateway = { types ->
                     startForeground(NOTIFICATION_ID, notification, types)
                 }
             )
             currentForegroundTypes = result.usedForegroundTypes
-            graph.coordinator.recordLocationForegroundRestriction(result.degradedReason != null)
+            graph.coordinator.recordLocationForegroundRestriction(
+                ForegroundServiceTypePolicy.lostLocation(requestedTypes, result.usedForegroundTypes),
+            )
             lastPublishedFingerprint = ForegroundNotificationFingerprint(text, result.usedForegroundTypes)
         } else {
             getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification)

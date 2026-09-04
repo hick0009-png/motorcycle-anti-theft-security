@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!--
+        Sound is evidence this app already collects: the vehicle watch classifies impacts and
+        power tools on device. From Android 14 a foreground service that touches the microphone
+        must say so here and hold this permission, or the read is refused while the screen is
+        off — which is every moment this app exists for. The test phone runs API 28 and would
+        never have shown it.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SEND_SMS" />
@@ -66,7 +74,7 @@
             android:name=".service.SensorService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|location">
+            android:foregroundServiceType="specialUse|location|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Motorcycle anti-theft sensor monitoring" />
