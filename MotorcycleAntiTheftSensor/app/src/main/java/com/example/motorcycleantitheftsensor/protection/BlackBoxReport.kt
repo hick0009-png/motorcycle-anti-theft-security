@@ -223,18 +223,28 @@ object BlackBoxReportBuilder {
     ): List<BlackBoxContradiction> {
         val found = mutableListOf<BlackBoxContradiction>()
 
-        // The wall clock moved further than the elapsed clock did. Nothing else in the file
-        // would show this, and the header's anchor is only ever taken once.
+        // A `T` row is the recorder saying so at the time, and it names the cause. Preferred
+        // over working it out from the gap between two rows, because the recorder can hear
+        // the system announce a change that the endpoints of a minute would never show — a
+        // clock moved and moved back inside one tick leaves the two rows in agreement.
+        val announced = ordered.filter { row -> row.type == BlackBoxRowType.TIME }
+        announced.forEach { row ->
+            found += BlackBoxContradiction(row.wallMs, "นาฬิกาเครื่องถูกเปลี่ยน (${row.note}) — เวลาในไฟล์หลังจุดนี้อยู่คนละกรอบกับก่อนหน้า")
+        }
+
+        // The same thing inferred, for files written before `T` rows existed and for a clock
+        // that moved without anything announcing it.
         ordered.zipWithNext().forEach { (before, after) ->
             val elapsedDelta = after.elapsedMs - before.elapsedMs
             if (elapsedDelta < 0L) return@forEach
             val drift = (after.wallMs - before.wallMs) - elapsedDelta
-            if (kotlin.math.abs(drift) > CLOCK_JUMP_TOLERANCE_MS) {
-                found += BlackBoxContradiction(
-                    after.wallMs,
-                    "นาฬิกาเครื่องกระโดด ${drift / 1000L} วินาที เทียบกับนาฬิกาตั้งแต่บูต — เวลาในไฟล์ช่วงนี้เชื่อไม่ได้เต็มที่",
-                )
-            }
+            if (kotlin.math.abs(drift) <= CLOCK_JUMP_TOLERANCE_MS) return@forEach
+            // Already stated by the recorder; saying it twice makes one event look like two.
+            if (announced.any { row -> row.wallMs in before.wallMs..after.wallMs }) return@forEach
+            found += BlackBoxContradiction(
+                after.wallMs,
+                "นาฬิกาเครื่องกระโดด ${drift / 1000L} วินาที เทียบกับนาฬิกาตั้งแต่บูต — เวลาในไฟล์ช่วงนี้เชื่อไม่ได้เต็มที่",
+            )
         }
 
         minutes.lastOrNull { row -> row.writeFailures > 0 }?.let { row ->

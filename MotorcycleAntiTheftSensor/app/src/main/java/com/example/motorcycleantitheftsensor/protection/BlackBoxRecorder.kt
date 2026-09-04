@@ -68,10 +68,21 @@ class BlackBoxRecorder(
     private var lastState: BlackBoxState = BlackBoxState.UNKNOWN
     private var started = false
 
+    /** The last point at which the two clocks were known to agree. */
+    private var anchorWallMs: Long = 0L
+    private var anchorElapsedMs: Long = 0L
+
+    /** Time rows written in the current hour, and when that hour began on the elapsed clock. */
+    private var timeRowsThisHour = 0
+    private var timeRowHourStartedAtMs = 0L
+    private var timeRowsSuppressed = 0
+
     @Synchronized
     fun start(state: BlackBoxState) {
         if (started && scheduler?.isShutdown == false) return
         lastState = state
+        reanchorClocks()
+        timeRowHourStartedAtMs = elapsedMs()
         write(BlackBoxRowType.STATE, state, note = NOTE_START)
         if (scheduler == null || scheduler?.isShutdown == true) {
             scheduler = ExecutorBlackBoxScheduler(Executors.newSingleThreadScheduledExecutor())
@@ -104,8 +115,26 @@ class BlackBoxRecorder(
         started = false
     }
 
+    /**
+     * Records that the wall clock was set, at the moment the system said so.
+     *
+     * The broadcast is what makes this worth having over reading the drift back out of two
+     * neighbouring rows. Those rows are a minute apart, so a clock moved and moved back
+     * between them nets to nothing and leaves no trace at all — and moving it back is what
+     * somebody covering an hour would do. The broadcast arrives on the change itself.
+     */
+    @Synchronized
+    fun noteClockChange(cause: String) {
+        writeTimeRow("$NOTE_CLOCK:$cause")
+    }
+
     @Synchronized
     private fun tick() {
+        // Checked before the minute row so the anchor is repaired before anything is stamped
+        // against it. This is the backstop for a clock that moved without announcing itself.
+        val drift = (wallClockMs() - anchorWallMs) - (elapsedMs() - anchorElapsedMs)
+        if (kotlin.math.abs(drift) > CLOCK_TOLERANCE_MS) writeTimeRow("$NOTE_CLOCK:$NOTE_CAUSE_DRIFT")
+
         val summary = runCatching { sensors?.invoke() }.getOrNull() ?: BlackBoxSensorSummary()
         val now = elapsedMs()
         write(BlackBoxRowType.MINUTE, lastState, note = "", sensors = summary)
@@ -113,6 +142,46 @@ class BlackBoxRecorder(
         // disk is worth more than the blob, because the blob is only ever read to explain the
         // absence of rows.
         runCatching { publishStateSummary?.invoke(lastState, now) }
+    }
+
+    /**
+     * Writes the new anchor and how far the clock moved to reach it, under an hourly ceiling.
+     *
+     * The ceiling is the lesson of the source mask flicker written down as a mechanism: a row
+     * type meant to report that something is wrong must never be able to fill the day's file
+     * and silence the record it belongs to. A device whose clock is being corrected in a loop
+     * gets twelve rows an hour and then one line saying how many were held back.
+     */
+    private fun writeTimeRow(note: String) {
+        val nowElapsed = elapsedMs()
+        if (nowElapsed - timeRowHourStartedAtMs >= HOUR_MS) {
+            if (timeRowsSuppressed > 0) {
+                writeAnchorRow("$NOTE_CLOCK:$NOTE_CAUSE_CAPPED:$timeRowsSuppressed")
+            }
+            timeRowHourStartedAtMs = nowElapsed
+            timeRowsThisHour = 0
+            timeRowsSuppressed = 0
+        }
+        if (timeRowsThisHour >= MAX_TIME_ROWS_PER_HOUR) {
+            timeRowsSuppressed += 1
+            // Still re-anchored: dropping the row must not also drop the correction, or every
+            // later timestamp stays measured against a frame we know is wrong.
+            reanchorClocks()
+            return
+        }
+        timeRowsThisHour += 1
+        val drift = (wallClockMs() - anchorWallMs) - (nowElapsed - anchorElapsedMs)
+        writeAnchorRow("$note:${drift / 1000L}")
+    }
+
+    private fun writeAnchorRow(note: String) {
+        write(BlackBoxRowType.TIME, lastState, note = note)
+        reanchorClocks()
+    }
+
+    private fun reanchorClocks() {
+        anchorWallMs = wallClockMs()
+        anchorElapsedMs = elapsedMs()
     }
 
     private fun write(
@@ -141,6 +210,24 @@ class BlackBoxRecorder(
         const val MINUTE_MS = 60_000L
         const val NOTE_START = "start"
         const val NOTE_STOP = "stop"
+        const val NOTE_CLOCK = "clock"
+
+        /** The system announced a change; the strongest kind of evidence available here. */
+        const val NOTE_CAUSE_SET = "set"
+        const val NOTE_CAUSE_TIMEZONE = "tz"
+
+        /** Nobody announced anything and the clocks had drifted apart anyway. */
+        const val NOTE_CAUSE_DRIFT = "drift"
+        const val NOTE_CAUSE_CAPPED = "capped"
+
+        /**
+         * Well clear of scheduler jitter, which measured under a second across a full day on
+         * the test phone. Anything past this is the clock being set, not the tick being late.
+         */
+        const val CLOCK_TOLERANCE_MS = 5_000L
+
+        const val MAX_TIME_ROWS_PER_HOUR = 12
+        private const val HOUR_MS = 60L * 60L * 1000L
     }
 }
 

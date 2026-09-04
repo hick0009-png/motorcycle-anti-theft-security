@@ -22,12 +22,18 @@ import java.util.Locale
  * that happened before the process that wrote it existed. Its state columns are the dying
  * process's own last state, recovered from the summary it left with the OS — so the row that
  * explains a gap is filled in by the run that fell into it.
+ *
+ * `T` is a fresh time anchor, written when the wall clock moves out from under the elapsed
+ * clock. The header carries an anchor too, but it is taken once when the file is opened, so
+ * every wall timestamp after a clock change sits in a frame the header no longer describes.
+ * A `T` row re-pins the two clocks to each other and says what moved them.
  */
 enum class BlackBoxRowType(val code: String) {
     MINUTE("M"),
     STATE("S"),
     EVENT("E"),
     EXIT("X"),
+    TIME("T"),
 }
 
 /**

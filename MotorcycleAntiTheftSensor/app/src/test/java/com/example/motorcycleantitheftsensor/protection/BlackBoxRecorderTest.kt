@@ -220,6 +220,91 @@ class BlackBoxRecorderTest {
     }
 
     @Test
+    fun aClockThatIsSetLeavesAnAnchorRowNamingWhatMovedIt() {
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+
+        nowMs += 3_600_000L
+        recorder.noteClockChange(BlackBoxRecorder.NOTE_CAUSE_SET)
+
+        val row = rows().last()
+        assertEquals(BlackBoxRowType.TIME, row.type)
+        // The row is the new anchor: its own two clocks, and how far they had drifted apart.
+        assertEquals(nowMs, row.wallMs)
+        assertEquals(elapsedMs, row.elapsedMs)
+        assertEquals("clock:set:3600", row.note)
+    }
+
+    @Test
+    fun aClockMovedAndMovedBackInsideOneMinuteIsStillRecorded() {
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+
+        // What the tick comparison cannot see: the endpoints agree.
+        nowMs -= 3_600_000L
+        recorder.noteClockChange(BlackBoxRecorder.NOTE_CAUSE_SET)
+        nowMs += 3_600_000L
+        recorder.noteClockChange(BlackBoxRecorder.NOTE_CAUSE_SET)
+        elapsedMs += 60_000L
+        nowMs += 60_000L
+        scheduler.advance()
+
+        val times = rows().filter { row -> row.type == BlackBoxRowType.TIME }
+        assertEquals(listOf("clock:set:-3600", "clock:set:3600"), times.map { row -> row.note })
+    }
+
+    @Test
+    fun theMinuteTickCatchesAClockThatMovedWithoutAnnouncingItself() {
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+
+        elapsedMs += 60_000L
+        nowMs += 60_000L + 600_000L
+        scheduler.advance()
+
+        val rows = rows()
+        val time = rows.single { row -> row.type == BlackBoxRowType.TIME }
+        assertEquals("clock:drift:600", time.note)
+        // Written before the minute row, so the row is stamped against a repaired anchor.
+        assertTrue(rows.indexOf(time) < rows.indexOfFirst { row -> row.type == BlackBoxRowType.MINUTE })
+    }
+
+    @Test
+    fun anOrdinaryMinuteWritesNoTimeRowAtAll() {
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+        repeat(5) {
+            elapsedMs += 60_000L
+            // A few milliseconds of scheduler jitter, which is not a clock being set.
+            nowMs += 59_996L
+            scheduler.advance()
+        }
+
+        assertTrue(rows().none { row -> row.type == BlackBoxRowType.TIME })
+    }
+
+    @Test
+    fun aClockCorrectedInALoopCannotFillTheDayWithRowsSayingSo() {
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+
+        repeat(40) {
+            nowMs += 10_000L
+            recorder.noteClockChange(BlackBoxRecorder.NOTE_CAUSE_SET)
+        }
+
+        val times = rows().filter { row -> row.type == BlackBoxRowType.TIME }
+        assertEquals(BlackBoxRecorder.MAX_TIME_ROWS_PER_HOUR, times.size)
+
+        // The hour rolls, and what was held back is stated rather than lost.
+        elapsedMs += 60L * 60L * 1000L
+        nowMs += 60L * 60L * 1000L
+        recorder.noteClockChange(BlackBoxRecorder.NOTE_CAUSE_SET)
+        val capped = rows().filter { row -> row.type == BlackBoxRowType.TIME }
+        assertTrue(capped.any { row -> row.note.startsWith("clock:capped:28") })
+    }
+
+    @Test
     fun anArmedSnapshotIsRecordedAsArmedUnderItsOwnMode() {
         val mapper = BlackBoxStateMapper()
 

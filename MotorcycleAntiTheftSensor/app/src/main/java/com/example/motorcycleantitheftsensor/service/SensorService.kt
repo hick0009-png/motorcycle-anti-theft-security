@@ -34,6 +34,7 @@ import com.example.motorcycleantitheftsensor.protection.BlackBoxProcessStateSumm
 import com.example.motorcycleantitheftsensor.protection.BlackBoxRecorder
 import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
 import com.example.motorcycleantitheftsensor.protection.FileBlackBoxExitMarkStore
+import com.example.motorcycleantitheftsensor.protection.ClockChangeWatcher
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
@@ -134,6 +135,7 @@ class SensorService : Service(), ServiceEnvironment {
     private var driftRecorder: EntryDriftRecorder? = null
     private var driftHandlerThread: HandlerThread? = null
     private var blackBox: BlackBoxRecorder? = null
+    private val clockWatcher = ClockChangeWatcher { cause -> blackBox?.noteClockChange(cause) }
     private val blackBoxState = BlackBoxStateMapper()
 
     override fun onCreate() {
@@ -645,6 +647,7 @@ class SensorService : Service(), ServiceEnvironment {
         )
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
+        clockWatcher.start(applicationContext)
 
         // After the start row, so the explanation of a gap sits directly beneath the row that
         // opens the run which found it.
@@ -697,6 +700,7 @@ class SensorService : Service(), ServiceEnvironment {
             // Written before anything else is torn down. This row is the only thing that
             // tells a reader the service was stopped rather than killed, and every minute
             // gap in the file is read against it.
+            clockWatcher.stop(applicationContext)
             blackBox?.stop()
             blackBox = null
             stopDriftRecording()
