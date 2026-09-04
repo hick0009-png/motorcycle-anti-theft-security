@@ -102,9 +102,13 @@ class BlackBoxWriter(
      * Returns how many day files went in.
      */
     @Synchronized
-    fun snapshot(sink: OutputStream): Int {
+    fun snapshot(sink: OutputStream, preamble: (List<File>) -> ByteArray? = { null }): Int {
+        val files = dayFiles()
+        // Inside the lock with the copy, so a summary written above the rows describes the
+        // rows underneath it and not the file as it was a moment earlier.
+        runCatching { preamble(files) }.getOrNull()?.let { bytes -> sink.write(bytes) }
         var copied = 0
-        dayFiles().forEach { file ->
+        files.forEach { file ->
             runCatching {
                 FileInputStream(file).use { input -> input.copyTo(sink) }
                 copied += 1

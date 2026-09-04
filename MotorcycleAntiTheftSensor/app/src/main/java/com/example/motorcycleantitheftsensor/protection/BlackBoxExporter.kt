@@ -50,7 +50,9 @@ class BlackBoxExporter(
         val target = File(directory, "blackbox-${stampFormat.format(Date(wallClockMs()))}.csv.gz")
         val days = try {
             FileOutputStream(target).use { file ->
-                GZIPOutputStream(file).use { gzip -> writer.snapshot(gzip) }
+                GZIPOutputStream(file).use { gzip ->
+                    writer.snapshot(gzip) { files -> reportPreamble(files) }
+                }
             }
         } catch (error: Exception) {
             target.delete()
@@ -62,6 +64,24 @@ class BlackBoxExporter(
         }
         return BlackBoxExportResult.Ready(file = target, dayCount = days, bytes = target.length())
     }
+
+    /**
+     * The findings, above the rows they were drawn from.
+     *
+     * The phone does this rather than whoever receives the file, because the analysis has to
+     * live in the same module as the format or it drifts from it — a reader written separately
+     * is a second parser that nobody updates when a column is added. Here it shares the
+     * parser, the row types and the test suite with the writer, and cannot fall behind them.
+     *
+     * A failure produces no preamble and never a failed export. The rows are the record; the
+     * summary is a convenience over them, and a convenience must not be able to cost the thing
+     * it summarises.
+     */
+    private fun reportPreamble(files: List<File>): ByteArray? = runCatching {
+        val rows = files.flatMap(BlackBoxCsv::readRows)
+        if (rows.isEmpty()) return@runCatching null
+        BlackBoxReportText.render(BlackBoxReportBuilder.build(rows)).toByteArray(Charsets.UTF_8)
+    }.getOrNull()
 
     private fun clearPreviousExports() {
         directory.listFiles()

@@ -70,6 +70,39 @@ class BlackBoxExporterTest {
     }
 
     @Test
+    fun theExportCarriesItsOwnReadingOfItselfWithoutBecomingHarderToRead() {
+        val writer = writer()
+        writer.append(row(0L))
+        writer.append(row(1L))
+
+        val result = exporter(writer).export() as BlackBoxExportResult.Ready
+        val text = java.util.zip.GZIPInputStream(result.file.inputStream())
+            .bufferedReader()
+            .use { reader -> reader.readText() }
+
+        // The findings come first, and they are comments, so the rows underneath are exactly
+        // as machine-readable as they were before the report existed.
+        assertTrue(text.startsWith("# ---"))
+        assertTrue(text.contains("รายงานกล่องดำ"))
+        assertTrue(text.contains("[ ช่องว่าง ]"))
+        assertEquals(2, readRows(result.file).size)
+    }
+
+    @Test
+    fun aReportThatCannotBeBuiltCostsTheExportNothing() {
+        val writer = writer()
+        writer.append(row(0L))
+        // A day file of nothing but an unreadable line: no rows to report on, and the export
+        // still has to hand over what is there.
+        File(writer.files().single().parentFile, "blackbox-19990101.csv").writeText("garbage\n")
+
+        val result = exporter(writer).export()
+
+        assertTrue(result is BlackBoxExportResult.Ready)
+        assertEquals(1, readRows((result as BlackBoxExportResult.Ready).file).size)
+    }
+
+    @Test
     fun compressionHappensOnlyOnTheWayOutSoTheRecordItselfStaysReadable() {
         val writer = writer()
         writer.append(row(0L))
