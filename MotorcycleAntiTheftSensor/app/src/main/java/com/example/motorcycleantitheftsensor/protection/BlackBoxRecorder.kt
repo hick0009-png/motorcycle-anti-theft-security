@@ -187,11 +187,33 @@ class BlackBoxStateMapper {
      *
      * Hardware that exists but is not registered is left out on purpose: the question this
      * column answers is what was actually watching, not what the phone owns.
+     *
+     * The health map alone cannot answer it. `getEffectiveHealth` returns HEALTHY for a
+     * source whose role is OFF, and the runtime publishes VIBRATION with `isRegistered = true`
+     * on every start regardless of profile, so a kind the armed profile never registered
+     * still reports itself well. Read straight, that put VIBRATION and LOCATION in the mask
+     * for 564 of the 570 minutes of one Power Guard session on the test phone — while the
+     * sample tap counted a flat 8.4 Hz from a single sensor and not one acceleration value
+     * was written in the whole stretch. Two columns of the same row disagreeing is worse than
+     * a blank column: a reader has no way to know which one lied.
+     *
+     * So the profile's own contract decides who is eligible to appear. `usedSensorKinds` is
+     * the same definition the coordinator filters its degradation reasons through, which is
+     * why arming was never fooled by this and only the record was.
+     *
+     * Disarmed there is no profile in force and nothing to filter by, so every kind stays
+     * eligible. That case has its own untrustworthy edge — a controller that is not running
+     * also answers HEALTHY — which belongs to `getEffectiveHealth` and is not fixed here.
      */
     private fun sourceMaskOf(snapshot: ProtectionSnapshot): Int {
+        // The entry level is left to its default: both levels of the door watch leave all
+        // five kinds in use, so the two answers cannot differ for the profile that has one.
+        val eligible = snapshot.armedProfileSnapshot?.profile
+            ?.let(ProtectionProfilePolicy::usedSensorKinds)
+            ?: SensorKind.entries.toSet()
         var mask = 0
         SensorKind.entries.forEach { kind ->
-            if (snapshot.sensorHealth[kind]?.state == SensorHealthState.HEALTHY) {
+            if (kind in eligible && snapshot.sensorHealth[kind]?.state == SensorHealthState.HEALTHY) {
                 mask = mask or (1 shl kind.ordinal)
             }
         }

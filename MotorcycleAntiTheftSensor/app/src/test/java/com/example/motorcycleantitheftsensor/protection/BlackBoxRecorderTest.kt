@@ -182,6 +182,44 @@ class BlackBoxRecorderTest {
     }
 
     @Test
+    fun aProfileThatSwitchesAKindOffNeverReportsItAsWatching() {
+        val mapper = BlackBoxStateMapper()
+        // What Power Guard actually looked like on the test phone: the health map calls every
+        // kind healthy, because a source whose role is OFF answers HEALTHY.
+        val allHealthy = SensorKind.entries.associateWith { SensorHealth(state = SensorHealthState.HEALTHY) }
+
+        val power = mapper.map(
+            snapshot().copy(
+                state = ProtectionState.ARMED_HEALTHY,
+                sensorHealth = allHealthy,
+                armedProfileSnapshot = armedProfile(ProtectionProfile.POWER),
+            ),
+        )
+
+        // Power Guard hosts on the lamp and the charging line and runs nothing else at all.
+        assertEquals(
+            (1 shl SensorKind.LIGHT.ordinal) or (1 shl SensorKind.POWER_THERMAL.ordinal),
+            power.sourceMask,
+        )
+    }
+
+    @Test
+    fun aProfileThatUsesEveryKindStillReportsThemAll() {
+        val mapper = BlackBoxStateMapper()
+        val allHealthy = SensorKind.entries.associateWith { SensorHealth(state = SensorHealthState.HEALTHY) }
+
+        val vehicle = mapper.map(
+            snapshot().copy(
+                state = ProtectionState.ARMED_HEALTHY,
+                sensorHealth = allHealthy,
+                armedProfileSnapshot = armedProfile(ProtectionProfile.VEHICLE),
+            ),
+        )
+
+        assertEquals(SensorKind.entries.fold(0) { mask, kind -> mask or (1 shl kind.ordinal) }, vehicle.sourceMask)
+    }
+
+    @Test
     fun anArmedSnapshotIsRecordedAsArmedUnderItsOwnMode() {
         val mapper = BlackBoxStateMapper()
 
@@ -241,6 +279,16 @@ class BlackBoxRecorderTest {
     )
 
     private fun snapshot(): ProtectionSnapshot = ProtectionSnapshot.offline(nowMs)
+
+    private fun armedProfile(profile: ProtectionProfile) = ArmedProfileSnapshot(
+        armedSessionId = "session-1",
+        profile = profile,
+        resolvedPresetVersion = 1,
+        effectiveConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED, nowMs),
+        configurationFingerprint = "fp-1",
+        commissionedModelFingerprint = null,
+        armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 1L),
+    )
 
     private fun incident(id: String) = IncidentSummary(
         id = id,
