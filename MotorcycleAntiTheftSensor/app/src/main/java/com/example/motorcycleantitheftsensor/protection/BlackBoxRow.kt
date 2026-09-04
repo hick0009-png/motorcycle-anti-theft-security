@@ -27,6 +27,12 @@ import java.util.Locale
  * clock. The header carries an anchor too, but it is taken once when the file is opened, so
  * every wall timestamp after a clock change sits in a frame the header no longer describes.
  * A `T` row re-pins the two clocks to each other and says what moved them.
+ *
+ * `D` is a breadcrumb from a subsystem that is not the sensors: a send that failed, a network
+ * that went, a permission that was taken away. The other row types can show that the app was
+ * alive and what it could see, and none of them can show anything about the stretch between a
+ * sensor noticing something and the owner's phone buzzing — which is the stretch every "why
+ * didn't it warn me" is actually about. See `BreadcrumbLedger` for what is allowed through.
  */
 enum class BlackBoxRowType(val code: String) {
     MINUTE("M"),
@@ -34,6 +40,7 @@ enum class BlackBoxRowType(val code: String) {
     EVENT("E"),
     EXIT("X"),
     TIME("T"),
+    BREADCRUMB("D"),
 }
 
 /**

@@ -183,7 +183,7 @@ class BlackBoxWriter(
 
         /** Sixty days of minute rows is about four megabytes; the ceiling leaves room over it. */
         const val RETENTION_DAYS = 60
-        const val MAX_DIRECTORY_BYTES = 8L * 1024L * 1024L
+        const val MAX_DIRECTORY_BYTES = 16L * 1024L * 1024L
         const val MAX_FILE_BYTES = 1L * 1024L * 1024L
 
         private const val DAY_STAMP_PATTERN = "yyyyMMdd"

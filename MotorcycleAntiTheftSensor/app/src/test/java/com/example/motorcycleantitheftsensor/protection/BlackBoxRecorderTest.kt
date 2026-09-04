@@ -182,6 +182,86 @@ class BlackBoxRecorderTest {
     }
 
     @Test
+    fun aBreadcrumbBecomesItsOwnRowCarryingTheStateItHappenedIn() {
+        val recorder = recorder()
+        recorder.start(state(armed = true, mode = "ENTRY"))
+
+        recorder.note(
+            BreadcrumbDomain.TELEGRAM,
+            BreadcrumbEvent.FAILED,
+            listOf(BreadcrumbDetail.HTTP_429),
+        )
+
+        val crumb = rows().single { row -> row.type == BlackBoxRowType.BREADCRUMB }
+        assertEquals("tg:failed:http429", crumb.note)
+        // The state columns are the point: "the send failed" is half an answer without
+        // "while armed in ENTRY".
+        assertTrue(crumb.state.armed)
+        assertEquals("ENTRY", crumb.state.mode)
+    }
+
+    @Test
+    fun aBreadcrumbIsStampedWhenItHappenedNotWhenItWasWritten() {
+        // The write is handed to the black box's thread and can land later; a row dated at the
+        // write would put a crumb in the wrong minute, which is the only thing it is read by.
+        val recorder = recorder()
+        recorder.start(state(armed = true))
+        val raisedAtElapsed = elapsedMs
+
+        recorder.note(BreadcrumbDomain.NET, BreadcrumbEvent.LOST, listOf(BreadcrumbDetail.WIFI))
+        elapsedMs += 30_000L
+        nowMs += 30_000L
+
+        val crumb = rows().single { row -> row.type == BlackBoxRowType.BREADCRUMB }
+        assertEquals(raisedAtElapsed, crumb.elapsedMs)
+    }
+
+    @Test
+    fun breadcrumbsBeforeTheRecorderStartsAreNotWritten() {
+        // There is no file to write into and no state to describe them with.
+        val recorder = recorder()
+
+        recorder.note(BreadcrumbDomain.BOOT, BreadcrumbEvent.START)
+
+        assertTrue(rows().isEmpty())
+    }
+
+    @Test
+    fun aBreadcrumbRowSurvivesBeingReadBack() {
+        val recorder = recorder()
+        recorder.start(state(armed = false))
+
+        recorder.note(
+            BreadcrumbDomain.PERMISSION,
+            BreadcrumbEvent.HAVE,
+            listOf(BreadcrumbDetail.PERM_LOCATION, BreadcrumbDetail.PERM_MICROPHONE),
+        )
+
+        val crumb = rows().single { row -> row.type == BlackBoxRowType.BREADCRUMB }
+        assertEquals("perm:have:loc.mic", crumb.note)
+    }
+
+    @Test
+    fun aSaturatedDayStaysWellInsideTheDayFileCeiling() {
+        // §7 of the design sized the disk budget on this: a day spent at the hourly ceiling
+        // must not be able to cap the file and silence the record it belongs to.
+        val recorder = recorder()
+        recorder.start(state(armed = true, mode = "ENTRY"))
+        repeat(24 * BreadcrumbDomain.TOTAL_PER_HOUR) { index ->
+            elapsedMs += 1_000L
+            nowMs += 1_000L
+            recorder.note(
+                BreadcrumbDomain.entries[index % BreadcrumbDomain.entries.size],
+                BreadcrumbEvent.FAILED,
+                listOf(BreadcrumbDetail.entries[index % BreadcrumbDetail.entries.size]),
+            )
+        }
+
+        val written = temporaryFolder.root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        assertTrue("wrote $written bytes", written < BlackBoxWriter.MAX_FILE_BYTES / 2)
+    }
+
+    @Test
     fun theBatteryColumnsGoBlankWhileNothingIsReadingTheBattery() {
         // `startPowerStatusMonitoring` is called from the view model and nowhere else, so a
         // phone sitting disarmed with no UI open has nothing registered for
@@ -438,6 +518,15 @@ class BlackBoxRecorderTest {
 
         override fun scheduleAtFixedRate(initialDelayMs: Long, periodMs: Long, task: () -> Unit) {
             this.task = task
+        }
+
+        /**
+         * Inline, so a test sees the row the moment it offers the crumb. On the device this
+         * hops to the black box's thread; what the tests are about is what gets written, not
+         * which thread wrote it.
+         */
+        override fun execute(task: () -> Unit) {
+            if (!isShutdown) task()
         }
 
         override fun shutdownNow() {

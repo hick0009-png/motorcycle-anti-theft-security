@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -8,6 +9,18 @@ interface BlackBoxScheduler {
     val isShutdown: Boolean
 
     fun scheduleAtFixedRate(initialDelayMs: Long, periodMs: Long, task: () -> Unit)
+
+    /**
+     * Runs a task once, as soon as the thread is free.
+     *
+     * Breadcrumbs arrive on whatever thread the subsystem that noticed them runs on, and some
+     * of those are shared with detection. They are handed here instead of being written where
+     * they were raised, so no caller ever waits on a disk. A one-shot rather than another
+     * fixed-rate task because the queue is empty almost all the time, and a poll that wakes a
+     * thread every few seconds to find nothing is the sort of thing that gets an app killed by
+     * exactly the power manager this layer is meant to be reporting on.
+     */
+    fun execute(task: () -> Unit)
 
     fun shutdownNow()
 }
@@ -23,6 +36,12 @@ private class ExecutorBlackBoxScheduler(
 
     override fun scheduleAtFixedRate(initialDelayMs: Long, periodMs: Long, task: () -> Unit) {
         executor.scheduleAtFixedRate(task, initialDelayMs, periodMs, TimeUnit.MILLISECONDS)
+    }
+
+    override fun execute(task: () -> Unit) {
+        // A rejection means the executor is shutting down, which is not a reason to take the
+        // caller's thread down with it: the crumb is lost and the process is ending anyway.
+        runCatching { executor.execute(task) }
     }
 
     override fun shutdownNow() {
@@ -77,6 +96,19 @@ class BlackBoxRecorder(
     private var timeRowHourStartedAtMs = 0L
     private var timeRowsSuppressed = 0
 
+    private val breadcrumbs = BreadcrumbLedger()
+
+    /**
+     * Bounded on purpose, and small.
+     *
+     * A queue that grows to fit whatever is offered turns a subsystem stuck in a retry loop
+     * into memory pressure inside the process the black box exists to keep alive. Full means
+     * the crumb is counted and dropped — never blocked, never thrown — and the count reaches
+     * the file when the hour turns, because a counter nobody reads is a counter that is not
+     * there.
+     */
+    private val breadcrumbQueue = ArrayBlockingQueue<Breadcrumb>(BREADCRUMB_QUEUE_CAPACITY)
+
     @Synchronized
     fun start(state: BlackBoxState) {
         if (started && scheduler?.isShutdown == false) return
@@ -128,12 +160,76 @@ class BlackBoxRecorder(
         writeTimeRow("$NOTE_CLOCK:$cause")
     }
 
+    /**
+     * Records something a subsystem noticed. Safe to call from any thread, and never blocks.
+     *
+     * Deliberately not `@Synchronized`: the point of this method is that the caller — a
+     * connectivity callback, a Telegram coroutine, a permission receiver — hands the crumb
+     * over and carries on, and taking the recorder's lock here would let a disk write on the
+     * black box's thread stall a thread that may be shared with detection.
+     *
+     * Both clocks are read here rather than at the write, so the row says when the thing
+     * happened and not when the queue got round to it.
+     */
+    fun note(
+        domain: BreadcrumbDomain,
+        event: BreadcrumbEvent,
+        details: List<BreadcrumbDetail> = emptyList(),
+    ) {
+        if (!started) return
+        val crumb = Breadcrumb(
+            domain = domain,
+            event = event,
+            details = details,
+            elapsedMs = elapsedMs(),
+            wallMs = wallClockMs(),
+        )
+        if (!breadcrumbQueue.offer(crumb)) {
+            breadcrumbs.recordQueueDrop()
+            return
+        }
+        scheduler?.execute { drainBreadcrumbs() }
+    }
+
+    /**
+     * Turns queued crumbs into rows, on the black box's own thread.
+     *
+     * Each row is stamped with its crumb's clocks rather than with the clock now, which is
+     * also why the rows a crumb's arrival produces for *other* reasons — an hour that turned,
+     * a repeat window that closed — are stamped that way too. They describe the moment the
+     * crumb landed, and dating them later would put the report of an hour after rows that
+     * belong to the hour following it.
+     */
+    @Synchronized
+    private fun drainBreadcrumbs() {
+        while (true) {
+            val crumb = breadcrumbQueue.poll() ?: return
+            breadcrumbs.offer(crumb).forEach { note ->
+                write(
+                    type = BlackBoxRowType.BREADCRUMB,
+                    state = lastState,
+                    note = note,
+                    atElapsedMs = crumb.elapsedMs,
+                    atWallMs = crumb.wallMs,
+                )
+            }
+        }
+    }
+
     @Synchronized
     private fun tick() {
         // Checked before the minute row so the anchor is repaired before anything is stamped
         // against it. This is the backstop for a clock that moved without announcing itself.
         val drift = (wallClockMs() - anchorWallMs) - (elapsedMs() - anchorElapsedMs)
         if (kotlin.math.abs(drift) > CLOCK_TOLERANCE_MS) writeTimeRow("$NOTE_CLOCK:$NOTE_CAUSE_DRIFT")
+
+        // Before the minute row, so a repeat window that closed during the last minute is
+        // reported inside the minute it belongs to. Also the only thing that moves this layer
+        // along on a phone quiet enough to raise no crumbs at all.
+        drainBreadcrumbs()
+        breadcrumbs.tick(elapsedMs()).forEach { note ->
+            write(BlackBoxRowType.BREADCRUMB, lastState, note = note)
+        }
 
         val summary = runCatching { sensors?.invoke() }.getOrNull() ?: BlackBoxSensorSummary()
         val now = elapsedMs()
@@ -189,6 +285,9 @@ class BlackBoxRecorder(
         state: BlackBoxState,
         note: String,
         sensors: BlackBoxSensorSummary = BlackBoxSensorSummary(),
+        /** When the thing happened, for rows whose subject is older than their write. */
+        atElapsedMs: Long? = null,
+        atWallMs: Long? = null,
     ) {
         writer.append(
             BlackBoxRow(
@@ -197,8 +296,8 @@ class BlackBoxRecorder(
                 // the sensor timestamps but resets at boot and names no hour, and the wall
                 // clock names the hour the owner will ask about but jumps whenever the phone
                 // syncs time.
-                elapsedMs = elapsedMs(),
-                wallMs = wallClockMs(),
+                elapsedMs = atElapsedMs ?: elapsedMs(),
+                wallMs = atWallMs ?: wallClockMs(),
                 state = state,
                 sensors = sensors,
                 note = note,
@@ -227,6 +326,13 @@ class BlackBoxRecorder(
         const val CLOCK_TOLERANCE_MS = 5_000L
 
         const val MAX_TIME_ROWS_PER_HOUR = 12
+
+        /**
+         * Room for a burst without room for a leak. At the hourly ceiling of
+         * [BreadcrumbDomain.TOTAL_PER_HOUR] the ledger will refuse most of a full queue
+         * anyway; this only has to absorb the moment several subsystems fail at once.
+         */
+        const val BREADCRUMB_QUEUE_CAPACITY = 128
         private const val HOUR_MS = 60L * 60L * 1000L
     }
 }
