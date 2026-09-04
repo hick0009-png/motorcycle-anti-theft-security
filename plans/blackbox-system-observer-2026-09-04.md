@@ -1,6 +1,9 @@
 # Design — กล่องดำในฐานะผู้สังเกตการณ์ทั้งระบบ (System Observer) 2026-09-04
 
-สถานะ: **ข้อเสนอ รอเลือกเฟส** · ต่อยอดจาก [blackbox-recorder-design-2026-09-03.md](blackbox-recorder-design-2026-09-03.md) (B1–B3 ทำแล้ว)
+สถานะ: **C0 + C2 + C6 ทำแล้ว** (บวกแถว `T` ที่ไม่ได้อยู่ในแผนเดิม) · C3 · C1 · C4 · ชั้น F · C5 ยังไม่ทำ
+> จุดกลับมาทำต่อและสิ่งที่ยังพิสูจน์ไม่ได้ อยู่ใน [checkpoint-2026-09-04-blackbox-observer-and-where.md](checkpoint-2026-09-04-blackbox-observer-and-where.md)
+
+ต่อยอดจาก [blackbox-recorder-design-2026-09-03.md](blackbox-recorder-design-2026-09-03.md) (B1–B3 ทำแล้ว)
 ตัวเลขทุกตัวในเอกสารนี้วัดจากไฟล์จริงที่ดึงออกจากเครื่อง INE-LX2 วันนี้ ไม่ใช่ค่าประมาณ
 
 ---
