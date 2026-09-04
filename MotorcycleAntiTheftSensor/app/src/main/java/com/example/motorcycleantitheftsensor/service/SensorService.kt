@@ -36,6 +36,7 @@ import com.example.motorcycleantitheftsensor.protection.BlackBoxStateMapper
 import com.example.motorcycleantitheftsensor.protection.FileBlackBoxExitMarkStore
 import com.example.motorcycleantitheftsensor.protection.ClockChangeWatcher
 import com.example.motorcycleantitheftsensor.protection.CommandOrigin
+import com.example.motorcycleantitheftsensor.protection.EntryDriftAutoMeasure
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
@@ -197,6 +198,19 @@ class SensorService : Service(), ServiceEnvironment {
                     graph.coordinator.evaluateFreshness(nowMs)
                     handleSnapshot(graph.coordinator.snapshot.value)
                     delay(SERVICE_HEARTBEAT_INTERVAL_MS)
+                }
+            }
+            // The door watch measures this phone's drift out of the samples it is already
+            // reading, so an owner is never asked to leave the phone on a table for a night
+            // it could have spent guarding. Subscribing costs nothing while no session is
+            // armed: the flow only carries samples while an orientation source is registered.
+            graph.driftMeasurementStore?.let { store ->
+                serviceScope.launch {
+                    EntryDriftAutoMeasure(
+                        samples = { graph.runtime.entryOrientationSamples() },
+                        store = store,
+                        currentSourceLabel = { graph.runtime.entryOrientationSource()?.label },
+                    ).collect()
                 }
             }
             initialization.complete(Unit)
