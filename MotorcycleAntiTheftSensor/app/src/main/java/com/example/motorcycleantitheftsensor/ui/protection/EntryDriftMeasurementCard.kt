@@ -68,9 +68,12 @@ fun EntryDriftMeasurementCard(
                     text = PresentationTextCatalog.driftLogStatusLine(
                         recording = current.recording,
                         sensorName = current.sensorName,
-                        elapsedMinutes = current.elapsedMs / 60_000L,
+                        // The hours that count are the hours the phone was left alone, not
+                        // the hours the recording was open.
+                        elapsedMinutes = current.cleanMeasuredMs / 60_000L,
                         rows = current.rowCount,
-                        maxTwistDeg = current.maxTwistDeg,
+                        maxTwistDeg = current.cleanMaxTwistDeg,
+                        disturbances = current.disturbanceCount,
                     ),
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     modifier = Modifier.testTag(DRIFT_MEASUREMENT_STATUS_TAG),
@@ -82,8 +85,11 @@ fun EntryDriftMeasurementCard(
                         EntryDriftBudgetPolicy.verdict(
                             measurement = EntryDriftMeasurement(
                                 sourceLabel = "",
-                                degPerHour = ratePerHour(current.maxTwistDeg, current.elapsedMs),
-                                measuredMs = current.elapsedMs,
+                                degPerHour = ratePerHour(
+                                    current.cleanMaxTwistDeg,
+                                    current.cleanMeasuredMs,
+                                ),
+                                measuredMs = current.cleanMeasuredMs,
                                 measuredAtWallMs = 0L,
                             ),
                             alertAngleDeg = alertAngleDeg,

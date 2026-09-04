@@ -333,10 +333,14 @@ object PresentationTextCatalog {
         elapsedMinutes: Long,
         rows: Int,
         maxTwistDeg: Double,
+        disturbances: Int = 0,
     ): String {
         val state = if (recording) "กำลังบันทึก" else "หยุดแล้ว"
         val twist = String.format(java.util.Locale.US, "%.2f", maxTwistDeg)
-        return "$state · $sensorName · ผ่านไป $elapsedMinutes นาที · $rows จุด · ไหลสูงสุด $twist°"
+        val line = "$state · $sensorName · นับได้ $elapsedMinutes นาที · $rows จุด · ไหลสูงสุด $twist°"
+        // Said rather than silently handled. An owner who moved the phone and is not told
+        // sees a count that stopped climbing and no reason for it.
+        return if (disturbances > 0) "$line · ถูกขยับ $disturbances ครั้ง (ไม่นับช่วงนั้น)" else line
     }
 
     /**

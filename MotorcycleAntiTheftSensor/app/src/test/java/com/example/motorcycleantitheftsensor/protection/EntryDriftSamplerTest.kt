@@ -112,6 +112,94 @@ class EntryDriftSamplerTest {
         assertEquals("12345,1.5000,0.2500,2.0000", EntryDriftSampler.formatRow(row))
     }
 
+    /**
+     * Feeds a still phone drifting at [degPerHour], one sample a second, and returns the
+     * clock it stopped at. Drift is a slow walk; nothing here should ever look disturbed.
+     */
+    private fun feedStill(
+        sampler: EntryDriftSampler,
+        fromMs: Long,
+        toMs: Long,
+        degPerHour: Double,
+        offsetDeg: Double = 0.0,
+    ): Long {
+        var t = fromMs
+        while (t <= toMs) {
+            sampler.onSample(t, yaw(offsetDeg + degPerHour * (t / 3_600_000.0)))
+            t += 1_000L
+        }
+        return toMs
+    }
+
+    @Test
+    fun anUntouchedNightIsOneStretchAndTheWholeOfItCounts() {
+        val sampler = EntryDriftSampler()
+
+        feedStill(sampler, 0L, 4L * 3_600_000L, degPerHour = 0.03)
+
+        assertEquals(0, sampler.disturbanceCount)
+        // Within one checkpoint of the full four hours.
+        assertTrue(sampler.cleanMeasuredMs > 4L * 3_600_000L - 20_000L)
+        assertEquals(0.12, sampler.cleanMaxTwistDeg, 0.01)
+        assertEquals(0.03, sampler.measurement("rotation-vector", 0L).degPerHour, 0.005)
+    }
+
+    @Test
+    fun thePhoneBeingPickedUpEndsTheStretchInsteadOfBecomingItsDrift() {
+        // The case this was built for: eight good hours and one movement at dawn. Reported
+        // straight, that movement is a rate that condemns hardware which is in fact fine.
+        val sampler = EntryDriftSampler()
+        feedStill(sampler, 0L, 8L * 3_600_000L, degPerHour = 0.03)
+
+        // Lifted, and put back down somewhere else.
+        feedStill(sampler, 8L * 3_600_000L + 1_000L, 8L * 3_600_000L + 600_000L, 0.0, offsetDeg = 90.0)
+
+        assertEquals(1, sampler.disturbanceCount)
+        assertTrue("the eight hours survive", sampler.cleanMeasuredMs > 8L * 3_600_000L - 20_000L)
+        assertTrue("the movement is not drift", sampler.cleanMaxTwistDeg < 1.0)
+        assertEquals(0.03, sampler.measurement("rotation-vector", 0L).degPerHour, 0.005)
+        // The file is evidence and keeps what happened, whatever the measurement makes of it.
+        assertEquals(90.0, sampler.maxTwistDeg, 0.5)
+    }
+
+    @Test
+    fun theLongestUndisturbedStretchIsTheOneReported() {
+        val sampler = EntryDriftSampler()
+        // A restless first hour, then a night nobody touched.
+        feedStill(sampler, 0L, 3_600_000L, degPerHour = 0.03)
+        feedStill(sampler, 3_601_000L, 3_700_000L, degPerHour = 0.05, offsetDeg = 40.0)
+        feedStill(sampler, 3_701_000L, 3_701_000L + 6L * 3_600_000L, degPerHour = 0.05, offsetDeg = 40.0)
+
+        assertTrue(sampler.cleanMeasuredMs > 6L * 3_600_000L - 20_000L)
+        assertEquals(0.05, sampler.measurement("rotation-vector", 0L).degPerHour, 0.005)
+    }
+
+    @Test
+    fun aMeasurementReportsTheHoursItActuallyMeasuredNotTheHoursItRanFor() {
+        // The store keeps the longer measurement, so an inflated duration is not merely
+        // untidy: it shadows every honest measurement taken afterwards.
+        val sampler = EntryDriftSampler()
+        feedStill(sampler, 0L, 2L * 3_600_000L, degPerHour = 0.03)
+        feedStill(sampler, 2L * 3_600_000L + 1_000L, 6L * 3_600_000L, 0.0, offsetDeg = 120.0)
+
+        val measurement = sampler.measurement("rotation-vector", 0L)
+
+        assertTrue(measurement.measuredMs < sampler.measuredMs)
+        assertTrue(measurement.measuredMs > 2L * 3_600_000L - 20_000L)
+    }
+
+    @Test
+    fun ordinaryDriftNeverCountsAsAMovementHoweverLongItRuns() {
+        // A phone drifting fast enough to be refused outright is still drifting, not moving:
+        // the ceiling has to sit far above the worst rate that is still drift.
+        val sampler = EntryDriftSampler()
+
+        feedStill(sampler, 0L, 3L * 3_600_000L, degPerHour = 7.5)
+
+        assertEquals(0, sampler.disturbanceCount)
+        assertEquals(7.5, sampler.measurement("rotation-vector", 0L).degPerHour, 0.1)
+    }
+
     @Test
     fun theRowCountMatchesWhatWasActuallyWritten() {
         val sampler = EntryDriftSampler(rowIntervalMs = 1_000L)

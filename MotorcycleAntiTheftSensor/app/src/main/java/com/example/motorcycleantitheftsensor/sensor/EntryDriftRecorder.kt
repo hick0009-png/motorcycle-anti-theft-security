@@ -29,6 +29,16 @@ data class EntryDriftStatus(
     val elapsedMs: Long,
     val maxTotalDeg: Double,
     val maxTwistDeg: Double,
+    /**
+     * The drift, as against [maxTwistDeg], which is the largest angle the file saw.
+     *
+     * The two are the same number on a recording nobody interrupted, and on one that was
+     * interrupted only these mean anything. The card reads these; the file keeps both.
+     */
+    val cleanMaxTwistDeg: Double = 0.0,
+    val cleanMeasuredMs: Long = 0L,
+    /** Times the phone was moved. Shown so an owner is told, rather than quietly corrected. */
+    val disturbanceCount: Int = 0,
 )
 
 /**
@@ -89,6 +99,10 @@ class EntryDriftRecorder(
         val target = newFile(sensor)
         val recorder = EntryDriftSampler()
         val started = elapsedMs()
+        // Marked in the file as it happens. Without it the rows go on being written across a
+        // movement and the reader is left to spot, from the numbers alone, that the phone
+        // stopped being still — which is the thing the file exists to be sure about.
+        var markedDisturbances = 0
         val eventListener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 if (event.values.size < 4) return
@@ -100,7 +114,12 @@ class EntryDriftRecorder(
                         y = event.values[1].toDouble(),
                         z = event.values[2].toDouble(),
                     ),
-                ) ?: return
+                )
+                if (recorder.disturbanceCount != markedDisturbances) {
+                    markedDisturbances = recorder.disturbanceCount
+                    appendLine(target, "# disturbed atMs=${elapsedMs() - started} count=$markedDisturbances")
+                }
+                if (row == null) return
                 appendLine(target, EntryDriftSampler.formatRow(row))
                 publish(recording = true, sensor = sensor, file = target, sampler = recorder)
             }
@@ -187,6 +206,9 @@ class EntryDriftRecorder(
             elapsedMs = elapsedMs() - startedAtMs,
             maxTotalDeg = sampler.maxTotalDeg,
             maxTwistDeg = sampler.maxTwistDeg,
+            cleanMaxTwistDeg = sampler.cleanMaxTwistDeg,
+            cleanMeasuredMs = sampler.cleanMeasuredMs,
+            disturbanceCount = sampler.disturbanceCount,
         )
     }
 
