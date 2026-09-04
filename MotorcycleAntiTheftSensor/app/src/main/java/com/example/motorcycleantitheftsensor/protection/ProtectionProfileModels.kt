@@ -35,11 +35,34 @@ sealed interface ProfileSpecificSettings
 
 data object VehicleProfileSettings : ProfileSpecificSettings
 
+/**
+ * How much of the door watch this owner has set up.
+ *
+ * The angle is the better answer and the expensive one: it needs the phone mounted, two
+ * guided open/close cycles, and a measurement of the phone's own drift before it can be
+ * trusted overnight. An owner who has just chosen the use has none of that, and until now
+ * they had no protection at all in the meantime — the use could not arm without a
+ * commissioned model, so the first night was spent unwatched.
+ *
+ * Sound and movement together need none of it. They cannot say how far the door opened, and
+ * a lorry in the street will reach the microphone, which is why they are not the finished
+ * article. They can be armed the moment the use is chosen, which the finished article
+ * cannot.
+ */
+enum class EntryWatchLevel {
+    /** Sound and movement, together, with no calibration of any kind. */
+    SOUND_AND_MOVEMENT,
+
+    /** The commissioned hinge angle, which can say how far the door opened. */
+    DOOR_ANGLE,
+}
+
 data class EntryProfileSettings(
     val angleThresholdDegrees: Int = 15,
     val openConfirmationMs: Long = 750L,
     val closeThresholdDegrees: Int = 3,
     val closeConfirmationMs: Long = 5_000L,
+    val level: EntryWatchLevel = EntryWatchLevel.SOUND_AND_MOVEMENT,
 ) : ProfileSpecificSettings
 
 data class PowerProfileSettings(
@@ -73,6 +96,8 @@ data object VehicleProfileOverrides : ProfileSpecificOverrides
 data class EntryProfileOverrides(
     val angleThresholdDegrees: Int? = null,
     val openConfirmationMs: Long? = null,
+    /** Null means the owner has not chosen a level by hand; see `ProtectionProfilePolicy.resolve`. */
+    val level: EntryWatchLevel? = null,
 ) : ProfileSpecificOverrides
 
 data class PowerProfileOverrides(

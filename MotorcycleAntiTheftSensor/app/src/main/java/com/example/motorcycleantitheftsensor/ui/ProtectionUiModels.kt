@@ -29,6 +29,7 @@ import com.example.motorcycleantitheftsensor.protection.SetupBlocker
 import com.example.motorcycleantitheftsensor.telegram.toGuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
+import com.example.motorcycleantitheftsensor.protection.EntryWatchLevel
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
 import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import kotlin.math.ceil
@@ -174,6 +175,8 @@ data class ProtectionProfileUiState(
     val showPicker: Boolean = false,
     val pendingSwitchTarget: ProtectionProfile? = null,
     val entryAngleDegrees: Int? = null,
+    /** Which level of the door watch this owner is on; null for other uses. */
+    val entryLevel: EntryWatchLevel? = null,
     /** What this phone measured about its own orientation drift, against [entryAngleDegrees]. */
     val entryDriftVerdict: EntryDriftVerdict = EntryDriftVerdict.NotMeasured,
     val entryRequiresControlledRearm: Boolean = false,

@@ -22,8 +22,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.protection.EntryWatchLevel
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.ui.EntryCommissioningPhase
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
@@ -42,6 +45,8 @@ fun EntryGuardSection(
     val commissioning = profile.commissioning
     var selectedAngle by rememberSaveable { mutableStateOf(profile.entryAngleDegrees ?: 15) }
     var angleControlsExpanded by rememberSaveable { mutableStateOf(false) }
+    var angleSetupExpanded by rememberSaveable { mutableStateOf(false) }
+    val soundLevel = profile.entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -84,7 +89,22 @@ fun EntryGuardSection(
                 ) {
                     Text("ยกเลิกการปรับเทียบ")
                 }
-            } else if (profile.setupState == ProfileSetupState.SETUP_REQUIRED) {
+            } else if (
+                profile.setupState == ProfileSetupState.SETUP_REQUIRED ||
+                (soundLevel && angleSetupExpanded)
+            ) {
+                if (soundLevel) {
+                    // Reached by choice from level one, so it needs a way back out; the
+                    // uncommissioned angle level has nothing to go back to.
+                    OutlinedButton(
+                        onClick = { angleSetupExpanded = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text(PresentationTextCatalog.ENTRY_LEVEL_ANGLE_HIDE)
+                    }
+                }
                 Text("ปรับเทียบตำแหน่งปิดของประตูก่อนเริ่มใช้งาน")
                 Slider(
                     value = selectedAngle.toFloat(),
@@ -118,6 +138,28 @@ fun EntryGuardSection(
                     onSetRecording = actions.setDriftRecording,
                     onClearMeasurement = actions.clearDriftMeasurement,
                 )
+            } else if (profile.setupState == ProfileSetupState.READY && soundLevel) {
+                // Level one: armed and watching, with nothing to calibrate. The upgrade is
+                // offered rather than demanded, and the owner is told plainly what it buys.
+                Text(
+                    text = PresentationTextCatalog.ENTRY_LEVEL_SOUND_TITLE,
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Text(text = PresentationTextCatalog.ENTRY_LEVEL_SOUND_BODY)
+                Text(
+                    text = PresentationTextCatalog.ENTRY_LEVEL_ANGLE_UPGRADE_HINT,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = { angleSetupExpanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag(ENTRY_ANGLE_UPGRADE_TAG),
+                ) {
+                    Text(PresentationTextCatalog.ENTRY_LEVEL_ANGLE_UPGRADE)
+                }
             } else if (profile.setupState == ProfileSetupState.READY) {
                 Text("พร้อมเฝ้าระวังทางเข้า", style = MaterialTheme.typography.headlineMedium)
                 Text("แจ้งเมื่อเกิน ${profile.entryAngleDegrees ?: 15}° จากตำแหน่งปิด")
@@ -172,3 +214,6 @@ fun EntryGuardSection(
         }
     }
 }
+
+/** The control that takes an owner from the sound level to the angle level. */
+const val ENTRY_ANGLE_UPGRADE_TAG = "ui.protection.entry.UPGRADE_TO_ANGLE"

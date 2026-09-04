@@ -45,6 +45,9 @@ class IncidentEngine(
      */
     private var lastMovementElapsedMs: Long? = null
 
+    /** Set per call from [accept]; see that parameter for why the caller owns this. */
+    private var soundAndMovementDoorWatch: Boolean = false
+
     @Synchronized
     fun accept(
         observation: SensorObservation,
@@ -56,7 +59,15 @@ class IncidentEngine(
          * corroborate keeps the behaviour it has today rather than falling silent.
          */
         movementCorroborationArmed: Boolean = false,
+        /**
+         * Whether the armed use is the door watch running on sound and movement alone. The
+         * evidence is identical to a blow against a vehicle; what it means is not, and only
+         * the caller knows which use is running. A caller that does not say gets the vehicle
+         * reading, which is what every caller got before this existed.
+         */
+        soundAndMovementDoorWatch: Boolean = false,
     ): IncidentUpdate {
+        this.soundAndMovementDoorWatch = soundAndMovementDoorWatch
         if (protectionState !in ACTIVE_PROTECTION_STATES) {
             clearAllPrecursors()
             return IncidentUpdate.Ignored
@@ -453,6 +464,19 @@ class IncidentEngine(
     }
 
     private fun classifyAudioVibration(threat: AudioThreatMetadata, isRepeated: Boolean): Classification {
+        // A door watch with no angle still knows what it is watching. Typing this as a
+        // vehicle incident would hand the owner copy about a bike being struck, and would
+        // route it past the door wording entirely.
+        if (soundAndMovementDoorWatch) {
+            val severity = when (threat.category) {
+                AudioThreatCategory.BREAKING,
+                AudioThreatCategory.POWER_TOOL,
+                -> IncidentSeverity.CRITICAL
+                AudioThreatCategory.IMPACT -> if (isRepeated) IncidentSeverity.CRITICAL else IncidentSeverity.WARNING
+                else -> IncidentSeverity.WARNING
+            }
+            return Classification(IncidentType.ENTRY_DOOR, severity)
+        }
         return when (threat.category) {
             AudioThreatCategory.IMPACT -> {
                 if (isRepeated) {

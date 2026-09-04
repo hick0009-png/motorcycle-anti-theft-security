@@ -54,6 +54,14 @@ class ProtectionCoordinator(
     private val recoveryGeneration = AtomicLong(0L)
     private val currentArmedSessionId = AtomicReference<String?>(null)
     private val armedSignalRoles = AtomicReference<Map<SensorKind, SensorRole>>(emptyMap())
+
+    /**
+     * The door watch's level for the running session, or null when the door watch is not the
+     * armed use. The engine needs it to type what it opens: the same coincidence of sound and
+     * movement is a blow to a vehicle and an opening at a door, and only the caller knows
+     * which one is being watched.
+     */
+    private val armedEntryLevel = AtomicReference<EntryWatchLevel?>(null)
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
@@ -182,10 +190,14 @@ class ProtectionCoordinator(
                     )
                 }
 
+                val entryLevel = (resolved.specificSettings as? EntryProfileSettings)?.level
+                    ?: EntryWatchLevel.DOOR_ANGLE
                 // Entry Guard: Arm requires a commissioned hinge model whose fingerprint
                 // still matches the current commissioning context (spec sections 5-6).
+                // Only the angle level does: the sound-and-movement level measures no angle,
+                // so a model it will never read must not be the thing that refuses the arm.
                 var entryHingeModel: EntryHingeModel? = null
-                if (selectedProfile == ProtectionProfile.ENTRY) {
+                if (selectedProfile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.DOOR_ANGLE) {
                     val storedModel = profileState.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel
                     if (storedModel == null) {
                         currentArmedSessionId.set(null)
@@ -343,12 +355,13 @@ class ProtectionCoordinator(
                 frozenSnapshotRef.set(armedSnapshot)
                 currentArmedSessionId.set(sessionId)
                 frozenConfiguration = armedSnapshot.effectiveConfiguration
-                armedSignalRoles.set(ProtectionProfilePolicy.signalRoles(selectedProfile))
+                armedSignalRoles.set(ProtectionProfilePolicy.signalRoles(selectedProfile, entryLevel))
+                armedEntryLevel.set(entryLevel.takeIf { selectedProfile == ProtectionProfile.ENTRY })
                 val startResult = runtime.startDetectors(
                     sessionId,
                     armedSnapshot.effectiveConfiguration,
-                    ProtectionProfilePolicy.usedSensorKinds(selectedProfile),
-                    ProtectionProfilePolicy.signalRoles(selectedProfile),
+                    ProtectionProfilePolicy.usedSensorKinds(selectedProfile, entryLevel),
+                    ProtectionProfilePolicy.signalRoles(selectedProfile, entryLevel),
                 )
                 if (!startResult.started) {
                     currentArmedSessionId.set(null)
@@ -1334,6 +1347,10 @@ class ProtectionCoordinator(
      * host on paper and another in practice.
      */
     fun currentSignalRole(kind: SensorKind): SensorRole? = armedSignalRoles.get()[kind]
+
+    /** Whether the running session is the door watch listening for sound and movement. */
+    fun soundAndMovementDoorWatchArmed(): Boolean =
+        armedEntryLevel.get() == EntryWatchLevel.SOUND_AND_MOVEMENT
 
     /**
      * Whether this armed session has a movement signal that could vouch for a door verdict.

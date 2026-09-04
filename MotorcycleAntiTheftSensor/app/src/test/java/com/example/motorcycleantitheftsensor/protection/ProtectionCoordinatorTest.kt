@@ -1479,10 +1479,19 @@ class ProtectionCoordinatorTest {
 
     @Test
     fun entryArmBlockedIntoSetupRequiredWithoutCommissioning() = runTest {
+        // The angle level promises an angle. Arming it with no commissioned model would
+        // register nothing and report "protecting", which is the failure this refuses.
         val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
-        val profileRepository = InMemoryProtectionProfileRepository(
-            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+        val base = profilePolicy.newStoreState()
+        val angleLevel = base.copy(
+            selectedProfile = ProtectionProfile.ENTRY,
+            profiles = base.profiles + (
+                ProtectionProfile.ENTRY to base.profiles.getValue(ProtectionProfile.ENTRY).copy(
+                    specificOverrides = EntryProfileOverrides(level = EntryWatchLevel.DOOR_ANGLE),
+                )
+                ),
         )
+        val profileRepository = InMemoryProtectionProfileRepository(angleLevel)
         val runtime = FakeRuntime(
             readiness = ReadinessReport(emptySet(), emptySet()),
             health = healthyVibration(),
@@ -1495,6 +1504,49 @@ class ProtectionCoordinatorTest {
         assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
         assertFalse(runtime.started)
         assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
+    fun entryArmsOnSoundAndMovementWithNothingCommissioned() = runTest {
+        // The level that measures no angle must not be refused for the absence of an angle
+        // model it will never read. A door watch that cannot arm on the first night is a
+        // door watch nobody has on the first night.
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+
+        val result = coordinator.arm("entry-sound-and-movement", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertTrue(runtime.started)
+        // No commissioned model was frozen, because none was needed.
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot?.commissionedModelFingerprint)
+    }
+
+    @Test
+    fun soundAndMovementBothHostTheDoorWatchThatHasNoAngle() {
+        // Neither alone: a lorry reaches the microphone and a gate next door reaches the
+        // accelerometer. Their coincidence is the only thing about this door.
+        val roles = ProtectionProfilePolicy.signalRoles(
+            ProtectionProfile.ENTRY,
+            EntryWatchLevel.SOUND_AND_MOVEMENT,
+        )
+        assertEquals(SensorRole.PRIMARY, roles[SensorKind.VIBRATION])
+        assertEquals(SensorRole.PRIMARY, roles[SensorKind.MICROPHONE])
+
+        val angleRoles = ProtectionProfilePolicy.signalRoles(
+            ProtectionProfile.ENTRY,
+            EntryWatchLevel.DOOR_ANGLE,
+        )
+        // Unchanged where an angle is being measured: the orientation verdict hosts there.
+        assertEquals(SensorRole.SUPPORTING, angleRoles[SensorKind.VIBRATION])
+        assertEquals(SensorRole.SUPPORTING, angleRoles[SensorKind.MICROPHONE])
     }
 
     @Test

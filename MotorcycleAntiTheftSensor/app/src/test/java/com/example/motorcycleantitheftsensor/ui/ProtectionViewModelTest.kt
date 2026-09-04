@@ -1159,7 +1159,7 @@ class ProtectionViewModelTest {
     }
 
     @Test
-    fun selectingEntryShowsSetupRequiredAndDoesNotArm() = runTest {
+    fun selectingEntryIsReadyToArmOnSoundAndMovementBeforeAnyCalibration() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = fakeProfileRepository(selectedProfile = null)
         val viewModel = ProtectionViewModel(
@@ -1180,13 +1180,18 @@ class ProtectionViewModelTest {
         viewModel.selectProfile(ProtectionProfile.ENTRY)
         advanceUntilIdle()
 
+        // This asserted the opposite: choosing the door watch left the owner at
+        // SETUP_REQUIRED, and arming was refused until two guided cycles had been performed.
+        // The first night was therefore spent unwatched, which is the night a new owner is
+        // most likely to want it. The angle level still refuses without a model; see
+        // ProtectionCoordinatorTest.
         assertEquals(ProtectionProfile.ENTRY, viewModel.uiState.value.profile.selectedProfile)
-        assertEquals(ProfileSetupState.SETUP_REQUIRED, viewModel.uiState.value.profile.setupState)
+        assertEquals(ProfileSetupState.READY, viewModel.uiState.value.profile.setupState)
 
         viewModel.arm()
         advanceUntilIdle()
 
-        assertEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
+        assertNotEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
     }
 
     @Test

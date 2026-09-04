@@ -264,6 +264,14 @@ class IncidentMessageFormatter(
                 } else {
                     "ประตูเปิด ${latest.normalizedValue.roundToInt()}° จากตำแหน่งปิด"
                 }
+            // No orientation evidence at all is the sound-and-movement level: it heard and
+            // felt something at the door and has no angle to report, so it must not borrow
+            // the angle level's words about a door that closed.
+            null -> if (update is IncidentUpdate.Closed) {
+                "การเฝ้าระวังที่ประตูปิดลงแล้ว"
+            } else {
+                "ได้ยินเสียงพร้อมการสั่นที่ประตู"
+            }
             else ->
                 if (update is IncidentUpdate.Closed) {
                     "ประตูปิดและนิ่งแล้ว"

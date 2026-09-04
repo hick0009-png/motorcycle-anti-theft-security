@@ -336,6 +336,7 @@ object ProtectionRuntimeGraph {
                                 protectionState = coordinator.snapshot.value.state,
                                 location = batch.location,
                                 movementCorroborationArmed = coordinator.movementCorroborationArmed(),
+                                soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
                             )
                         } else {
                             IncidentUpdate.Ignored
@@ -349,6 +350,7 @@ object ProtectionRuntimeGraph {
                                     protectionState = coordinator.snapshot.value.state,
                                     location = batch.location,
                                     movementCorroborationArmed = coordinator.movementCorroborationArmed(),
+                                    soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
                                 )
                                 evidenceUpdate.incidentOrNull()?.let { latest -> update.withIncident(latest) } ?: update
                             }

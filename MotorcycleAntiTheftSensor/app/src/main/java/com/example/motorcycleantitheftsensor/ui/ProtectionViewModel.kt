@@ -653,7 +653,8 @@ class ProtectionViewModel(
         val resolved = selected?.let { candidate ->
             runCatching { profilePolicy.resolve(state, candidate) }.getOrNull()
         }
-        val entryAngle = (resolved?.specificSettings as? EntryProfileSettings)?.angleThresholdDegrees
+        val entrySettings = resolved?.specificSettings as? EntryProfileSettings
+        val entryAngle = entrySettings?.angleThresholdDegrees
         // The door watch is offered against the angle the owner set for it, whether or not
         // it is the use currently selected — the picker has to judge every card, not the
         // one already chosen.
@@ -680,6 +681,7 @@ class ProtectionViewModel(
             showPicker = selected == null,
             pendingSwitchTarget = pendingSwitchTarget,
             entryAngleDegrees = entryAngle,
+            entryLevel = entrySettings?.level,
             entryDriftVerdict = driftVerdict,
             entryRequiresControlledRearm = pendingEntryRearm,
             powerSummary = if (selected == ProtectionProfile.POWER) {

@@ -49,17 +49,29 @@ class ProtectionProfilePolicy(
     ): ResolvedProfileConfiguration {
         val stored = state.profiles.getValue(profile)
         val recommended = recommended(profile)
+        val specificSettings = resolveSpecificSettings(
+            recommended.specificSettings,
+            stored.specificOverrides,
+            commissioned = stored.entryHingeModel != null,
+        )
         return recommended.copy(
             sensorConfiguration = resolveSensorConfiguration(
                 recommended.sensorConfiguration,
                 stored.sensorOverrides,
                 lockedOffSources = lockedOffSources(profile),
             ),
-            specificSettings = resolveSpecificSettings(
-                recommended.specificSettings,
-                stored.specificOverrides,
-            ),
-            setupState = stored.setupState,
+            specificSettings = specificSettings,
+            // The sound-and-movement level has nothing left to set up: it is ready the moment
+            // the use is chosen, and holding it at SETUP_REQUIRED would refuse an arm for a
+            // calibration it does not use.
+            setupState = if (
+                profile == ProtectionProfile.ENTRY &&
+                (specificSettings as? EntryProfileSettings)?.level == EntryWatchLevel.SOUND_AND_MOVEMENT
+            ) {
+                ProfileSetupState.READY
+            } else {
+                stored.setupState
+            },
             customized = stored.sensorOverrides != SensorFusionProfileOverrides() ||
                 stored.specificOverrides != emptySpecificOverrides(profile),
         )
@@ -243,14 +255,24 @@ class ProtectionProfilePolicy(
         ProtectionProfile.POWER -> PowerProfileOverrides()
     }
 
+    /**
+     * @param commissioned whether a hinge model has been captured for this use.
+     *
+     * An owner who has never chosen a level gets the one their setup supports: a phone with a
+     * commissioned model is already watching angles and must go on doing so, and one without
+     * gets the level it can actually arm. Choosing by hand overrides both.
+     */
     private fun resolveSpecificSettings(
         recommended: ProfileSpecificSettings,
         overrides: ProfileSpecificOverrides,
+        commissioned: Boolean = false,
     ): ProfileSpecificSettings = when {
         recommended is VehicleProfileSettings && overrides is VehicleProfileOverrides -> recommended
         recommended is EntryProfileSettings && overrides is EntryProfileOverrides -> recommended.copy(
             angleThresholdDegrees = overrides.angleThresholdDegrees ?: recommended.angleThresholdDegrees,
             openConfirmationMs = overrides.openConfirmationMs ?: recommended.openConfirmationMs,
+            level = overrides.level
+                ?: if (commissioned) EntryWatchLevel.DOOR_ANGLE else EntryWatchLevel.SOUND_AND_MOVEMENT,
         )
         recommended is PowerProfileSettings && overrides is PowerProfileOverrides -> recommended.copy(
             lossConfirmationMs = overrides.lossConfirmationMs ?: recommended.lossConfirmationMs,
@@ -408,8 +430,11 @@ class ProtectionProfilePolicy(
          * signal; recording audio and taking location fixes for it costs battery and
          * privacy, and their absence must not read as a degraded system either.
          */
-        fun usedSensorKinds(profile: ProtectionProfile): Set<SensorKind> =
-            signalRoles(profile).filterValues { it != SensorRole.OFF }.keys
+        fun usedSensorKinds(
+            profile: ProtectionProfile,
+            entryLevel: EntryWatchLevel = EntryWatchLevel.DOOR_ANGLE,
+        ): Set<SensorKind> =
+            signalRoles(profile, entryLevel).filterValues { it != SensorRole.OFF }.keys
 
         /**
          * Which signals a use lets open an incident on its own, for the signals the fusion
@@ -432,7 +457,10 @@ class ProtectionProfilePolicy(
          * - Power Guard hosts on the witness lamp and the charging line together, and runs
          *   nothing else at all.
          */
-        fun signalRoles(profile: ProtectionProfile): Map<SensorKind, SensorRole> = when (profile) {
+        fun signalRoles(
+            profile: ProtectionProfile,
+            entryLevel: EntryWatchLevel = EntryWatchLevel.DOOR_ANGLE,
+        ): Map<SensorKind, SensorRole> = when (profile) {
             ProtectionProfile.VEHICLE -> mapOf(
                 SensorKind.VIBRATION to SensorRole.PRIMARY,
                 SensorKind.LIGHT to SensorRole.PRIMARY,
@@ -440,16 +468,29 @@ class ProtectionProfilePolicy(
                 SensorKind.LOCATION to SensorRole.PRIMARY,
                 SensorKind.POWER_THERMAL to SensorRole.PRIMARY,
             )
-            ProtectionProfile.ENTRY -> mapOf(
+            ProtectionProfile.ENTRY -> when (entryLevel) {
+                // Nothing measures an angle at this level, so the pair that can open a door
+                // event has to host it. Neither alone: a lorry reaches the microphone and a
+                // slammed gate next door reaches the accelerometer, and only their coincidence
+                // is about this door.
+                EntryWatchLevel.SOUND_AND_MOVEMENT -> mapOf(
+                    SensorKind.VIBRATION to SensorRole.PRIMARY,
+                    SensorKind.MICROPHONE to SensorRole.PRIMARY,
+                    SensorKind.LIGHT to SensorRole.SUPPORTING,
+                    SensorKind.LOCATION to SensorRole.SUPPORTING,
+                    SensorKind.POWER_THERMAL to SensorRole.SUPPORTING,
+                )
                 // The orientation verdict carries PRIMARY of its own; a raw vibration sample
                 // arriving here is corroboration, which is what the recommendation already
                 // sets for the door watch's movement sources.
-                SensorKind.VIBRATION to SensorRole.SUPPORTING,
-                SensorKind.LIGHT to SensorRole.SUPPORTING,
-                SensorKind.MICROPHONE to SensorRole.SUPPORTING,
-                SensorKind.LOCATION to SensorRole.SUPPORTING,
-                SensorKind.POWER_THERMAL to SensorRole.SUPPORTING,
-            )
+                EntryWatchLevel.DOOR_ANGLE -> mapOf(
+                    SensorKind.VIBRATION to SensorRole.SUPPORTING,
+                    SensorKind.LIGHT to SensorRole.SUPPORTING,
+                    SensorKind.MICROPHONE to SensorRole.SUPPORTING,
+                    SensorKind.LOCATION to SensorRole.SUPPORTING,
+                    SensorKind.POWER_THERMAL to SensorRole.SUPPORTING,
+                )
+            }
             ProtectionProfile.POWER -> mapOf(
                 SensorKind.LIGHT to SensorRole.PRIMARY,
                 SensorKind.POWER_THERMAL to SensorRole.PRIMARY,
@@ -460,8 +501,11 @@ class ProtectionProfilePolicy(
         }
 
         /** The hosts of a use, in the order the screen should name them. */
-        fun hostKinds(profile: ProtectionProfile): List<SensorKind> =
-            SensorKind.entries.filter { signalRoles(profile)[it] == SensorRole.PRIMARY }
+        fun hostKinds(
+            profile: ProtectionProfile,
+            entryLevel: EntryWatchLevel = EntryWatchLevel.DOOR_ANGLE,
+        ): List<SensorKind> =
+            SensorKind.entries.filter { signalRoles(profile, entryLevel)[it] == SensorRole.PRIMARY }
 
         /**
          * What opens an incident under a use, as the owner would name it.
@@ -472,9 +516,13 @@ class ProtectionProfilePolicy(
          * vibration corroborating while the verdict still hosts. `ProtectionProfilePolicyTest`
          * pins the two against each other so they cannot drift.
          */
-        fun hosts(profile: ProtectionProfile): List<ProtectionHost> = when (profile) {
-            ProtectionProfile.ENTRY -> listOf(ProtectionHost.ORIENTATION)
-            else -> hostKinds(profile).mapNotNull { kind ->
+        fun hosts(
+            profile: ProtectionProfile,
+            entryLevel: EntryWatchLevel = EntryWatchLevel.DOOR_ANGLE,
+        ): List<ProtectionHost> = when {
+            profile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.DOOR_ANGLE ->
+                listOf(ProtectionHost.ORIENTATION)
+            else -> hostKinds(profile, entryLevel).mapNotNull { kind ->
                 when (kind) {
                     SensorKind.VIBRATION -> ProtectionHost.MOVEMENT
                     SensorKind.LIGHT -> ProtectionHost.LIGHT

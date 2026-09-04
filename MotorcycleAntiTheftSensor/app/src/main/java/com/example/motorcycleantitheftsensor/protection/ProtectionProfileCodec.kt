@@ -233,6 +233,7 @@ class ProtectionProfileCodec(
                 obj.put("kind", ProfileKinds.ENTRY)
                 putOptionalInt(obj, "angleThresholdDegrees", overrides.angleThresholdDegrees)
                 putOptionalLong(obj, "openConfirmationMs", overrides.openConfirmationMs)
+                putOptionalName(obj, "level", overrides.level?.name)
             }
             is PowerProfileOverrides -> {
                 obj.put("kind", ProfileKinds.POWER)
@@ -270,6 +271,10 @@ class ProtectionProfileCodec(
                 EntryProfileOverrides(
                     angleThresholdDegrees = angleThresholdDegrees,
                     openConfirmationMs = openConfirmationMs,
+                    // Absent in every document written before the level existed, and absent is
+                    // exactly right there: the resolver reads it as "not chosen by hand" and
+                    // answers from whether the phone has a commissioned model.
+                    level = decodeOptionalEnum<EntryWatchLevel>(obj, "level"),
                 )
             }
             ProtectionProfile.POWER -> {
