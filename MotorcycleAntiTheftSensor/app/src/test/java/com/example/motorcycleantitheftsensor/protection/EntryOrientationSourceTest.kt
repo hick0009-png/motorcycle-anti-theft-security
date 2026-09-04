@@ -16,20 +16,24 @@ import org.junit.Test
 class EntryOrientationSourceTest {
 
     @Test
-    fun aPhoneWithEverythingTakesTheGameVector() {
-        assertEquals(
-            EntryOrientationSource.GAME_ROTATION_VECTOR,
-            EntryOrientationSourcePolicy.choose(EntryOrientationSource.entries),
-        )
+    fun aPhoneWithEverythingTakesTheCompassPinnedVector() {
+        // A door turns about the gravity axis, so the whole signal is yaw, and yaw is exactly
+        // what the game vector is documented to let drift. The watch takes the source that
+        // cannot walk away from its own heading.
+        val chosen = EntryOrientationSourcePolicy.choose(EntryOrientationSource.entries)
+        assertEquals(EntryOrientationSource.ROTATION_VECTOR, chosen)
+        assertTrue(chosen!!.compassPinned)
     }
 
     @Test
-    fun aPhoneWithoutAGameVectorFallsBackInOrder() {
+    fun aPhoneWithoutAFusedRotationVectorFallsBackInOrder() {
+        // The game vector still protects a phone that has nothing better, and the drift budget
+        // still guards it there.
         assertEquals(
-            EntryOrientationSource.ROTATION_VECTOR,
+            EntryOrientationSource.GAME_ROTATION_VECTOR,
             EntryOrientationSourcePolicy.choose(
                 setOf(
-                    EntryOrientationSource.ROTATION_VECTOR,
+                    EntryOrientationSource.GAME_ROTATION_VECTOR,
                     EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR,
                 ),
             ),
@@ -38,6 +42,15 @@ class EntryOrientationSourceTest {
             EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR,
             EntryOrientationSourcePolicy.choose(setOf(EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR)),
         )
+    }
+
+    @Test
+    fun theGeomagneticVectorIsNeverPreferredOverAGyroscopeBackedOne() {
+        // It does not drift either, but with no gyroscope behind it, it answers a door slowly.
+        val order = EntryOrientationSourcePolicy.PREFERENCE
+        assertEquals(EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR, order.last())
+        assertEquals(EntryOrientationSource.entries.size, order.size)
+        assertEquals(order.size, order.toSet().size)
     }
 
     @Test

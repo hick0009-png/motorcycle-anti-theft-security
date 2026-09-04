@@ -74,9 +74,12 @@ class BlackBoxSensorTapTest {
 
     @Test
     fun aWorseRotationSourceDoesNotTakeTheColumnBack() {
-        tap.onSample(SensorSource.GAME_ROTATION_VECTOR, floatArrayOf(0f, 0f, 0f, 1f), 3)
-        tap.onSample(SensorSource.ROTATION_VECTOR, floatArrayOf(0f, 0f, 0.70711f, 0.70711f), 3)
-        tap.onSample(SensorSource.GAME_ROTATION_VECTOR, floatArrayOf(0f, 0f, 0.08716f, 0.99619f), 3)
+        // Which source is the better one is the door watch's decision, not this tap's: the
+        // rank is read from EntryOrientationSourcePolicy.PREFERENCE, so the compass-pinned
+        // vector holds the column and the game vector cannot interrupt it.
+        tap.onSample(SensorSource.ROTATION_VECTOR, floatArrayOf(0f, 0f, 0f, 1f), 3)
+        tap.onSample(SensorSource.GAME_ROTATION_VECTOR, floatArrayOf(0f, 0f, 0.70711f, 0.70711f), 3)
+        tap.onSample(SensorSource.ROTATION_VECTOR, floatArrayOf(0f, 0f, 0.08716f, 0.99619f), 3)
 
         assertEquals(10.0, tap.drain().rotationMaxDeg!!, 0.5)
     }

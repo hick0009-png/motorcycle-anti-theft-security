@@ -164,11 +164,21 @@ class BlackBoxSensorTap {
         if (degrees > rotationMaxDeg) rotationMaxDeg = degrees
     }
 
-    /** Best first, and deliberately the order in `EntryOrientationSourcePolicy.PREFERENCE`. */
-    private fun rotationRank(source: SensorSource): Int = when (source) {
-        SensorSource.GAME_ROTATION_VECTOR -> 0
-        SensorSource.ROTATION_VECTOR -> 1
-        else -> 2
+    /**
+     * Best first, read from the door watch's own order rather than copied beside it.
+     *
+     * This used to be a second hand-written list that happened to agree. A recording ranked
+     * by one order while the session armed on another would attribute a night's rotation to a
+     * sensor that was not the one reading it, and nothing would say so.
+     */
+    private fun rotationRank(source: SensorSource): Int {
+        val entrySource = when (source) {
+            SensorSource.ROTATION_VECTOR -> EntryOrientationSource.ROTATION_VECTOR
+            SensorSource.GAME_ROTATION_VECTOR -> EntryOrientationSource.GAME_ROTATION_VECTOR
+            SensorSource.GEOMAGNETIC_ROTATION_VECTOR -> EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR
+            else -> return Int.MAX_VALUE
+        }
+        return EntryOrientationSourcePolicy.PREFERENCE.indexOf(entrySource)
     }
 
     private fun recordLux(values: FloatArray) {
