@@ -44,10 +44,12 @@ class BreadcrumbLedgerTest {
         val written = mutableListOf<String>()
         repeat(times) { index ->
             clock += 1_000L
-            written += offer(crumb(domain, details = detailFor(index), atMs = clock))
+            written += offer(crumb(domain, details = detailFor(index), atMs = clock)).notes()
         }
         return written
     }
+
+    private fun List<BreadcrumbRow>.notes(): List<String> = map { row -> row.note }
 
     /** Distinct details, so each crumb is its own kind and coalescing never applies. */
     private fun distinct(index: Int): List<BreadcrumbDetail> =
@@ -70,7 +72,7 @@ class BreadcrumbLedgerTest {
                 details = listOf(BreadcrumbDetail.PERM_LOCATION),
                 atMs = clock + 90_000L,
             ),
-        )
+        ).notes()
 
         assertEquals(listOf("perm:revoked:loc"), perm)
     }
@@ -95,7 +97,7 @@ class BreadcrumbLedgerTest {
 
         val first = ledger.offer(
             crumb(BreadcrumbDomain.NET, BreadcrumbEvent.LOST, listOf(BreadcrumbDetail.WIFI), start),
-        )
+        ).notes()
         repeat(39) { index ->
             ledger.offer(
                 crumb(
@@ -106,7 +108,7 @@ class BreadcrumbLedgerTest {
                 ),
             )
         }
-        val closed = ledger.tick(start + 120_000L)
+        val closed = ledger.tick(start + 120_000L, start + 120_000L).notes()
 
         assertEquals(listOf("net:lost:wifi"), first)
         assertEquals(listOf("net:lost:wifi x39"), closed)
@@ -120,7 +122,7 @@ class BreadcrumbLedgerTest {
 
         val written = ledger.offer(
             crumb(BreadcrumbDomain.PERMISSION, BreadcrumbEvent.REVOKED, listOf(BreadcrumbDetail.PERM_MICROPHONE)),
-        )
+        ).notes()
 
         assertEquals(listOf("perm:revoked:mic"), written)
     }
@@ -131,7 +133,7 @@ class BreadcrumbLedgerTest {
         ledger.offer(crumb(BreadcrumbDomain.NET, atMs = 0L))
         ledger.flood(BreadcrumbDomain.NET, times = 60, detailFor = ::distinct)
 
-        val rolled = ledger.tick(clock + 3_600_000L)
+        val rolled = ledger.tick(clock + 3_600_000L, clock + 3_600_000L).notes()
 
         val cap = rolled.single { it.startsWith("cap:net:") }
         val suppressed = cap.removePrefix("cap:net:").toInt()
@@ -148,7 +150,7 @@ class BreadcrumbLedgerTest {
             ledger.flood(domain, times = 40, detailFor = ::distinct)
         }
 
-        val rolled = ledger.tick(clock + 3_600_000L)
+        val rolled = ledger.tick(clock + 3_600_000L, clock + 3_600_000L).notes()
 
         assertEquals(
             BreadcrumbDomain.entries.map { "cap:${it.code}" },
@@ -160,7 +162,7 @@ class BreadcrumbLedgerTest {
     fun theAllowanceComesBackWhenTheHourDoes() {
         val ledger = BreadcrumbLedger()
         ledger.flood(BreadcrumbDomain.NET, times = 60, detailFor = ::distinct)
-        ledger.tick(clock + 3_600_000L)
+        ledger.tick(clock + 3_600_000L, clock + 3_600_000L)
         clock += 3_600_000L
 
         val afterRoll = ledger.flood(BreadcrumbDomain.NET, times = 4, detailFor = ::distinct)
@@ -176,9 +178,36 @@ class BreadcrumbLedgerTest {
         ledger.offer(crumb(BreadcrumbDomain.NET, atMs = 0L))
         repeat(7) { ledger.recordQueueDrop() }
 
-        val rolled = ledger.tick(3_600_000L)
+        val rolled = ledger.tick(3_600_000L, 3_600_000L).notes()
 
         assertTrue(rolled.contains("drop:queue:7"))
+    }
+
+    @Test
+    fun aSummaryIsDatedByTheLastRepeatAndNotByTheExpiryOfTheWindow() {
+        // Seen on the phone: the second of two Telegram sends happened at 06:49:05 and the
+        // summary row landed in the file at the moment the window expired. A file whose only
+        // use is saying when something happened must not move it.
+        val ledger = BreadcrumbLedger()
+        ledger.offer(crumb(BreadcrumbDomain.NET, BreadcrumbEvent.LOST, listOf(BreadcrumbDetail.WIFI), 1_000L))
+        ledger.offer(crumb(BreadcrumbDomain.NET, BreadcrumbEvent.LOST, listOf(BreadcrumbDetail.WIFI), 5_000L))
+        ledger.offer(crumb(BreadcrumbDomain.NET, BreadcrumbEvent.LOST, listOf(BreadcrumbDetail.WIFI), 9_000L))
+
+        val summary = ledger.tick(300_000L, 300_000L).single()
+
+        assertEquals("net:lost:wifi x2", summary.note)
+        assertEquals(9_000L, summary.elapsedMs)
+        assertEquals(1_700_000_009_000L, summary.wallMs)
+    }
+
+    @Test
+    fun aCrumbsOwnRowIsDatedByTheCrumb() {
+        val ledger = BreadcrumbLedger()
+
+        val row = ledger.offer(crumb(BreadcrumbDomain.BOOT, BreadcrumbEvent.START, atMs = 4_200L)).single()
+
+        assertEquals(4_200L, row.elapsedMs)
+        assertEquals(1_700_000_004_200L, row.wallMs)
     }
 
     @Test

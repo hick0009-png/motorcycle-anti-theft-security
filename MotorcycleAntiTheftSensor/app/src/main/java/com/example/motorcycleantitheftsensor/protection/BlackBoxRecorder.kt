@@ -194,26 +194,27 @@ class BlackBoxRecorder(
     /**
      * Turns queued crumbs into rows, on the black box's own thread.
      *
-     * Each row is stamped with its crumb's clocks rather than with the clock now, which is
-     * also why the rows a crumb's arrival produces for *other* reasons — an hour that turned,
-     * a repeat window that closed — are stamped that way too. They describe the moment the
-     * crumb landed, and dating them later would put the report of an hour after rows that
-     * belong to the hour following it.
+     * Every row carries the moment it is about rather than the moment it was written, and the
+     * ledger decides which that is: a crumb's own row is dated by the crumb, and a row
+     * summarising repeats is dated by the last repeat rather than by the expiry of the window
+     * that was counting them. The whole use of this file is saying when something happened.
      */
     @Synchronized
     private fun drainBreadcrumbs() {
         while (true) {
             val crumb = breadcrumbQueue.poll() ?: return
-            breadcrumbs.offer(crumb).forEach { note ->
-                write(
-                    type = BlackBoxRowType.BREADCRUMB,
-                    state = lastState,
-                    note = note,
-                    atElapsedMs = crumb.elapsedMs,
-                    atWallMs = crumb.wallMs,
-                )
-            }
+            breadcrumbs.offer(crumb).forEach { row -> writeBreadcrumb(row) }
         }
+    }
+
+    private fun writeBreadcrumb(row: BreadcrumbRow) {
+        write(
+            type = BlackBoxRowType.BREADCRUMB,
+            state = lastState,
+            note = row.note,
+            atElapsedMs = row.elapsedMs,
+            atWallMs = row.wallMs,
+        )
     }
 
     @Synchronized
@@ -227,9 +228,7 @@ class BlackBoxRecorder(
         // reported inside the minute it belongs to. Also the only thing that moves this layer
         // along on a phone quiet enough to raise no crumbs at all.
         drainBreadcrumbs()
-        breadcrumbs.tick(elapsedMs()).forEach { note ->
-            write(BlackBoxRowType.BREADCRUMB, lastState, note = note)
-        }
+        breadcrumbs.tick(elapsedMs(), wallClockMs()).forEach { row -> writeBreadcrumb(row) }
 
         val summary = runCatching { sensors?.invoke() }.getOrNull() ?: BlackBoxSensorSummary()
         val now = elapsedMs()

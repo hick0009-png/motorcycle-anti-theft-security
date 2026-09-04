@@ -3,10 +3,18 @@ package com.example.motorcycleantitheftsensor.protection
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
+ * A note and the moment it describes.
+ *
+ * The two are carried together because they can differ: a row summarising repeats belongs to
+ * the last of them, not to the moment the ledger got round to closing the window.
+ */
+data class BreadcrumbRow(val note: String, val elapsedMs: Long, val wallMs: Long)
+
+/**
  * Decides which breadcrumbs become rows, and says out loud what it refused.
  *
  * All of the layer's judgement lives here and none of its plumbing does: it takes crumbs and
- * returns the notes to write, so every rule below is testable without a disk, a clock or a
+ * returns the rows to write, so every rule below is testable without a disk, a clock or a
  * thread. [BlackBoxRecorder] does the writing.
  *
  * Three rules, and each exists because of a way the layer could quietly lie:
@@ -41,30 +49,44 @@ class BreadcrumbLedger(
     private var repeats = 0
 
     /**
-     * Takes one crumb and returns the notes to write for it, in order.
+     * When the last repeat happened, which is what the summary row is dated by.
+     *
+     * Dating it at the close instead put a send that happened at 06:49:05 in the file at the
+     * moment the window expired, and the whole use of this file is answering what happened
+     * when. A summary still describes a span; this makes the end of that span true.
+     */
+    private var lastRepeatElapsedMs = 0L
+    private var lastRepeatWallMs = 0L
+
+    /**
+     * Takes one crumb and returns the rows to write for it, in order.
      *
      * The first of a kind is written straight away rather than held for the window to close.
      * Holding it would put every one-off crumb — a revoked permission, a failed send — a
      * minute behind the event, in a process that is killed without warning by design. The
      * window counts repeats only, and repeats are the part that can afford to wait.
      */
-    fun offer(crumb: Breadcrumb): List<String> {
-        val notes = mutableListOf<String>()
-        notes += rollHourIfDue(crumb.elapsedMs)
+    fun offer(crumb: Breadcrumb): List<BreadcrumbRow> {
+        val rows = mutableListOf<BreadcrumbRow>()
+        rows += rollHourIfDue(crumb.elapsedMs, crumb.wallMs)
 
         val note = crumb.note
         if (note == openNote && crumb.elapsedMs - openedAtMs < coalesceWindowMs) {
             repeats += 1
-            return notes
+            lastRepeatElapsedMs = crumb.elapsedMs
+            lastRepeatWallMs = crumb.wallMs
+            return rows
         }
 
-        notes += closeWindow()
+        rows += closeWindow()
         if (take(crumb.domain)) {
-            notes += note
+            rows += BreadcrumbRow(note, crumb.elapsedMs, crumb.wallMs)
             openNote = note
             openDomain = crumb.domain
             openedAtMs = crumb.elapsedMs
             repeats = 0
+            lastRepeatElapsedMs = crumb.elapsedMs
+            lastRepeatWallMs = crumb.wallMs
         } else {
             suppress(crumb.domain)
             // Nothing was written, so there is nothing for a later repeat to be counted
@@ -73,7 +95,7 @@ class BreadcrumbLedger(
             openDomain = null
             repeats = 0
         }
-        return notes
+        return rows
     }
 
     /**
@@ -82,15 +104,15 @@ class BreadcrumbLedger(
      * Without it a flap that stops dead leaves its last repeats unwritten until the next
      * crumb of any kind arrives, which on a quiet phone could be hours.
      */
-    fun tick(nowMs: Long): List<String> {
-        val notes = mutableListOf<String>()
-        notes += rollHourIfDue(nowMs)
-        if (openNote != null && nowMs - openedAtMs >= coalesceWindowMs) {
-            notes += closeWindow()
+    fun tick(nowElapsedMs: Long, nowWallMs: Long): List<BreadcrumbRow> {
+        val rows = mutableListOf<BreadcrumbRow>()
+        rows += rollHourIfDue(nowElapsedMs, nowWallMs)
+        if (openNote != null && nowElapsedMs - openedAtMs >= coalesceWindowMs) {
+            rows += closeWindow()
             openNote = null
             openDomain = null
         }
-        return notes
+        return rows
     }
 
     /** A crumb that never got here. Safe to call from any thread. */
@@ -105,14 +127,14 @@ class BreadcrumbLedger(
      * domain, which is the whole allowance — exempting it would reintroduce, through the
      * mechanism meant to prevent flooding, exactly the flood it prevents.
      */
-    private fun closeWindow(): List<String> {
+    private fun closeWindow(): List<BreadcrumbRow> {
         val note = openNote ?: return emptyList()
         val domain = openDomain ?: return emptyList()
         if (repeats <= 0) return emptyList()
         val summary = Breadcrumb.repeatNote(note, repeats)
         repeats = 0
         return if (take(domain)) {
-            listOf(summary)
+            listOf(BreadcrumbRow(summary, lastRepeatElapsedMs, lastRepeatWallMs))
         } else {
             suppress(domain)
             emptyList()
@@ -128,28 +150,32 @@ class BreadcrumbLedger(
      * turns the number is final. They bypass the ceiling themselves — a limit that could
      * suppress the report of the limit would be indistinguishable from no limit at all.
      */
-    private fun rollHourIfDue(nowMs: Long): List<String> {
+    private fun rollHourIfDue(nowElapsedMs: Long, nowWallMs: Long): List<BreadcrumbRow> {
         val startedAt = hourStartedAtMs
         if (startedAt == null) {
-            hourStartedAtMs = nowMs
+            hourStartedAtMs = nowElapsedMs
             return emptyList()
         }
-        if (nowMs - startedAt < hourMs) return emptyList()
+        if (nowElapsedMs - startedAt < hourMs) return emptyList()
 
-        val notes = mutableListOf<String>()
+        val rows = mutableListOf<BreadcrumbRow>()
         // Enum order, so two runs of the same hour produce the same file.
         BreadcrumbDomain.entries.forEach { domain ->
             val suppressed = suppressedByDomain[domain] ?: 0
-            if (suppressed > 0) notes += Breadcrumb.capNote(domain, suppressed)
+            if (suppressed > 0) {
+                rows += BreadcrumbRow(Breadcrumb.capNote(domain, suppressed), nowElapsedMs, nowWallMs)
+            }
         }
         val dropped = queueDrops.getAndSet(0)
-        if (dropped > 0) notes += Breadcrumb.queueDropNote(dropped)
+        if (dropped > 0) {
+            rows += BreadcrumbRow(Breadcrumb.queueDropNote(dropped), nowElapsedMs, nowWallMs)
+        }
 
         usedByDomain.clear()
         suppressedByDomain.clear()
         sharedUsed = 0
-        hourStartedAtMs = nowMs
-        return notes
+        hourStartedAtMs = nowElapsedMs
+        return rows
     }
 
     /** Own reservation first, then the shared pool. */
