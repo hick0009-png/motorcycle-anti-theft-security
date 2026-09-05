@@ -1,6 +1,9 @@
 package com.example.motorcycleantitheftsensor.telegram
 
 import com.example.motorcycleantitheftsensor.protection.GuidanceCode
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionModeContext
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SetupBlocker
@@ -32,6 +35,68 @@ class ProtectionStatusFormatter(
         } catch (e: RuntimeException) {
             "⚠️ ไม่สามารถสร้างรายงานสถานะฉบับเต็มได้ โปรดลองใหม่อีกครั้ง"
         }
+    }
+
+    /**
+     * The report for a mode the owner asked about but is not the one running.
+     *
+     * Deliberately not the full report with different numbers in it. Half of that report
+     * is about right now — the angle at this moment, the lamp at this moment, how long the
+     * watch has been up — and none of that exists for a mode that is not watching. Printing
+     * those lines from the running mode's session would describe the wrong watch while
+     * appearing to describe this one, which is the exact fault the mode-aware report was
+     * built to remove.
+     *
+     * What is left is what the owner actually wants when they ask: is this mode still
+     * calibrated, what would it alert on, and could it be armed right now.
+     */
+    fun formatOtherMode(
+        snapshot: ProtectionSnapshot,
+        profile: ProtectionProfile,
+        asked: ProtectionModeContext,
+        nowWallClockMs: Long = wallClock(),
+    ): String = buildString {
+        appendLine(
+            "🛡️ " + PresentationTextCatalog.modeLabel(profile, asked.entryLevel) +
+                " · ไม่ได้เฝ้าอยู่ตอนนี้",
+        )
+        appendLine(runningModeLine(snapshot, nowWallClockMs))
+
+        val scope = ModeStatusSections.watchScope(snapshot, asked)
+        appendLine()
+        appendLine(scope.titleTh)
+        scope.lines.forEach { appendLine(it) }
+
+        val readiness = ModeStatusSections.readiness(asked)
+        appendLine()
+        appendLine(readiness.titleTh)
+        readiness.lines.forEach { appendLine(it) }
+
+        appendLine()
+        appendLine("ℹ️ ค่าที่วัดได้ขณะนี้มีเฉพาะโหมดที่กำลังเฝ้าอยู่")
+        appendLine("สลับมาโหมดนี้ในแอปแล้วสั่ง /arm จึงจะเห็นค่าสด · ดูโหมดที่เฝ้าอยู่ด้วย /status")
+    }.trimEnd()
+
+    /**
+     * What is watching instead, named so the owner cannot mistake this report for the
+     * running one.
+     */
+    private fun runningModeLine(snapshot: ProtectionSnapshot, nowWallClockMs: Long): String {
+        val context = snapshot.modeContext
+        val running = context?.selectedProfile
+            ?: return "ตอนนี้ยังไม่ได้เลือกโหมดไว้เฝ้า"
+        val state = ModeStatusSections.stateLabel(snapshot.state)
+        if (!ModeStatusSections.isWatching(snapshot.state)) {
+            // "watching with the vehicle mode · not watching" is a sentence that argues with
+            // itself. Nothing is running, so the honest line names the selection instead.
+            return "โหมดที่เลือกไว้ตอนนี้: " +
+                PresentationTextCatalog.modeName(running, context.entryLevel) + " · " + state
+        }
+        val duration = ModeStatusSections.armedDuration(snapshot, nowWallClockMs)
+            ?.let { " · เฝ้ามาแล้ว $it" }
+            ?: ""
+        return "ตอนนี้เฝ้าด้วย" + PresentationTextCatalog.modeLabel(running, context.entryLevel) +
+            " · " + state + duration
     }
 
     /**

@@ -70,6 +70,49 @@ object PresentationTextCatalog {
         "โหมด" + modeName(profile, entryLevel)
 
     /**
+     * The short word an owner types to name a mode, one per mode.
+     *
+     * `/status ประตู` is typed one-handed on a phone, often in the dark. The full names
+     * are accepted too (below), but the word offered in `/help` has to be the short one.
+     */
+    private val MODE_SHORT_WORDS: Map<ProtectionProfile, List<String>> = mapOf(
+        ProtectionProfile.VEHICLE to listOf("รถ", "vehicle", "car"),
+        ProtectionProfile.ENTRY to listOf("ประตู", "ทางเข้า", "entry", "door"),
+        ProtectionProfile.POWER to listOf("ไฟเลี้ยง", "ไฟ", "power"),
+    )
+
+    /**
+     * Which mode the owner meant, or null when the word matches none.
+     *
+     * The full display name is taken from [profile] rather than repeated here, so a mode
+     * that is renamed keeps answering to its new name without anyone remembering to update
+     * a second list. The enum constant is deliberately not accepted: `VEHICLE` is not a
+     * word this product ever shows an owner, and accepting it would invite it into a reply.
+     */
+    fun profileFromOwnerWord(word: String): ProtectionProfile? {
+        val needle = word.trim().lowercase()
+        if (needle.isEmpty()) return null
+        return ProtectionProfile.entries.firstOrNull { profile ->
+            val displayName = profile(profile).name
+            displayName.lowercase() == needle ||
+                MODE_SHORT_WORDS.getValue(profile).any { alias -> alias == needle }
+        }
+    }
+
+    /** The one word per mode that `/help` and the "I did not understand" reply offer. */
+    fun modeWord(profile: ProtectionProfile): String = MODE_SHORT_WORDS.getValue(profile).first()
+
+    /** "· ยานพาหนะ → /status รถ" per line, for the reply to a word that matched nothing. */
+    fun modeWordMenu(): String = ProtectionProfile.entries.joinToString("\n") { profile ->
+        "· ${profile(profile).name} → /status ${modeWord(profile)}"
+    }
+
+    /** The same words on one line, for `/help`, which is already a single long sentence. */
+    fun modeWordExamples(): String = ProtectionProfile.entries.joinToString(", ") { profile ->
+        "/status ${modeWord(profile)}"
+    }
+
+    /**
      * Why a profile locks the sensors it does not use, in the owner's words.
      *
      * [SensorLockPresentation.notice] heads the advanced sensor card; [reason] repeats

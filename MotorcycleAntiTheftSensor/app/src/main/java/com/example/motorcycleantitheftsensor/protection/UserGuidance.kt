@@ -280,6 +280,10 @@ object UserGuidanceCatalog {
                 titleTh = "คำสั่งที่ใช้ได้",
                 bodyTh = "ดูรายการคำสั่งใน Telegram",
                 telegramTh = "ℹ️ คำสั่ง: /status รายงานตามโหมดที่เลือกไว้ (ตอบเฉพาะสิ่งที่โหมดนั้นเฝ้าจริง), " +
+                    // Built from the table that parses the words, so a word offered here is
+                    // always a word the parser accepts.
+                    "/status <โหมด> ดูโหมดอื่นที่ตั้งไว้แต่ไม่ได้เฝ้าอยู่ (" +
+                    PresentationTextCatalog.modeWordExamples() + "), " +
                     "/where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
                     "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                     "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",

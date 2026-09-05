@@ -117,49 +117,81 @@ class ProtectionCoordinator(
                     selectedProfile = null,
                     switchingTo = state.switchTransaction?.targetProfile,
                 )
-            val resolved = profilePolicy.resolve(state, selected)
-            val stored = state.profiles.getValue(selected)
-            val entrySettings = resolved.specificSettings as? EntryProfileSettings
-            ProtectionModeContext(
-                selectedProfile = selected,
-                entryLevel = entrySettings?.level,
-                setupState = resolved.setupState,
-                support = deviceSupport(selected),
-                switchingTo = state.switchTransaction?.targetProfile,
-                modeFacts = when (selected) {
-                    ProtectionProfile.VEHICLE -> VehicleModeFacts
-                    ProtectionProfile.ENTRY -> {
-                        val settings = entrySettings ?: EntryProfileSettings()
-                        val model = stored.entryHingeModel
-                        EntryModeFacts(
-                            angleThresholdDegrees = settings.angleThresholdDegrees,
-                            openConfirmationMs = settings.openConfirmationMs,
-                            closeThresholdDegrees = settings.closeThresholdDegrees,
-                            closeConfirmationMs = settings.closeConfirmationMs,
-                            hingeModelCommissioned = model != null,
-                            hingeOrientationSourceLabel = model?.orientationSourcePolicy,
-                            hingeCommissionedAtWallMs = model?.commissionedAtWallMs,
-                            driftVerdict = entryDriftVerdict(),
-                        )
-                    }
-                    ProtectionProfile.POWER -> {
-                        val settings = resolved.specificSettings as? PowerProfileSettings
-                            ?: PowerProfileSettings()
-                        val model = stored.powerWitnessModel
-                        PowerModeFacts(
-                            lossConfirmationMs = settings.lossConfirmationMs,
-                            recoveryConfirmationMs = settings.recoveryConfirmationMs,
-                            witnessCommissioned = model != null,
-                            witnessDarkThresholdLux = model?.witnessDarkThresholdLux,
-                            witnessLitThresholdLux = model?.witnessLitThresholdLux,
-                            witnessCommissionedAtWallMs = model?.commissionedAtWallMs,
-                        )
-                    }
-                },
-            )
+            modeContextFrom(state, selected)
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * The same durable facts, for a mode that is not the one the owner has selected.
+     *
+     * `/status ประตู` asked while the vehicle watch is armed has to answer about the door:
+     * whether its hinge is still calibrated, what angle it would alert on, whether this
+     * phone can carry it at all. None of that is in [ProtectionSnapshot], which speaks for
+     * the selected mode only, and none of it changes with the state of the running watch.
+     *
+     * The returned context describes that mode; it never claims that mode is running.
+     * Saying so is the caller's job, and the report built from this must open by saying
+     * the mode is not the one watching.
+     *
+     * @return null when there is no profile layer, or the store could not be read.
+     */
+    fun modeContextFor(profile: ProtectionProfile): ProtectionModeContext? {
+        val repository = profileRepository ?: return null
+        return try {
+            modeContextFrom(repository.load(), profile)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun modeContextFrom(
+        state: ProtectionProfileStoreState,
+        selected: ProtectionProfile,
+    ): ProtectionModeContext {
+        val resolved = profilePolicy.resolve(state, selected)
+        val stored = state.profiles.getValue(selected)
+        val entrySettings = resolved.specificSettings as? EntryProfileSettings
+        return ProtectionModeContext(
+            selectedProfile = selected,
+            entryLevel = entrySettings?.level,
+            setupState = resolved.setupState,
+            support = deviceSupport(selected),
+            switchingTo = state.switchTransaction?.targetProfile,
+            modeFacts = when (selected) {
+                ProtectionProfile.VEHICLE -> VehicleModeFacts
+                ProtectionProfile.ENTRY -> {
+                    val settings = entrySettings ?: EntryProfileSettings()
+                    val model = stored.entryHingeModel
+                    EntryModeFacts(
+                        angleThresholdDegrees = settings.angleThresholdDegrees,
+                        openConfirmationMs = settings.openConfirmationMs,
+                        closeThresholdDegrees = settings.closeThresholdDegrees,
+                        closeConfirmationMs = settings.closeConfirmationMs,
+                        hingeModelCommissioned = model != null,
+                        hingeOrientationSourceLabel = model?.orientationSourcePolicy,
+                        hingeCommissionedAtWallMs = model?.commissionedAtWallMs,
+                        // A property of this phone, not of any one session, so it is the
+                        // same answer whether or not the door watch is the one running.
+                        driftVerdict = entryDriftVerdict(),
+                    )
+                }
+                ProtectionProfile.POWER -> {
+                    val settings = resolved.specificSettings as? PowerProfileSettings
+                        ?: PowerProfileSettings()
+                    val model = stored.powerWitnessModel
+                    PowerModeFacts(
+                        lossConfirmationMs = settings.lossConfirmationMs,
+                        recoveryConfirmationMs = settings.recoveryConfirmationMs,
+                        witnessCommissioned = model != null,
+                        witnessDarkThresholdLux = model?.witnessDarkThresholdLux,
+                        witnessLitThresholdLux = model?.witnessLitThresholdLux,
+                        witnessCommissionedAtWallMs = model?.commissionedAtWallMs,
+                    )
+                }
+            },
+        )
     }
 
 

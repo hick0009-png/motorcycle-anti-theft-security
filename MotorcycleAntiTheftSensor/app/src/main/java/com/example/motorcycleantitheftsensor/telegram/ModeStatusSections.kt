@@ -271,28 +271,14 @@ object ModeStatusSections {
     ): List<ModeSectionProjection> {
         val facts = context.modeFacts as? EntryModeFacts
         if (context.entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT) {
-            // Not one degree anywhere in this block. Nothing at this level measures an
-            // angle, and a threshold printed here would be a promise nothing can keep.
             return listOf(
                 ModeSectionProjection(
                     titleTh = "🚪 ระดับการเฝ้า: เสียงและการขยับ",
-                    lines = listOf(
-                        "ระดับนี้บอกไม่ได้ว่าประตูเปิดกว้างแค่ไหน",
-                        "เปิดเหตุการณ์เมื่อเสียงกับการขยับเกิดขึ้นพร้อมกันเท่านั้น",
-                        "ทางไปต่อ: ปรับเทียบบานพับในแอปเพื่อขึ้นเป็นระดับมุมประตู",
-                    ),
+                    lines = entrySoundLevelLines(),
                 ),
             )
         }
-        val angleLines = mutableListOf<String>()
-        if (facts == null) {
-            angleLines += "เกณฑ์แจ้งเตือน: ยังอ่านค่าที่ตั้งไว้ไม่ได้"
-        } else {
-            angleLines += "เกณฑ์แจ้งเตือน: เปิดเกิน ${facts.angleThresholdDegrees}° " +
-                "ค้างนาน ${facts.openConfirmationMs} มิลลิวินาที"
-            angleLines += "ถือว่าปิดเมื่อ: ต่ำกว่า ${facts.closeThresholdDegrees}° " +
-                "นาน ${facts.closeConfirmationMs / 1000L} วินาที"
-        }
+        val angleLines = entryThresholdLines(facts).toMutableList()
         angleLines += when {
             live?.doorAngleDeg == null -> "มุมขณะนี้: อ่านไม่ได้ ($UNKNOWN_NOT_ARMED)"
             else -> {
@@ -308,6 +294,34 @@ object ModeStatusSections {
         )
         ceilingSection(snapshot, facts, nowWallClockMs)?.let(sections::add)
         return sections
+    }
+
+    /**
+     * Not one degree anywhere in this block. Nothing at the sound-and-movement level
+     * measures an angle, and a threshold printed here would be a promise nothing can keep —
+     * which is why every surface that speaks for that level reads these lines rather than
+     * writing its own.
+     */
+    private fun entrySoundLevelLines(): List<String> = listOf(
+        "ระดับนี้บอกไม่ได้ว่าประตูเปิดกว้างแค่ไหน",
+        "เปิดเหตุการณ์เมื่อเสียงกับการขยับเกิดขึ้นพร้อมกันเท่านั้น",
+        "ทางไปต่อ: ปรับเทียบบานพับในแอปเพื่อขึ้นเป็นระดับมุมประตู",
+    )
+
+    /**
+     * What the door watch is set to alert on.
+     *
+     * Settings only — no live reading and no session — which is what lets the report for a
+     * mode that is not running state them without borrowing a running mode's numbers.
+     */
+    private fun entryThresholdLines(facts: EntryModeFacts?): List<String> {
+        if (facts == null) return listOf("เกณฑ์แจ้งเตือน: ยังอ่านค่าที่ตั้งไว้ไม่ได้")
+        return listOf(
+            "เกณฑ์แจ้งเตือน: เปิดเกิน ${facts.angleThresholdDegrees}° " +
+                "ค้างนาน ${facts.openConfirmationMs} มิลลิวินาที",
+            "ถือว่าปิดเมื่อ: ต่ำกว่า ${facts.closeThresholdDegrees}° " +
+                "นาน ${facts.closeConfirmationMs / 1000L} วินาที",
+        )
     }
 
     private fun hingeModelLine(facts: EntryModeFacts?): String {
@@ -363,30 +377,89 @@ object ModeStatusSections {
         lines += lux
             ?.let { "ค่าที่วัดได้ขณะนี้: ${it.toInt()} lux" }
             ?: "ค่าที่วัดได้ขณะนี้: อ่านไม่ได้"
-        lines += when {
+        lines += powerThresholdLines(facts)
+        lines += live?.confirmationCountdownMs
+            ?.takeIf { it > 0L }
+            ?.let { "กำลังนับถอยหลัง: อีก ${(it / 1000L).coerceAtLeast(1L)} วินาที" }
+            ?: "กำลังนับถอยหลัง: ไม่ได้นับอยู่"
+        lines += witnessModelLine(facts)
+        return listOf(
+            ModeSectionProjection(titleTh = "💡 ไฟยืนยัน", lines = lines),
+            ModeSectionProjection(titleTh = "🔌 สายชาร์จ", lines = listOf(chargingLine(snapshot))),
+        )
+    }
+
+    /** The lamp watch's settings, with the same no-live-reading rule as the door's. */
+    private fun powerThresholdLines(facts: PowerModeFacts?): List<String> {
+        val threshold = when {
             facts?.witnessDarkThresholdLux == null || facts.witnessLitThresholdLux == null ->
                 "เกณฑ์: ยังไม่ได้ปรับเทียบไฟยืนยัน"
             else -> "เกณฑ์: ต่ำกว่า ${facts.witnessDarkThresholdLux.toInt()} lux = ดับ · " +
                 "สูงกว่า ${facts.witnessLitThresholdLux.toInt()} lux = สว่าง"
         }
-        if (facts != null) {
-            lines += "ยืนยันไฟดับเมื่อค้างครบ: ${facts.lossConfirmationMs / 1000L} วินาที"
-            lines += "ยืนยันไฟกลับมาเมื่อค้างครบ: ${facts.recoveryConfirmationMs / 1000L} วินาที"
-        }
-        lines += live?.confirmationCountdownMs
-            ?.takeIf { it > 0L }
-            ?.let { "กำลังนับถอยหลัง: อีก ${(it / 1000L).coerceAtLeast(1L)} วินาที" }
-            ?: "กำลังนับถอยหลัง: ไม่ได้นับอยู่"
-        lines += when {
-            facts == null || !facts.witnessCommissioned -> "โมเดลไฟยืนยัน: ยังไม่ได้ปรับเทียบ"
-            facts.witnessCommissionedAtWallMs != null ->
-                "โมเดลไฟยืนยัน: ปรับเทียบไว้เมื่อ ${formatDateTimeTh(facts.witnessCommissionedAtWallMs)}"
-            else -> "โมเดลไฟยืนยัน: ปรับเทียบแล้ว (ไม่ได้บันทึกวันเวลาไว้)"
-        }
+        if (facts == null) return listOf(threshold)
         return listOf(
-            ModeSectionProjection(titleTh = "💡 ไฟยืนยัน", lines = lines),
-            ModeSectionProjection(titleTh = "🔌 สายชาร์จ", lines = listOf(chargingLine(snapshot))),
+            threshold,
+            "ยืนยันไฟดับเมื่อค้างครบ: ${facts.lossConfirmationMs / 1000L} วินาที",
+            "ยืนยันไฟกลับมาเมื่อค้างครบ: ${facts.recoveryConfirmationMs / 1000L} วินาที",
         )
+    }
+
+    private fun witnessModelLine(facts: PowerModeFacts?): String = when {
+        facts == null || !facts.witnessCommissioned -> "โมเดลไฟยืนยัน: ยังไม่ได้ปรับเทียบ"
+        facts.witnessCommissionedAtWallMs != null ->
+            "โมเดลไฟยืนยัน: ปรับเทียบไว้เมื่อ ${formatDateTimeTh(facts.witnessCommissionedAtWallMs)}"
+        else -> "โมเดลไฟยืนยัน: ปรับเทียบแล้ว (ไม่ได้บันทึกวันเวลาไว้)"
+    }
+
+    /**
+     * How ready a mode is, for the report about a mode that is not the one running.
+     *
+     * Every line here is durable: hardware support, whether setup is finished, the
+     * thresholds, when the model was calibrated, and what this phone measured about its own
+     * drift. Nothing is read from the running session, because none of it belongs to the
+     * running session — and a line borrowed from there would describe the wrong watch while
+     * appearing to describe this one.
+     */
+    fun readiness(context: ProtectionModeContext): ModeSectionProjection {
+        val lines = mutableListOf<String>()
+        lines += PresentationTextCatalog.profileSupportBadge(context.support) +
+            (PresentationTextCatalog.profileSupport(context.support)?.let { " — $it" } ?: "")
+        lines += when (context.setupState) {
+            ProfileSetupState.READY -> "การตั้งค่า: ครบแล้ว พร้อมอาร์ม"
+            ProfileSetupState.SETUP_REQUIRED -> "การตั้งค่า: ยังไม่ครบ ต้องตั้งค่าในแอปให้เสร็จก่อนจึงอาร์มได้"
+            ProfileSetupState.UNAVAILABLE -> "การตั้งค่า: โหมดนี้ใช้กับเครื่องนี้ไม่ได้"
+        }
+        when (context.selectedProfile) {
+            ProtectionProfile.ENTRY -> if (
+                context.entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT
+            ) {
+                // The angle threshold, the hinge model and the drift ceiling are all about a
+                // measurement this level does not take. Printing them here would undo the
+                // one rule the door watch's own section exists to keep.
+                lines += entrySoundLevelLines()
+            } else {
+                val facts = context.modeFacts as? EntryModeFacts
+                lines += entryThresholdLines(facts)
+                lines += hingeModelLine(facts)
+                // The rate is a property of this phone, not of a session, so it is the same
+                // sentence whether or not the door watch happens to be the one running.
+                facts?.driftVerdict?.let {
+                    lines += "เพดานเวลาที่เชื่อได้: " + PresentationTextCatalog.driftBudgetLine(it)
+                }
+            }
+            ProtectionProfile.POWER -> {
+                val facts = context.modeFacts as? PowerModeFacts
+                lines += powerThresholdLines(facts)
+                lines += witnessModelLine(facts)
+            }
+            // The vehicle watch keeps its two owner-visible numbers elsewhere: the
+            // sensitivity is printed above by watchScope, and the distance that counts as
+            // movement is decided per pair of fixes and has no value to print without them.
+            ProtectionProfile.VEHICLE -> lines += "โหมดนี้ไม่มีค่าปรับเทียบที่ต้องตั้งไว้ล่วงหน้า"
+            null -> Unit
+        }
+        return ModeSectionProjection(titleTh = "⚙️ ความพร้อมของโหมดนี้", lines = lines)
     }
 
     private fun chargingLine(snapshot: ProtectionSnapshot): String = when (snapshot.chargingState) {
@@ -417,9 +490,12 @@ object ModeStatusSections {
         ProtectionState.SETUP_REQUIRED -> "ต้องตั้งค่าก่อนจึงจะเฝ้าได้"
     }
 
+    /** Whether this state means a watch is actually running, decided in one place. */
+    fun isWatching(state: ProtectionState): Boolean =
+        state in ARMED_OR_ALERT || state == ProtectionState.ARMING
+
     fun armedDuration(snapshot: ProtectionSnapshot, nowWallClockMs: Long): String? {
-        val armed = snapshot.state in ARMED_OR_ALERT || snapshot.state == ProtectionState.ARMING
-        if (!armed) return null
+        if (!isWatching(snapshot.state)) return null
         val startMs = snapshot.protectionActivatedAtMs ?: return null
         if (startMs == 0L || startMs > nowWallClockMs) return null
         return formatDurationTh(nowWallClockMs - startMs)

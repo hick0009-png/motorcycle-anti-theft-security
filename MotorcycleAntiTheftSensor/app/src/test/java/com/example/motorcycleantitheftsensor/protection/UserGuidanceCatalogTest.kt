@@ -140,6 +140,8 @@ class UserGuidanceCatalogTest {
         assertEquals("ดูรายการคำสั่งใน Telegram", c_COMMAND_HELP.bodyTh)
         assertEquals(
             "ℹ️ คำสั่ง: /status รายงานตามโหมดที่เลือกไว้ (ตอบเฉพาะสิ่งที่โหมดนั้นเฝ้าจริง), " +
+                "/status <โหมด> ดูโหมดอื่นที่ตั้งไว้แต่ไม่ได้เฝ้าอยู่ " +
+                    "(/status รถ, /status ประตู, /status ไฟเลี้ยง), " +
                 "/where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
                 "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                 "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
