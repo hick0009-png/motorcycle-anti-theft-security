@@ -621,6 +621,13 @@ object ProtectionRuntimeGraph {
                     ),
                 )
             },
+            entryDriftVerdict = {
+                EntryDriftBudgetPolicy.verdict(
+                    measurement = driftMeasurementStore.load(),
+                    alertAngleDeg = entryAlertAngleDeg(profileRepository),
+                    currentSource = runtime.entryOrientationSource(),
+                )
+            },
             powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
             recoveredPowerIntegrityChallenge = {
                 val calibration = startupRecoveryState

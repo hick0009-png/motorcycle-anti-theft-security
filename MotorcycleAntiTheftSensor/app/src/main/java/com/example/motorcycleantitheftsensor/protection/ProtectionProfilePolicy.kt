@@ -159,7 +159,12 @@ class ProtectionProfilePolicy(
         return updateProfile(
             state,
             entry.copy(
-                entryHingeModel = model,
+                // Stamped here because this is the only layer with a clock: the geometry is
+                // computed by a pure state machine, and "when was this calibrated" is a
+                // question the owner asks of the status report months later.
+                entryHingeModel = model.copy(
+                    commissionedAtWallMs = model.commissionedAtWallMs ?: nowMs(),
+                ),
                 setupState = ProfileSetupState.READY,
             ),
         )
@@ -186,7 +191,9 @@ class ProtectionProfilePolicy(
         return updateProfile(
             state,
             power.copy(
-                powerWitnessModel = model,
+                powerWitnessModel = model.copy(
+                    commissionedAtWallMs = model.commissionedAtWallMs ?: nowMs(),
+                ),
                 setupState = ProfileSetupState.READY,
             ),
         )

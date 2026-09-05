@@ -3,6 +3,7 @@ package com.example.motorcycleantitheftsensor.protection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -26,6 +27,80 @@ class ArmedProfileSnapshotCodecTest {
         )
 
         assertEquals(armed, codec.decode(codec.encode(armed)))
+    }
+
+    @Test
+    fun entryWatchLevelSurvivesTheRoundTripAndAbsenceStaysAbsent() {
+        // The level decides which sensors detect at all. A session frozen at the
+        // sound-and-movement level that decoded as DOOR_ANGLE would have five sensor kinds
+        // counted against it after a restart, two of which it never registered.
+        val soundAndMovement = ArmedProfileSnapshot(
+            armedSessionId = "session-entry-level",
+            profile = ProtectionProfile.ENTRY,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, EntryProfileSettings()),
+            commissionedModelFingerprint = "model-fp-entry",
+            armedCalibrationSnapshot = EntryArmedCalibrationSnapshot(
+                generation = 3L,
+                modelFingerprint = "model-fp-entry",
+            ),
+            entryLevel = EntryWatchLevel.SOUND_AND_MOVEMENT,
+        )
+        assertEquals(soundAndMovement, codec.decode(codec.encode(soundAndMovement)))
+
+        val vehicle = ArmedProfileSnapshot(
+            armedSessionId = "session-vehicle-level",
+            profile = ProtectionProfile.VEHICLE,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, VehicleProfileSettings),
+            commissionedModelFingerprint = null,
+            armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 1L),
+        )
+        assertNull(codec.decode(codec.encode(vehicle)).entryLevel)
+    }
+
+    @Test
+    fun aSessionFrozenBeforeTheLevelExistedStillDecodes() {
+        // Field added inside schema version 1: the stored JSON of every already-armed
+        // phone has no "entryLevel" key, and refusing those would strand a live session.
+        val armed = ArmedProfileSnapshot(
+            armedSessionId = "session-legacy",
+            profile = ProtectionProfile.ENTRY,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, EntryProfileSettings()),
+            commissionedModelFingerprint = "model-fp-entry",
+            armedCalibrationSnapshot = EntryArmedCalibrationSnapshot(
+                generation = 3L,
+                modelFingerprint = "model-fp-entry",
+            ),
+        )
+        val encodedWithoutLevel = codec.encode(armed)
+        assertFalse(encodedWithoutLevel.contains("entryLevel"))
+        assertNull(codec.decode(encodedWithoutLevel).entryLevel)
+    }
+
+    @Test
+    fun anEntryLevelOnANonEntrySessionIsRefused() {
+        val armed = ArmedProfileSnapshot(
+            armedSessionId = "session-mismatch",
+            profile = ProtectionProfile.VEHICLE,
+            resolvedPresetVersion = 1,
+            effectiveConfiguration = vehicleConfig,
+            configurationFingerprint =
+                ConfigurationFingerprint.sha256(vehicleConfig, VehicleProfileSettings),
+            commissionedModelFingerprint = null,
+            armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 1L),
+            entryLevel = EntryWatchLevel.DOOR_ANGLE,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            codec.decode(codec.encode(armed))
+        }
     }
 
     @Test

@@ -383,6 +383,7 @@ class ProtectionProfileCodec(
             algorithmVersion = obj.getInt("algorithmVersion"),
             sensorIdentity = obj.getString("sensorIdentity"),
             hoodSignature = obj.getString("hoodSignature"),
+            commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
         )
     }
 
@@ -397,6 +398,7 @@ class ProtectionProfileCodec(
         obj.put("sensorIdentity", model.sensorIdentity)
         obj.put("mountSignature", model.mountSignature)
         obj.put("orientationSourcePolicy", model.orientationSourcePolicy)
+        model.commissionedAtWallMs?.let { obj.put("commissionedAtWallMs", it) }
         return obj
     }
 
@@ -436,6 +438,7 @@ class ProtectionProfileCodec(
             sensorIdentity = sensorIdentity,
             mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
+            commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
         )
     }
 

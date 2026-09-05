@@ -45,6 +45,13 @@ class ProtectionCoordinator(
     private val deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = {
         ProfileDeviceSupport.Supported
     },
+    /**
+     * What this phone measured about its own orientation drift, as the verdict rather
+     * than as the hours derived from it. The door watch's status has to state the same
+     * sentence the settings screen states, and a caller with no measurement layer keeps
+     * the honest default of having measured nothing.
+     */
+    private val entryDriftVerdict: () -> EntryDriftVerdict = { EntryDriftVerdict.NotMeasured },
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -72,7 +79,88 @@ class ProtectionCoordinator(
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
     val audioTelemetry: StateFlow<AudioTelemetry> = runtime.audioTelemetry
 
+    init {
+        // The report must be able to name the mode from the first moment, not only after
+        // the first command. A phone that boots into a status question has had no
+        // transition yet.
+        refreshModeContext()
+    }
+
     fun currentArmedSessionId(): String? = currentArmedSessionId.get()
+
+    /**
+     * Re-reads the durable profile state into [ProtectionSnapshot.modeContext].
+     *
+     * Called on every transition and after every path that can change the selection or a
+     * profile's settings. It is deliberately not on the five-second freshness tick: none
+     * of these facts change without an owner action, and re-decoding the store that often
+     * would spend battery to learn nothing.
+     */
+    fun refreshModeContext() {
+        val context = buildModeContext() ?: return
+        if (context == snapshot.value.modeContext) return
+        updateSnapshot { current -> current.copy(modeContext = context) }
+    }
+
+    /**
+     * @return null when there is nothing to say — no profile layer at all, or a store that
+     *   could not be read. Null leaves whatever the snapshot already carried: a failed read
+     *   is not evidence that the owner deselected their mode, and reporting it as such would
+     *   tell them nothing is being watched while it is.
+     */
+    private fun buildModeContext(): ProtectionModeContext? {
+        val repository = profileRepository ?: return null
+        return try {
+            val state = repository.load()
+            val selected = state.selectedProfile
+                ?: return ProtectionModeContext(
+                    selectedProfile = null,
+                    switchingTo = state.switchTransaction?.targetProfile,
+                )
+            val resolved = profilePolicy.resolve(state, selected)
+            val stored = state.profiles.getValue(selected)
+            val entrySettings = resolved.specificSettings as? EntryProfileSettings
+            ProtectionModeContext(
+                selectedProfile = selected,
+                entryLevel = entrySettings?.level,
+                setupState = resolved.setupState,
+                support = deviceSupport(selected),
+                switchingTo = state.switchTransaction?.targetProfile,
+                modeFacts = when (selected) {
+                    ProtectionProfile.VEHICLE -> VehicleModeFacts
+                    ProtectionProfile.ENTRY -> {
+                        val settings = entrySettings ?: EntryProfileSettings()
+                        val model = stored.entryHingeModel
+                        EntryModeFacts(
+                            angleThresholdDegrees = settings.angleThresholdDegrees,
+                            openConfirmationMs = settings.openConfirmationMs,
+                            closeThresholdDegrees = settings.closeThresholdDegrees,
+                            closeConfirmationMs = settings.closeConfirmationMs,
+                            hingeModelCommissioned = model != null,
+                            hingeOrientationSourceLabel = model?.orientationSourcePolicy,
+                            hingeCommissionedAtWallMs = model?.commissionedAtWallMs,
+                            driftVerdict = entryDriftVerdict(),
+                        )
+                    }
+                    ProtectionProfile.POWER -> {
+                        val settings = resolved.specificSettings as? PowerProfileSettings
+                            ?: PowerProfileSettings()
+                        val model = stored.powerWitnessModel
+                        PowerModeFacts(
+                            lossConfirmationMs = settings.lossConfirmationMs,
+                            recoveryConfirmationMs = settings.recoveryConfirmationMs,
+                            witnessCommissioned = model != null,
+                            witnessDarkThresholdLux = model?.witnessDarkThresholdLux,
+                            witnessLitThresholdLux = model?.witnessLitThresholdLux,
+                            witnessCommissionedAtWallMs = model?.commissionedAtWallMs,
+                        )
+                    }
+                },
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
 
 
     suspend fun arm(
@@ -331,6 +419,7 @@ class ProtectionCoordinator(
                     ),
                     commissionedModelFingerprint = modelFingerprint,
                     armedCalibrationSnapshot = calibrationSnapshot,
+                    entryLevel = entryLevel.takeIf { selectedProfile == ProtectionProfile.ENTRY },
                 )
                 // Persist the frozen snapshot with owner intent BEFORE detector start.
                 try {
@@ -502,8 +591,7 @@ class ProtectionCoordinator(
             val finalDegradations = armingDegradations +
                 unhealthySensorReasons(
                     health = health,
-                    usedSensorKinds = frozenSnapshotRef.get()?.profile
-                        ?.let(ProtectionProfilePolicy::usedSensorKinds)
+                    usedSensorKinds = frozenSnapshotRef.get()?.usedSensorKinds()
                         ?: SensorKind.entries.toSet(),
                 ) +
                 telegramDegradationReasons(snapshot.value) +
@@ -679,8 +767,10 @@ class ProtectionCoordinator(
             updateSnapshot { current ->
                 current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
             }
+            refreshModeContext()
             result(commandId, CommandOutcome.APPLIED, "Profile selected: $profile")
         } else {
+            refreshModeContext()
             result(commandId, CommandOutcome.APPLIED, "Profile saved for next Arm")
         }
     }
@@ -716,6 +806,7 @@ class ProtectionCoordinator(
             )
         }
         val resolved = profilePolicy.resolve(updateResult.getOrThrow(), selected)
+        refreshModeContext()
         if (!isArmedOrArming()) {
             runtime.applySensorConfiguration(resolved.sensorConfiguration)
             updateSnapshot { current ->
@@ -826,6 +917,7 @@ class ProtectionCoordinator(
         updateSnapshot { current ->
             current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
         }
+        refreshModeContext()
         result(commandId, CommandOutcome.APPLIED, "Profile switched to $targetProfile; arm to activate")
     }
 
@@ -1215,8 +1307,7 @@ class ProtectionCoordinator(
             val sensorDegradations = if (liveState in ARMED_STATES || liveState == ProtectionState.ARMING) {
                 unhealthySensorReasons(
                     health = evaluatedSensors,
-                    usedSensorKinds = current.armedProfileSnapshot?.profile
-                        ?.let(ProtectionProfilePolicy::usedSensorKinds)
+                    usedSensorKinds = current.armedProfileSnapshot?.usedSensorKinds()
                         ?: SensorKind.entries.toSet(),
                 )
             } else {
@@ -1282,6 +1373,7 @@ class ProtectionCoordinator(
                 sensorHealth = sensorHealth,
             )
         }
+        refreshModeContext()
     }
 
     private fun result(

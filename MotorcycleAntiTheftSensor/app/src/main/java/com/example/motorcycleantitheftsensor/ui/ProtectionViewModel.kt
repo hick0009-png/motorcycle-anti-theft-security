@@ -643,6 +643,10 @@ class ProtectionViewModel(
     }
 
     private suspend fun refreshProfile() {
+        // The commissioning flows write the profile store directly, so the coordinator
+        // would otherwise carry yesterday's calibration facts into /status until the next
+        // state transition happened to re-read them.
+        coordinator.refreshModeContext()
         val repository = profileRepository ?: return
         val state = try {
             withContext(dispatcher) { repository.load() }

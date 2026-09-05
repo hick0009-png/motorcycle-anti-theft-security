@@ -38,6 +38,13 @@ private data class ProjectionKey(
     val batteryTemperatureCelsius: Float?,
     val lastIncident: IncidentProjection?,
     val lastDeliveryState: DeliveryState?,
+    /**
+     * A mode change is a semantic change and must reach the owner at once: the report
+     * speaks for one mode, so a stale one is not merely late, it is about the wrong
+     * thing. Only durable facts live here — live angles and lux readings are read on
+     * demand precisely so that they cannot make every sensor sample look semantic.
+     */
+    val modeContext: ProtectionModeContext?,
 )
 
 private data class IncidentProjection(
@@ -66,4 +73,5 @@ private fun ProtectionSnapshot.projectionKey(): ProjectionKey = ProjectionKey(
         )
     },
     lastDeliveryState = lastDeliveryState,
+    modeContext = modeContext,
 )

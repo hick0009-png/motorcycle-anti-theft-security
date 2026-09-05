@@ -25,6 +25,15 @@ data class EntryHingeModel(
     val sensorIdentity: String,
     val mountSignature: String,
     val orientationSourcePolicy: String,
+    /**
+     * When this model was accepted, stamped by [ProtectionProfilePolicy.commissionEntry]
+     * rather than by the pure state machine that computes the geometry.
+     *
+     * Null for a model commissioned before it was recorded — the status report says so
+     * instead of inventing a date. Deliberately outside [fingerprint]: when the hinge was
+     * measured says nothing about whether the measurement still applies.
+     */
+    val commissionedAtWallMs: Long? = null,
 )
 
 /**

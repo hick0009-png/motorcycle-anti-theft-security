@@ -142,6 +142,16 @@ data class ArmedProfileSnapshot(
     val configurationFingerprint: String,
     val commissionedModelFingerprint: String?,
     val armedCalibrationSnapshot: ArmedCalibrationSnapshot,
+    /**
+     * The door watch level this session was armed at; null for every other use, and for
+     * a session frozen before this field existed.
+     *
+     * The level decides which sensors detect at all, and it lived only in a private
+     * field of the coordinator. Anything reading the frozen session back — a report, a
+     * degradation count after a process restart — had to assume `DOOR_ANGLE` and would
+     * count sensors the sound-and-movement level never registered.
+     */
+    val entryLevel: EntryWatchLevel? = null,
 )
 
 data class StoredProfileConfiguration(

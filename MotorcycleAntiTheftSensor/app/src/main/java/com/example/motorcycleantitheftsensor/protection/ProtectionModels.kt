@@ -244,6 +244,14 @@ data class ProtectionSnapshot(
     val armedProfileSnapshot: ArmedProfileSnapshot? = null,
     /** Why setup is required, when it is. Null outside SETUP_REQUIRED. */
     val setupBlocker: SetupBlocker? = null,
+    /**
+     * Which use is being watched, present whether or not anything is armed.
+     *
+     * Null means one thing only: nobody has filled it in — a customer from before modes
+     * existed, or a caller that constructs a snapshot without a profile repository.
+     * Readers must fall back to speaking for no mode at all rather than assuming one.
+     */
+    val modeContext: ProtectionModeContext? = null,
 ) {
     companion object {
         fun offline(nowMs: Long): ProtectionSnapshot = ProtectionSnapshot(
