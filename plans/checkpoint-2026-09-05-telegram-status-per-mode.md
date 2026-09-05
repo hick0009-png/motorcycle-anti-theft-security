@@ -1,14 +1,15 @@
-# Checkpoint — `/status` ต่อโหมด: **ลงมือครบ S1-S9 แล้ว** + แจ้งเตือนรู้จักโหมด (2026-09-05)
+# Checkpoint — `/status` ต่อโหมด: **ลงมือครบ S1-S9 แล้ว** + ทุกช่องทางรู้จักโหมด (2026-09-05)
 
 **สเปกเต็ม:** [telegram-status-per-mode-design-2026-09-05.md](telegram-status-per-mode-design-2026-09-05.md)
 **สถานะโค้ด:** เขียนครบทั้ง S1-S9 · เจ้าของเคาะข้อค้างครบแล้ว · เทสต์เขียวทั้งหมด
-**ต่อยอดแล้ว:** `ProtectionStateTelegramNotifier` รู้จักโหมดแล้ว (นอกสเปก ทำหลังปิด S9)
+**ต่อยอดแล้ว:** ทั้งสามช่องทางที่คุยกับเจ้าของทาง Telegram รู้จักโหมดครบแล้ว (นอกสเปก ทำหลังปิด S9)
+— `/status` (S1-S9) · แจ้งเตือนตอนเปลี่ยนสถานะ (`376ae0d`) · heartbeat ทุก 15 นาที (`3c21e4e`)
 
 | | |
 |---|---|
 | worktree | `D:\security` (checkout หลัก ไม่ได้ใช้ worktree ย่อยรอบนี้) |
 | branch | `feature/motorcycle-guard-protection` |
-| head | `376ae0d` |
+| head | `3c21e4e` |
 | working tree | สะอาด ไม่มีไฟล์ค้าง |
 | remote | ยังไม่มี — push ไม่ได้จนกว่าเจ้าของจะตั้ง |
 
@@ -16,19 +17,17 @@
 
 ## 0. กลับมาแล้วเริ่มตรงไหน
 
-**งาน `/status` ต่อโหมดจบแล้วทั้งก้อน และแจ้งเตือนตอนเปลี่ยนสถานะรู้จักโหมดแล้วด้วย
-ไม่มีอะไรค้างกลางทาง** ไม่ต้องอ่านทั้งไฟล์นี้
-ถ้าจะทำงานถัดไป เลือกจาก §6 ได้เลย เรียงตามที่ผมคิดว่าคุ้มที่สุด:
+**ทั้งสามช่องทางที่คุยกับเจ้าของทาง Telegram รู้จักโหมดครบแล้ว ไม่มีอะไรค้างกลางทาง**
+ไม่ต้องอ่านทั้งไฟล์นี้ ถ้าจะทำงานถัดไป เลือกจาก §6 ได้เลย เรียงตามที่ผมคิดว่าคุ้มที่สุด:
 
-1. **ทดสอบ S6/S9 บนเครื่องจริง** — เป็นหนี้ก้อนเดียวที่เป็นความเสี่ยงจริง
+1. **ทดสอบบนเครื่องจริง** — เป็นหนี้ก้อนเดียวที่เป็นความเสี่ยงจริง
    ทุกอย่างผ่านเทสต์ระดับ host แต่ยังไม่เคยเห็นค่าจากเซ็นเซอร์จริงสักครั้ง
    วิธี: อาร์มโหมดประตู (ระดับมุม) แล้วสั่ง `/status` ดูว่าบรรทัด `มุมขณะนี้:` มีเลขจริงไหม
    จากนั้นโหมดไฟเลี้ยง ดู `ค่าที่วัดได้ขณะนี้:` กับ `กำลังนับถอยหลัง:`
+   รอบนี้ดูข้อความอาร์ม/ปลดอาร์ม กับ heartbeat นัดถัดไปด้วย ว่าบรรทัดโหมดมาจริงไหม
 2. **ตัวกรองอาการอุ่นเครื่องในตัวแจ้งเตือน ยังพูดแทนทุกโหมด** — เจ้าของต้องเคาะก่อน
    ดู §9 มันให้ `✅ ทำงานปกติ` ทั้งที่ไมค์ตายในโหมดที่ตรวจจับไม่ได้ถ้าไม่มีไมค์
-3. **ข้อความ heartbeat ทุก 15 นาที** — อาการเดียวกับที่ `/status` กับตัวแจ้งเตือนแก้ไปแล้ว
-   (`HeartbeatPinger.kt:104-108`) ตอนนี้มี `PresentationTextCatalog.modeLabel()` ให้ใช้แล้ว
-   จึงเป็นงานเล็ก
+3. **`/status <โหมด>` กับ inline keyboard** — ยังไม่ทำตาม §12 ของสเปก ไม่ใช่หนี้ เป็นของใหม่
 
 ก่อนแตะอะไร รันเกตหนึ่งรอบให้เห็นเขียวก่อน (§7)
 
@@ -47,15 +46,17 @@
 | `8766919` | — | อัปเดตเช็คพอยต์นี้ |
 | `8a0bd2b` | — | ทำให้เช็คพอยต์กลับมาทำงานต่อได้โดยไม่ต้องอ่านทั้งไฟล์ |
 | `376ae0d` | นอกสเปก | แจ้งเตือนตอนเปลี่ยนสถานะบอกโหมด · คำของโหมดย้ายเข้า catalog |
+| `0939bc7` | — | อัปเดตเช็คพอยต์ + §9 |
+| `3c21e4e` | นอกสเปก | heartbeat ทุก 15 นาทีบอกโหมด · แยก `modeName` ออกจาก `modeLabel` |
 
 ## 2. การตรวจสอบ
 
 ```
 gradlew --offline --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndroidTestKotlin
-→ BUILD SUCCESSFUL · 1,265 tests · 0 failed · 0 skipped
+→ BUILD SUCCESSFUL · 1,270 tests · 0 failed · 0 skipped
 ```
 
-รันครั้งสุดท้ายที่ head `376ae0d` · ไม่มีเทสต์ตัวไหนถูกลบ ปิด หรือ `@Ignore`
+รันครั้งสุดท้ายที่ head `3c21e4e` · ไม่มีเทสต์ตัวไหนถูกลบ ปิด หรือ `@Ignore`
 
 เทสต์ใหม่ของ S1-S9 25 ข้อ:
 `ProtectionStatusModeReportTest` (15) · `EntryDriftCeilingWarningPolicyTest` (8) ·
@@ -64,10 +65,17 @@ gradlew --offline --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndr
 
 ครบทั้ง 15 ข้อของ §11 ในสเปก
 
-เทสต์ใหม่ของงานแจ้งเตือน 8 ข้อ ทั้งหมดใน `ProtectionStateTelegramNotifierTest`
-ตัวที่กันปัญหาไม่ให้กลับมาคือ `everyModeWordComesFromTheCatalog` (เทียบทุกโหมด×ทุกระดับ
-กับ `PresentationTextCatalog` โดยตรง) · เทสต์เดิม `generatesExpectedMessagesForStateTransitions`
-ไม่ถูกแตะเลยแม้แต่บรรทัดเดียว มันคือหลักฐานว่าลูกค้าที่ยังไม่เคยเลือกโหมดได้ข้อความเดิมทุกตัวอักษร
+เทสต์ใหม่ของงานแจ้งเตือน 8 ข้อ ใน `ProtectionStateTelegramNotifierTest`
+เทสต์ใหม่ของงาน heartbeat 5 ข้อ ใน `HeartbeatModeLineTest`
+
+ตัวที่กันปัญหาไม่ให้กลับมาคือคู่ `everyModeWordComesFromTheCatalog` และ
+`everyModeLineComesFromTheCatalog` — เทียบทุกโหมด×ทุกระดับกับ `PresentationTextCatalog`
+โดยตรง ทั้งสองคลาสจึงงอกตารางโหมดของตัวเองขึ้นมาไม่ได้
+
+เทสต์เดิมสองตัวไม่ถูกแตะเลยแม้แต่บรรทัดเดียว และทั้งคู่คือหลักฐานว่าของเดิมไม่เปลี่ยน:
+`generatesExpectedMessagesForStateTransitions` (ลูกค้าที่ไม่เคยเลือกโหมดได้ข้อความเดิมทุกตัวอักษร)
+และ `heartbeatSendsProfessionalBilingualArmedStatus` (บิลด์ที่ไม่มี snapshot supplier
+ส่ง heartbeat เดิมทุกไบต์)
 
 ---
 
@@ -122,20 +130,26 @@ ProtectionStatusProjection.evaluate(snapshot, wall, elapsed, live)
 `ProtectionProfilePolicy.signalRoles()` โดยตรง เทสต์
 `sensorRolesInStatusMatchProtectionProfilePolicy` เทียบผลลัพธ์กับ policy ทุกโหมด×ทุกระดับ
 
-ตัวแจ้งเตือนตอนเปลี่ยนสถานะ (คอมมิต `376ae0d`) ต่อเข้าโครงเดียวกัน:
+ช่องทางที่เหลืออีกสองทาง (คอมมิต `376ae0d`, `3c21e4e`) ต่อเข้าโครงเดียวกัน:
 
 ```
 PresentationTextCatalog                          ← คำของโหมดอยู่ที่เดียว
   ├ profilePromise(profile, entryLevel)          ← โหมดนี้สัญญาว่าจะจับอะไร
   ├ entryLevelLabel(level)                       ← ระดับการเฝ้าของโหมดประตู
-  └ modeLabel(profile, entryLevel)               ← "โหมดประตูและทางเข้า · มุมประตู (วัดองศาได้)"
-       ▲                                    ▲
-       │                                    │
-  ModeStatusSections (/status)     ProtectionStateTelegramNotifier (แจ้งตอนเปลี่ยนสถานะ)
+  ├ modeName(profile, entryLevel)                ← "ประตูและทางเข้า · มุมประตู (วัดองศาได้)"
+  └ modeLabel(profile, entryLevel)               ← "โหมด" + modeName()
+       ▲                    ▲                     ▲
+       │                    │                     │
+  ModeStatusSections   ProtectionState        HeartbeatPinger
+  (/status)            TelegramNotifier       (ทุก 15 นาที)
+                       (เปลี่ยนสถานะ)
 ```
 
+`modeLabel` ใช้กับบรรทัดที่ยังไม่มีคำว่า "โหมด" อยู่ · `modeName` ใช้กับบรรทัดที่มีแล้ว
+(`โหมด: ประตูและทางเข้า …` ของ heartbeat) ทั้งสองมาจากตัวเดียวกันจึงเพี้ยนจากกันไม่ได้
+
 ประโยคสัญญาของโหมดประตูระดับ `SOUND_AND_MOVEMENT` เคยฝังอยู่ใน `watchScope()`
-ย้ายเข้า catalog แล้ว ทั้งสองที่จึงอ่านจากตัวเดียวกัน — สองหน้าจอที่ตอบคำถามเดียวของเจ้าของ
+ย้ายเข้า catalog แล้ว ทุกที่จึงอ่านจากตัวเดียวกัน — หน้าจอที่ตอบคำถามเดียวของเจ้าของ
 จากตารางคนละใบ คือสิ่งที่ทำให้เกิดรายงานที่สั่งให้ไปแก้ GPS ในโหมดที่ปิด GPS
 
 ---
@@ -166,6 +180,16 @@ PresentationTextCatalog                          ← คำของโหมด
   และไม่เคยเลือกสักครั้ง การเดาโหมดจากเซ็นเซอร์ที่บังเอิญทำงานอยู่ แล้วเอาไปใส่บรรทัดที่บอกว่า
   กำลังปกป้องอะไร แย่กว่าการเงียบที่มันไปแทน · `noSelectedProfileKeepsTheOldMessagesWordForWord`
   ตรึงข้อนี้ไว้ทั้ง `null` และ `ProtectionModeContext(selectedProfile = null)`
+- **`HeartbeatPinger` มี `snapshotSupplier` อยู่แล้วตั้งแต่ S9** (`SensorService.kt:190`
+  ส่ง `graph.coordinator.snapshot.value`) บรรทัดโหมดจึงไม่ต้องเดินสายใหม่ · บิลด์ที่ไม่มี
+  supplier (เทสต์เก่า, บิลด์ไม่มี coordinator) ไม่ได้บรรทัดนี้เลย ข้อความจึงเท่าเดิมทุกไบต์
+- **บรรทัด `การป้องกัน:` ของ heartbeat ยังอ่าน `prefsManager.isSystemArmed()` ไม่ใช่ snapshot**
+  ตั้งใจไว้อย่างนั้น — แฟล็กนั้นถูกเขียนจากชุดสถานะเดียวกับที่บรรทัดนี้หมายถึงพอดี
+  (`ProtectionRuntimeGraph.kt:121-128` `writeCompatibilityArmed`) การไปอ่าน `snapshot.state`
+  ตรง ๆ แปลว่าต้องคัดลอกชุดสถานะนั้นเป็นใบที่ห้า ในโค้ดเบสที่มีอยู่แล้วสี่ใบ
+  (`ProtectionCoordinator.ARMED_STATES` · `BlackBoxRecorder.ARMED_STATES` ·
+  ชุด inline ที่ `ProtectionRuntimeGraph.kt:131-136` · `ModeStatusSections.ARMED_OR_ALERT`
+  — ทั้งสี่ต่างกันจริงเพราะตอบคนละคำถาม)
 
 ## 6. หนี้ที่เหลือ
 
@@ -173,14 +197,16 @@ PresentationTextCatalog                          ← คำของโหมด
   `liveConfirmationCountdownMs` และข้อความเตือนเกินเพดาน ผ่านเทสต์ระดับ host แต่ยังไม่เคย
   เห็นค่าจริงจากเซ็นเซอร์ · S9 ต้องรอเครื่องที่วัด drift แล้วได้ verdict `Limited`
   แล้วอาร์มข้ามเพดาน จึงจะเห็นข้อความจริง
+  · บรรทัดโหมดในข้อความเปลี่ยนสถานะกับ heartbeat ก็ยังไม่เคยเห็นบนเครื่องจริงเหมือนกัน
+- **`EncryptedPrefsManager.setSystemArmed()` ไม่มีใครเรียกเลย** (`:201`) โค้ดตาย
+  ตัวที่ใช้จริงคือ `commitSystemArmed()` ซึ่ง `ProtectionRuntimeGraph` เรียกแบบ blocking
+  เพราะต้องรู้ว่าเขียนสำเร็จไหม · ลบทิ้งได้ แต่ไม่ใช่ตอนนี้
 - **โหมดประตูระดับมุมแสดง 6 แถวบนตัวหาร 5** — แถว `ทิศทาง/มุม` เป็นแถวแสดงผลเพิ่ม
   ใช้ health ตัวเดียวกับ `การสั่น` ตั้งใจตาม §6 แต่เจ้าของอาจสะดุดตา
 - **ตัวกรองอาการอุ่นเครื่องยังพูดแทนทุกโหมด** — ดู §9 เจ้าของต้องเคาะก่อนถึงจะแก้ได้
-- **ยังไม่ทำ (ตาม §12):** `/status <โหมด>` · inline keyboard ·
-  ข้อความ heartbeat ทุก 15 นาทียังพูดกลาง ๆ ว่า Armed/Disarmed
-  (`HeartbeatPinger.kt:104-108` — S9 ยืมแค่จังหวะของมัน ไม่ได้แก้ข้อความ)
-  ตอนนี้มี `PresentationTextCatalog.modeLabel()` ให้ใช้แล้ว จึงเป็นงานเล็กกว่ารอบที่แล้วมาก
+- **ยังไม่ทำ (ตาม §12):** `/status <โหมด>` · inline keyboard
 - ~~`ProtectionStateTelegramNotifier` ยังไม่รู้จักโหมด~~ — ทำแล้วที่ `376ae0d`
+- ~~ข้อความ heartbeat ทุก 15 นาทียังพูดกลาง ๆ ว่า Armed/Disarmed~~ — ทำแล้วที่ `3c21e4e`
 
 ## 7. คำสั่ง resume
 
