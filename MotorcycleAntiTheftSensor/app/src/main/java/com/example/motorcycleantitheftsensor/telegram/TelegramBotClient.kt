@@ -191,7 +191,12 @@ class TelegramBotClient(
 
                     val message = update.optJSONObject("message")
                     if (message == null) {
-                        commitUpdateId(updateId)
+                        val callback = update.optJSONObject("callback_query")
+                        if (callback == null) {
+                            commitUpdateId(updateId)
+                        } else {
+                            handleCallbackQuery(callback, updateId)
+                        }
                         continue
                     }
                     val chatId = message.getJSONObject("chat").getLong("id").toString()
@@ -230,6 +235,65 @@ class TelegramBotClient(
         } finally {
             if (activePollCall === call) activePollCall = null
         }
+    }
+
+    /**
+     * A tapped button.
+     *
+     * Authorized exactly as a typed command is, by the chat the message sits in and by
+     * nothing else. Checking the tapping account as well would read as safer and would
+     * break every installation paired to a group, where the allowed id is the group's and
+     * never a person's — and it would buy nothing, because anyone who can tap a button in
+     * that chat can already type the command it stands for.
+     */
+    private fun handleCallbackQuery(callback: org.json.JSONObject, updateId: Long) {
+        val queryId = callback.optString("id", "")
+        val chatId = callback.optJSONObject("message")
+            ?.optJSONObject("chat")
+            ?.opt("id")
+            ?.toString()
+        if (chatId.isNullOrBlank()) {
+            acknowledge(queryId, null)
+            commitUpdateId(updateId)
+            return
+        }
+
+        val allowed = prefsManager.getAllowedChatIds().isNotEmpty() &&
+            prefsManager.isChatIdAllowed(chatId)
+        if (!allowed) {
+            // Answered rather than replied to: a refusal posted into the chat is a message
+            // the owner never asked for, and this is the same probe the typed path records.
+            breadcrumb(BreadcrumbEvent.DENIED, emptyList())
+            acknowledge(
+                queryId,
+                com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                    com.example.motorcycleantitheftsensor.protection.GuidanceCode.UNAUTHORIZED_COMMAND,
+                ).telegramTh,
+            )
+            commitUpdateId(updateId)
+            return
+        }
+
+        val action = InlineAction.fromData(callback.optString("data", ""))
+        if (action == null) {
+            // A button from a build that knew a token this one does not. Silence beats a
+            // guess: the owner tapped something specific and would not recognise the answer
+            // to a different question.
+            acknowledge(queryId, null)
+            commitUpdateId(updateId)
+            return
+        }
+
+        // Before the work, not after: the report can take a moment to build, and a spinner
+        // still turning is what makes an owner tap again.
+        acknowledge(queryId, null)
+        handleAuthorizedCommand(chatId, "telegram-callback-$updateId", action.toCommand(), updateId)
+    }
+
+    private fun acknowledge(queryId: String, text: String?) {
+        if (queryId.isBlank()) return
+        val botToken = prefsManager.getBotToken() ?: return
+        answerTelegramCallbackQueryToApi(httpClient, botToken, queryId, text)
     }
 
     private fun commitUpdateId(updateId: Long) {
@@ -346,10 +410,11 @@ class TelegramBotClient(
 
     private suspend fun execute(queued: QueuedCommand) {
         try {
+            val keyboard = keyboardFor(queued.command)
             commandHandler?.handle(
                 commandId = queued.commandId,
                 command = queued.command,
-                reply = { message -> sendTelegramMessageSync(queued.chatId, message) },
+                reply = { message -> sendTelegramMessageSync(queued.chatId, message, keyboard) },
             )
             val sensitivity = (queued.command as? RemoteCommand.Sensitivity)?.level
             if (sensitivity?.let { it in 1..10 } == true) prefsManager.setSensitivity(sensitivity)
@@ -360,6 +425,20 @@ class TelegramBotClient(
             if (error is kotlinx.coroutines.CancellationException) throw error
             Log.w(TRANSPORT_TAG, "Telegram command execution failed")
         }
+    }
+
+    /**
+     * The buttons that belong under this command's reply, or null for a reply that is not a
+     * place to navigate from.
+     *
+     * Only the status reports carry them. `/where` answers in two messages and would grow
+     * two keyboards; arm and disarm end in a state change the owner just asked for, and a
+     * row of buttons under it invites a second tap on a page that has already moved on.
+     */
+    private fun keyboardFor(command: RemoteCommand): String? = when (command) {
+        RemoteCommand.Status -> TelegramInlineKeyboards.statusMenu()
+        is RemoteCommand.StatusForMode -> TelegramInlineKeyboards.statusMenu()
+        else -> null
     }
 
     fun sendTelegramMessage(chatId: String, textMarkdown: String) {
@@ -384,7 +463,11 @@ class TelegramBotClient(
         } ?: false
     }
 
-    private fun sendTelegramMessageSync(chatId: String, textMarkdown: String): Boolean {
+    private fun sendTelegramMessageSync(
+        chatId: String,
+        textMarkdown: String,
+        replyMarkup: String? = null,
+    ): Boolean {
         val nowMs = System.currentTimeMillis()
         if (isDuplicateMessage(chatId, textMarkdown, nowMs)) {
             return true
@@ -397,11 +480,18 @@ class TelegramBotClient(
             return false
         }
         var status: Int? = null
-        val sent = sendTelegramMessageToApi(httpClient, botToken, chatId, textMarkdown) { code ->
-            // The worst status of the parts wins: a message split into chunks has not been
-            // delivered if any chunk was refused.
-            if (status == null) status = code
-        }
+        val sent = sendTelegramMessageToApi(
+            httpClient = httpClient,
+            botToken = botToken,
+            chatId = chatId,
+            text = textMarkdown,
+            onFailure = { code ->
+                // The worst status of the parts wins: a message split into chunks has not
+                // been delivered if any chunk was refused.
+                if (status == null) status = code
+            },
+            replyMarkup = replyMarkup,
+        )
         val tookMs = System.currentTimeMillis() - nowMs
         if (sent) {
             recordSentMessage(chatId, textMarkdown, nowMs)
@@ -526,16 +616,52 @@ internal fun sendTelegramMessageToApi(
      * the chat it was about, and that must not be within reach of the file.
      */
     onFailure: (Int?) -> Unit = {},
+    /** Attached to the last part only: a long report split in three must not grow three keyboards. */
+    replyMarkup: String? = null,
 ): Boolean {
     val messages = splitTelegramMessage(text)
     var allSuccess = true
-    for (msg in messages) {
-        val sent = sendSingleTelegramMessageToApi(httpClient, botToken, chatId, msg, onFailure)
+    for ((index, msg) in messages.withIndex()) {
+        val markup = replyMarkup.takeIf { index == messages.lastIndex }
+        val sent = sendSingleTelegramMessageToApi(httpClient, botToken, chatId, msg, onFailure, markup)
         if (!sent) {
             allSuccess = false
         }
     }
     return allSuccess
+}
+
+/**
+ * Stops the spinner Telegram shows on a tapped button.
+ *
+ * Unanswered, the button stays visibly busy for about half a minute and the owner taps it
+ * again. [text] shows a transient banner and is used only to refuse — an accepted tap is
+ * answered silently, because its real answer is the report that follows.
+ */
+internal fun answerTelegramCallbackQueryToApi(
+    httpClient: okhttp3.OkHttpClient,
+    botToken: String,
+    callbackQueryId: String,
+    text: String? = null,
+): Boolean = try {
+    val cleanToken = normalizeTelegramBotToken(botToken)
+    val url = "https://api.telegram.org/bot$cleanToken/answerCallbackQuery"
+    val json = org.json.JSONObject().put("callback_query_id", callbackQueryId)
+    if (text != null) {
+        json.put("text", text)
+        json.put("show_alert", true)
+    }
+    val body = okhttp3.RequestBody.create(
+        "application/json; charset=utf-8".toMediaType(),
+        json.toString(),
+    )
+    val request = okhttp3.Request.Builder().url(url).post(body).build()
+    httpClient.newCall(request).execute().use { response -> response.isSuccessful }
+} catch (_: Exception) {
+    // Nothing to recover: the tap is still executed, the owner just sees a spinner for a
+    // while. Failing the command because its acknowledgement failed would be worse.
+    Log.w(TRANSPORT_TAG, "Telegram callback acknowledgement failed")
+    false
 }
 
 private fun sendSingleTelegramMessageToApi(
@@ -544,6 +670,7 @@ private fun sendSingleTelegramMessageToApi(
     chatId: String,
     text: String,
     onFailure: (Int?) -> Unit = {},
+    replyMarkup: String? = null,
 ): Boolean {
     return try {
         val cleanToken = normalizeTelegramBotToken(botToken)
@@ -551,6 +678,11 @@ private fun sendSingleTelegramMessageToApi(
         val json = org.json.JSONObject()
         json.put("chat_id", chatId)
         json.put("text", text)
+        // Malformed markup must cost the message nothing: the text is what the owner needs,
+        // the buttons are a convenience, so a keyboard that will not parse is dropped.
+        if (replyMarkup != null) {
+            runCatching { json.put("reply_markup", org.json.JSONObject(replyMarkup)) }
+        }
 
         val body = okhttp3.RequestBody.create(
             "application/json; charset=utf-8".toMediaType(),

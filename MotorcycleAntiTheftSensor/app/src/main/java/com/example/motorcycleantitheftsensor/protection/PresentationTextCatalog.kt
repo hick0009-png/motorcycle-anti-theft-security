@@ -113,6 +113,23 @@ object PresentationTextCatalog {
     }
 
     /**
+     * The mode on a tappable button: an icon to find it by, and the same short word the
+     * owner would have typed.
+     *
+     * Deliberately the word from [modeWord] rather than the full name — a row of three
+     * buttons carrying "ไฟเลี้ยงจุดติดตั้ง" wraps into unreadable stacks on a phone — and
+     * deliberately the same word, so that tapping and typing are visibly one command.
+     */
+    fun modeButtonLabel(profile: ProtectionProfile): String =
+        MODE_ICONS.getValue(profile) + " " + modeWord(profile)
+
+    private val MODE_ICONS: Map<ProtectionProfile, String> = mapOf(
+        ProtectionProfile.VEHICLE to "🚗",
+        ProtectionProfile.ENTRY to "🚪",
+        ProtectionProfile.POWER to "💡",
+    )
+
+    /**
      * Why a profile locks the sensors it does not use, in the owner's words.
      *
      * [SensorLockPresentation.notice] heads the advanced sensor card; [reason] repeats
