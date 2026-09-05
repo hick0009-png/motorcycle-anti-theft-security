@@ -4,12 +4,13 @@
 **สถานะโค้ด:** เขียนครบทั้ง S1-S9 · เจ้าของเคาะข้อค้างครบแล้ว · เทสต์เขียวทั้งหมด
 **ต่อยอดแล้ว:** ทั้งสามช่องทางที่คุยกับเจ้าของทาง Telegram รู้จักโหมดครบแล้ว (นอกสเปก ทำหลังปิด S9)
 — `/status` (S1-S9) · แจ้งเตือนตอนเปลี่ยนสถานะ (`376ae0d`) · heartbeat ทุก 15 นาที (`3c21e4e`)
+**และ** `/status <โหมด>` ถามโหมดที่ไม่ได้เฝ้าอยู่ (`94e5e7c`) — §12 ข้อแรกของสเปก ทำแล้ว
 
 | | |
 |---|---|
 | worktree | `D:\security` (checkout หลัก ไม่ได้ใช้ worktree ย่อยรอบนี้) |
 | branch | `feature/motorcycle-guard-protection` |
-| head | `595ab6e` |
+| head | `94e5e7c` |
 | working tree | สะอาด ไม่มีไฟล์ค้าง |
 | remote | ยังไม่มี — push ไม่ได้จนกว่าเจ้าของจะตั้ง |
 
@@ -17,15 +18,17 @@
 
 ## 0. กลับมาแล้วเริ่มตรงไหน
 
-**ทั้งสามช่องทางที่คุยกับเจ้าของทาง Telegram รู้จักโหมดครบแล้ว ไม่มีอะไรค้างกลางทาง**
-ไม่ต้องอ่านทั้งไฟล์นี้ ถ้าจะทำงานถัดไป เลือกจาก §6 ได้เลย เรียงตามที่ผมคิดว่าคุ้มที่สุด:
+**ทั้งสามช่องทางที่คุยกับเจ้าของทาง Telegram รู้จักโหมดครบแล้ว และถามโหมดที่ไม่ได้เฝ้าอยู่ได้แล้ว
+ไม่มีอะไรค้างกลางทาง** ไม่ต้องอ่านทั้งไฟล์นี้
+ถ้าจะทำงานถัดไป เลือกจาก §6 ได้เลย เรียงตามที่ผมคิดว่าคุ้มที่สุด:
 
 1. **ทดสอบบนเครื่องจริง** — เป็นหนี้ก้อนเดียวที่เป็นความเสี่ยงจริง
    ทุกอย่างผ่านเทสต์ระดับ host แต่ยังไม่เคยเห็นค่าจากเซ็นเซอร์จริงสักครั้ง
    วิธี: อาร์มโหมดประตู (ระดับมุม) แล้วสั่ง `/status` ดูว่าบรรทัด `มุมขณะนี้:` มีเลขจริงไหม
    จากนั้นโหมดไฟเลี้ยง ดู `ค่าที่วัดได้ขณะนี้:` กับ `กำลังนับถอยหลัง:`
    รอบนี้ดูข้อความอาร์ม/ปลดอาร์ม กับ heartbeat นัดถัดไปด้วย ว่าบรรทัดโหมดมาจริงไหม
-2. **`/status <โหมด>` กับ inline keyboard** — ยังไม่ทำตาม §12 ของสเปก ไม่ใช่หนี้ เป็นของใหม่
+   แล้วลอง `/status ประตู` ตอนที่อาร์มโหมดยานพาหนะอยู่ ดูว่าตอบเรื่องประตูจริงไม่ใช่เรื่องรถ
+2. **inline keyboard** — §12 ข้อเดียวที่ยังไม่ได้ทำ ไม่ใช่หนี้ เป็นของใหม่
 
 ก่อนแตะอะไร รันเกตหนึ่งรอบให้เห็นเขียวก่อน (§7)
 
@@ -48,15 +51,17 @@
 | `3c21e4e` | นอกสเปก | heartbeat ทุก 15 นาทีบอกโหมด · แยก `modeName` ออกจาก `modeLabel` |
 | `9e8d28e` | — | อัปเดตเช็คพอยต์ |
 | `595ab6e` | นอกสเปก | ลบตัวกรองอาการอุ่นเครื่อง ทุกเหตุผลถึงเจ้าของ (§9) |
+| `b4a124f` | — | เขียน §9 ใหม่ |
+| `94e5e7c` | §12 ข้อ 1 | `/status <โหมด>` · `/help` · คู่มือ + PDF ใหม่ |
 
 ## 2. การตรวจสอบ
 
 ```
 gradlew --offline --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndroidTestKotlin
-→ BUILD SUCCESSFUL · 1,272 tests · 0 failed · 0 skipped
+→ BUILD SUCCESSFUL · 1,283 tests · 0 failed · 0 skipped
 ```
 
-รันครั้งสุดท้ายที่ head `595ab6e` · ไม่มีเทสต์ตัวไหนถูกลบ ปิด หรือ `@Ignore`
+รันครั้งสุดท้ายที่ head `94e5e7c` · ไม่มีเทสต์ตัวไหนถูกลบ ปิด หรือ `@Ignore`
 
 เทสต์ใหม่ของ S1-S9 25 ข้อ:
 `ProtectionStatusModeReportTest` (15) · `EntryDriftCeilingWarningPolicyTest` (8) ·
@@ -67,6 +72,7 @@ gradlew --offline --no-daemon --max-workers=1 testDebugUnitTest compileDebugAndr
 
 เทสต์ใหม่ของงานแจ้งเตือน 10 ข้อ ใน `ProtectionStateTelegramNotifierTest`
 เทสต์ใหม่ของงาน heartbeat 5 ข้อ ใน `HeartbeatModeLineTest`
+เทสต์ใหม่ของ `/status <โหมด>` 11 ข้อ ใน `StatusForModeTest` (9) และ `RemoteCommandTest` (2)
 
 ตัวที่กันปัญหาไม่ให้กลับมาคือคู่ `everyModeWordComesFromTheCatalog` และ
 `everyModeLineComesFromTheCatalog` — เทียบทุกโหมด×ทุกระดับกับ `PresentationTextCatalog`
@@ -137,13 +143,18 @@ PresentationTextCatalog                          ← คำของโหมด
   ├ profilePromise(profile, entryLevel)          ← โหมดนี้สัญญาว่าจะจับอะไร
   ├ entryLevelLabel(level)                       ← ระดับการเฝ้าของโหมดประตู
   ├ modeName(profile, entryLevel)                ← "ประตูและทางเข้า · มุมประตู (วัดองศาได้)"
-  └ modeLabel(profile, entryLevel)               ← "โหมด" + modeName()
-       ▲                    ▲                     ▲
-       │                    │                     │
-  ModeStatusSections   ProtectionState        HeartbeatPinger
-  (/status)            TelegramNotifier       (ทุก 15 นาที)
-                       (เปลี่ยนสถานะ)
+  ├ modeLabel(profile, entryLevel)               ← "โหมด" + modeName()
+  ├ MODE_SHORT_WORDS + profileFromOwnerWord()    ← คำที่เจ้าของพิมพ์ → โหมด
+  └ modeWord() / modeWordMenu() / modeWordExamples()
+       ▲                ▲                ▲                ▲
+       │                │                │                │
+  ModeStatusSections  ProtectionState  HeartbeatPinger  RemoteCommand.parse
+  (/status)           TelegramNotifier (ทุก 15 นาที)    + /help + คำตอบตอนพิมพ์ผิด
+                      (เปลี่ยนสถานะ)
 ```
+
+ตารางคำที่ใช้พิมพ์กับตารางคำที่เอาไปโชว์เป็นใบเดียวกัน `everyWordOfferedByHelpIsAWordTheParserAccepts`
+ตรึงไว้ว่าคำที่ `/help` เสนอ ต้องเป็นคำที่ parser รับจริงทุกคำ
 
 `modeLabel` ใช้กับบรรทัดที่ยังไม่มีคำว่า "โหมด" อยู่ · `modeName` ใช้กับบรรทัดที่มีแล้ว
 (`โหมด: ประตูและทางเข้า …` ของ heartbeat) ทั้งสองมาจากตัวเดียวกันจึงเพี้ยนจากกันไม่ได้
@@ -183,6 +194,23 @@ PresentationTextCatalog                          ← คำของโหมด
 - **`HeartbeatPinger` มี `snapshotSupplier` อยู่แล้วตั้งแต่ S9** (`SensorService.kt:190`
   ส่ง `graph.coordinator.snapshot.value`) บรรทัดโหมดจึงไม่ต้องเดินสายใหม่ · บิลด์ที่ไม่มี
   supplier (เทสต์เก่า, บิลด์ไม่มี coordinator) ไม่ได้บรรทัดนี้เลย ข้อความจึงเท่าเดิมทุกไบต์
+- **`/status <โหมด>` ตอบด้วยรายงานคนละใบ ไม่ใช่รายงานเต็มที่เปลี่ยนตัวเลข** — ครึ่งหนึ่ง
+  ของรายงานเต็มพูดถึง "ตอนนี้" (มุมขณะนี้ · ไฟตอนนี้ · เฝ้ามาแล้วกี่ชั่วโมง) ซึ่งไม่มีอยู่จริง
+  สำหรับโหมดที่ไม่ได้ถือเซ็นเซอร์อยู่ · ถ้าเอาบรรทัดพวกนั้นมาจาก session ที่กำลังรัน
+  มันจะบรรยายการเฝ้าผิดตัวโดยดูเหมือนบรรยายตัวที่ถาม
+- **ถามโหมดที่กำลังเฝ้าอยู่ → ได้รายงานเต็มตามเดิม** เพราะมันมากกว่าและทุกบรรทัดจริง
+  ไม่มีอะไรได้จากการตอบให้น้อยลง (`askingAboutTheRunningModeGivesTheRunningReport`)
+- **สองกฎที่รอดมาเพราะเป็นโค้ดร่วม ไม่ใช่การเขียนซ้ำ:**
+  โหมดประตูระดับเสียงและการขยับ **ห้ามมีองศาสักตัว** → ย้ายเข้า `entrySoundLevelLines()`
+  ทั้งสองที่อ่านจากตัวเดียวกัน · เพดาน drift พิมพ์เป็น **อัตราที่เครื่องวัดได้** ไม่ใช่เวลาที่
+  session ผ่านมาแล้ว โหมดประตูจึงถูกรายงานว่าเกินเพดานด้วยนาฬิกาของโหมดยานพาหนะไม่ได้
+  (`theOtherModeReportNeverBorrowsTheRunningSessionsClock`)
+- **`ModeStatusSections.isWatching(state)`** ตัดสินที่เดียวว่าสถานะไหนแปลว่ากำลังเฝ้าจริง
+  ใช้ทั้งใน `armedDuration()` และบรรทัด "ตอนนี้เฝ้าด้วย…" — ไม่งั้นจะได้ประโยคที่เถียงตัวเอง
+  ว่า "ตอนนี้เฝ้าด้วยโหมดยานพาหนะ · ยังไม่ได้เปิดการเฝ้า"
+- **`profileFromOwnerWord()` ไม่รับชื่อ enum** (`VEHICLE`) โดยตั้งใจ — ไม่ใช่คำที่โปรดักต์นี้
+  แสดงให้ใครเห็น และ `ThaiPresentationSourceContractTest` ห้ามการสะกด `.name.lowercase()`
+  ในโค้ดที่ถึงมือเจ้าของอยู่แล้ว
 - **บรรทัด `การป้องกัน:` ของ heartbeat ยังอ่าน `prefsManager.isSystemArmed()` ไม่ใช่ snapshot**
   ตั้งใจไว้อย่างนั้น — แฟล็กนั้นถูกเขียนจากชุดสถานะเดียวกับที่บรรทัดนี้หมายถึงพอดี
   (`ProtectionRuntimeGraph.kt:121-128` `writeCompatibilityArmed`) การไปอ่าน `snapshot.state`
@@ -204,7 +232,8 @@ PresentationTextCatalog                          ← คำของโหมด
 - **โหมดประตูระดับมุมแสดง 6 แถวบนตัวหาร 5** — แถว `ทิศทาง/มุม` เป็นแถวแสดงผลเพิ่ม
   ใช้ health ตัวเดียวกับ `การสั่น` ตั้งใจตาม §6 แต่เจ้าของอาจสะดุดตา
 - ~~ตัวกรองอาการอุ่นเครื่องยังพูดแทนทุกโหมด~~ — แก้แล้วที่ `595ab6e` ดู §9
-- **ยังไม่ทำ (ตาม §12):** `/status <โหมด>` · inline keyboard
+- **ยังไม่ทำ (ตาม §12):** inline keyboard
+- ~~`/status <โหมด>`~~ — ทำแล้วที่ `94e5e7c`
 - ~~`ProtectionStateTelegramNotifier` ยังไม่รู้จักโหมด~~ — ทำแล้วที่ `376ae0d`
 - ~~ข้อความ heartbeat ทุก 15 นาทียังพูดกลาง ๆ ว่า Armed/Disarmed~~ — ทำแล้วที่ `3c21e4e`
 
