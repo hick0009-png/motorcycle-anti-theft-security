@@ -50,6 +50,13 @@ enum class BreadcrumbEvent(val code: String) {
     START("start"),
     STOP("stop"),
     FIX("fix"),
+
+    /**
+     * The once-per-session warning that an armed door watch has outlived its measured
+     * drift ceiling. Distinct from [SEND] so the file can answer the one question an
+     * owner asks about it: whether it was ever sent at all.
+     */
+    CEILING("ceiling"),
 }
 
 /**

@@ -279,7 +279,8 @@ object UserGuidanceCatalog {
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
                 titleTh = "คำสั่งที่ใช้ได้",
                 bodyTh = "ดูรายการคำสั่งใน Telegram",
-                telegramTh = "ℹ️ คำสั่ง: /status, /where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
+                telegramTh = "ℹ️ คำสั่ง: /status รายงานตามโหมดที่เลือกไว้ (ตอบเฉพาะสิ่งที่โหมดนั้นเฝ้าจริง), " +
+                    "/where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
                     "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                     "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,

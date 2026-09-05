@@ -36,6 +36,7 @@ class EncryptedPrefsManager(private val context: Context) {
         private const val KEY_PARKING_ANCHOR = "enc_parking_anchor_json"
         private const val KEY_LIVE_PURSUIT_SESSION = "enc_live_pursuit_session_json"
         private const val KEY_MOVEMENT_TRACKING_STATE = "enc_movement_tracking_state_json"
+        private const val KEY_ENTRY_CEILING_WARNED_SESSION = "entry_ceiling_warned_session"
     }
 
     private val secureKeyManager = SecureKeyManager(context)
@@ -180,6 +181,21 @@ class EncryptedPrefsManager(private val context: Context) {
     }
 
     fun getSmsDestination(): String? = prefs.getString(KEY_SMS_DESTINATION, null)
+
+    // --- Entry drift ceiling warning ---
+    /**
+     * The armed session already warned about for outliving its measured drift ceiling.
+     *
+     * Durable because the warning is sent during sessions that last a night, across which
+     * the process is routinely killed and restarted. An owner woken twice by the same piece
+     * of advice learns to ignore the app rather than the drift.
+     */
+    fun getEntryCeilingWarnedSessionId(): String? =
+        prefs.getString(KEY_ENTRY_CEILING_WARNED_SESSION, null)
+
+    fun setEntryCeilingWarnedSessionId(sessionId: String) {
+        prefs.edit().putString(KEY_ENTRY_CEILING_WARNED_SESSION, sessionId).apply()
+    }
 
     // --- Arm / Disarm State ---
     fun setSystemArmed(armed: Boolean) {

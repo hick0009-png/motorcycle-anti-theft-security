@@ -187,6 +187,8 @@ class SensorService : Service(), ServiceEnvironment {
             context = this,
             prefsManager = preferences,
             telegramBotClient = telegramClient,
+            snapshotSupplier = { graph.coordinator.snapshot.value },
+            breadcrumb = { domain, event -> blackBox?.note(domain, event) },
         )
         heartbeatPinger.startHeartbeat()
         acquireWakeLock()
