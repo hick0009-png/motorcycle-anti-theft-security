@@ -18,6 +18,12 @@ class TelegramCommandHandler(
      * rather than the handler pretending the feature exists.
      */
     private val locationFinder: OnDemandLocationFinder? = null,
+    /**
+     * Supplies the readings that are only true at the moment of asking. Absent on a build
+     * with no runtime to ask, where the report says each such line could not be read
+     * rather than dropping the line and leaving the owner unaware it exists.
+     */
+    private val liveStatusReader: LiveStatusReader? = null,
     private val commandTimeoutMs: Long = 20_000L,
 ) : TelegramCommandExecutor {
     override suspend fun handle(
@@ -59,7 +65,16 @@ class TelegramCommandHandler(
                 coordinator.disarm(commandId, CommandOrigin.TELEGRAM).toTelegramText(),
             )
 
-            RemoteCommand.Status -> reply(statusFormatter.format(coordinator.snapshot.value))
+            RemoteCommand.Status -> {
+                val snapshot = coordinator.snapshot.value
+                // Read once, here, rather than from inside the formatter: the formatter
+                // stays a pure function of what it is handed, which is what makes the whole
+                // report testable without a device.
+                val live = runCatching {
+                    liveStatusReader?.read(snapshot.modeContext?.selectedProfile)
+                }.getOrNull()
+                reply(statusFormatter.format(snapshot, live = live))
+            }
 
             RemoteCommand.Where -> {
                 val finder = locationFinder

@@ -133,6 +133,34 @@ class TelegramCommandHandlerTest {
     }
 
     @Test
+    fun statusReadsTheLiveValuesOnceAndOnlyWhenAsked() = runTest {
+        var reads = 0
+        val command = handler(ArmingDelay { }, liveStatusReader = { reads++; null })
+
+        command.handle("c1", RemoteCommand.Disarm) { }
+        assertEquals(0, reads)
+        command.handle("c2", RemoteCommand.Status) { }
+        assertEquals(1, reads)
+    }
+
+    @Test
+    fun aFailingLiveReadStillProducesAReport() = runTest {
+        // The live values are the least important part of the answer. A door angle that
+        // could not be read must not cost the owner the sensor health, the channels and the
+        // problem list as well — that is the report they asked for.
+        val replies = mutableListOf<String>()
+        val command = handler(
+            ArmingDelay { },
+            liveStatusReader = { error("sensor gone") },
+        )
+
+        command.handle("c1", RemoteCommand.Status) { replies += it }
+
+        assertEquals(1, replies.size)
+        assertTrue(replies.single().contains("สถานะระบบ"))
+    }
+
+    @Test
     fun testMicIsNotARemoteCommand() {
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/testmic"))
     }
@@ -150,6 +178,7 @@ private fun handler(
     armingDelay: ArmingDelay,
     commandTimeoutMs: Long = 20_000L,
     initialState: ProtectionState = ProtectionState.DISARMED_ONLINE,
+    liveStatusReader: LiveStatusReader? = null,
 ): TelegramCommandHandler {
     val runtime = object : ProtectionRuntime {
         override fun readiness(): ReadinessReport = ReadinessReport(emptySet(), emptySet())
@@ -179,6 +208,7 @@ private fun handler(
     return TelegramCommandHandler(
         coordinator = coordinator,
         statusFormatter = ProtectionStatusFormatter(),
+        liveStatusReader = liveStatusReader,
         commandTimeoutMs = commandTimeoutMs,
     )
 }

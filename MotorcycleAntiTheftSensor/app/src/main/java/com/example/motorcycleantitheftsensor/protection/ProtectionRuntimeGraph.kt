@@ -79,6 +79,12 @@ object ProtectionRuntimeGraph {
         /** Answers `/where` without taking fixes away from whatever is already tracking. */
         val onDemandLocationFinder: com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder? = null,
         /**
+         * Reads the values a status answer needs that are only true at the moment it is
+         * asked. Built here because it is the only place holding the armed session, the
+         * parking anchor and the encrypted preferences at once.
+         */
+        val liveStatusReader: com.example.motorcycleantitheftsensor.telegram.LiveStatusReader? = null,
+        /**
          * This boot, hashed, from the same string the day file's header carries. Taken from
          * the header rather than derived again so the two can never disagree about which boot
          * they are describing.
@@ -690,6 +696,41 @@ object ProtectionRuntimeGraph {
             blackBoxSensorTap = blackBoxSensorTap,
             blackBoxWriter = blackBoxWriter,
             blackBoxBootIdHash = blackBoxFileHeader.bootId.hashCode(),
+            liveStatusReader = { profile ->
+                // Never a measurement, only a reading of state that already exists. An
+                // owner whose vehicle has just been taken sends this command over and over,
+                // and the battery left in the phone is the entire budget for finding it, so
+                // no branch here may wake the radio or register a listener.
+                val nowElapsedMs = SystemClock.elapsedRealtime()
+                val movement = if (profile == ProtectionProfile.VEHICLE) {
+                    runCatching { movementTrackingStore.load() }.getOrNull()
+                } else {
+                    null
+                }
+                val anchor = movement?.anchor
+                val fix = anchor?.let { locationProvider.currentUsableFix(nowElapsedMs) }
+                com.example.motorcycleantitheftsensor.telegram.LiveStatusReadings(
+                    doorAngleDeg = runtime.liveDoorAngleDeg(),
+                    witnessLit = runtime.liveWitnessLit(),
+                    confirmationCountdownMs = runtime.liveConfirmationCountdownMs(nowElapsedMs),
+                    metersFromParking = if (anchor != null && fix != null) {
+                        MovementDisplacementPolicy.calculateHaversineDistance(
+                            anchor.fix.latitude,
+                            anchor.fix.longitude,
+                            fix.latitude,
+                            fix.longitude,
+                        )
+                    } else {
+                        null
+                    },
+                    parkingThresholdMeters = anchor
+                        ?.let { MovementDisplacementPolicy.BASE_DISPLACEMENT_METERS },
+                    pursuitActive = movement?.let { it.session != null },
+                    smsFallbackMasked = PresentationTextCatalog.maskedSmsDestination(
+                        preferences.getSmsDestination(),
+                    ),
+                )
+            },
             onDemandLocationFinder = com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder(
                 tracking = locationProvider,
                 client = locationClient,

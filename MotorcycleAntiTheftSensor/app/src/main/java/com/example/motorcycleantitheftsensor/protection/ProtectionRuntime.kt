@@ -113,6 +113,26 @@ interface ProtectionRuntime {
     fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
     }
 
+    /**
+     * The door angle against the frozen armed baseline, right now.
+     *
+     * Read on demand and never carried on the snapshot: it changes with every orientation
+     * sample, and a snapshot field that moved that fast would make every sample a semantic
+     * change and write a durable record for each one, all night.
+     */
+    fun liveDoorAngleDeg(): Double? = null
+
+    /** What the armed power arbiter currently makes of the witness lamp. */
+    fun liveWitnessLit(): Boolean? = null
+
+    /**
+     * Milliseconds until a running loss or recovery confirmation would conclude, or null
+     * when nothing is being confirmed.
+     *
+     * @param nowElapsedMs the same clock the arbiter's deadline was computed against.
+     */
+    fun liveConfirmationCountdownMs(nowElapsedMs: Long): Long? = null
+
     /** Clears the armed-session Entry baseline (owner disarm or controlled profile change). */
     fun clearEntryBaseline() {
     }

@@ -182,6 +182,15 @@ interface AndroidDetectorSet {
     fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
     }
 
+    /** Live door angle against the frozen armed baseline; null with no armed session. */
+    fun liveDoorAngleDeg(): Double? = null
+
+    /** What the armed power arbiter currently makes of the witness lamp. */
+    fun liveWitnessLit(): Boolean? = null
+
+    /** Milliseconds until a running loss/recovery confirmation would conclude. */
+    fun liveConfirmationCountdownMs(nowElapsedMs: Long): Long? = null
+
     /** Clears the armed-session Entry baseline and stops its orientation listener. */
     fun clearEntryBaseline() {
     }
@@ -307,6 +316,13 @@ class AndroidProtectionRuntime(
     override fun sourceHealth(source: SensorSource): SensorHealthState = detectors.sourceHealth(source)
 
     override fun entryOrientationSource(): EntryOrientationSource? = detectors.entryOrientationSource()
+
+    override fun liveDoorAngleDeg(): Double? = detectors.liveDoorAngleDeg()
+
+    override fun liveWitnessLit(): Boolean? = detectors.liveWitnessLit()
+
+    override fun liveConfirmationCountdownMs(nowElapsedMs: Long): Long? =
+        detectors.liveConfirmationCountdownMs(nowElapsedMs)
 
     override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
         detectors.beginEntrySession(sessionId, model, settings)
@@ -951,6 +967,17 @@ class PlatformAndroidDetectorSet(
     }
 
     override fun entryOrientationSamples(): Flow<EntryOrientationSample> = entrySampleFlow
+
+    // The three live readings a status question is allowed to take. Each is a plain read of
+    // state the armed session already holds: none registers a listener, wakes a radio, or
+    // starts a measurement, because an owner who asks repeatedly during a theft must not be
+    // charged battery for asking.
+    override fun liveDoorAngleDeg(): Double? = entrySession.liveAngleDeg()
+
+    override fun liveWitnessLit(): Boolean? = powerSession.witnessLit()
+
+    override fun liveConfirmationCountdownMs(nowElapsedMs: Long): Long? =
+        powerSession.nextConfirmationAtMs()?.minus(nowElapsedMs)?.takeIf { it > 0L }
 
     override fun clearEntryBaseline() {
         entrySession.end()

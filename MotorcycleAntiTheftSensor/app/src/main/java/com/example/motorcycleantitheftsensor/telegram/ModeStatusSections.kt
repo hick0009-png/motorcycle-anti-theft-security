@@ -66,7 +66,7 @@ data class LiveStatusReadings(
  *   line is unreadable, which is the truth, rather than omitting them.
  */
 fun interface LiveStatusReader {
-    fun read(profile: ProtectionProfile?): LiveStatusReadings?
+    suspend fun read(profile: ProtectionProfile?): LiveStatusReadings?
 }
 
 /** One titled block of the report; [lines] is never empty. */
@@ -356,7 +356,11 @@ object ModeStatusSections {
             false -> "สถานะ: ดับ"
             null -> "สถานะ: ไม่ทราบ ($UNKNOWN_NOT_ARMED)"
         }
-        lines += live?.witnessLux
+        // The health map already carries the last light sample, and it is not in the
+        // projection key, so reading it here costs nothing and answers even when no live
+        // supplier was wired in.
+        val lux = live?.witnessLux ?: snapshot.sensorHealth[SensorKind.LIGHT]?.lightDetail?.lastLux
+        lines += lux
             ?.let { "ค่าที่วัดได้ขณะนี้: ${it.toInt()} lux" }
             ?: "ค่าที่วัดได้ขณะนี้: อ่านไม่ได้"
         lines += when {

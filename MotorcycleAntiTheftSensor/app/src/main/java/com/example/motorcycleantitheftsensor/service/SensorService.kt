@@ -167,6 +167,7 @@ class SensorService : Service(), ServiceEnvironment {
                 coordinator = graph.coordinator,
                 statusFormatter = ProtectionStatusFormatter(),
                 locationFinder = graph.onDemandLocationFinder,
+                liveStatusReader = graph.liveStatusReader,
             ),
             onTelegramContact = graph.coordinator::recordTelegramContact,
             breadcrumb = { event, details ->

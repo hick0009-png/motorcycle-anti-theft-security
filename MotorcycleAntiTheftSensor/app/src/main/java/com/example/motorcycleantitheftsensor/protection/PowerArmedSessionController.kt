@@ -80,6 +80,16 @@ class PowerArmedSessionController {
     fun activeWitnessModel(): PowerWitnessModel? = synchronized(lock) { activeWitnessModel }
 
     /**
+     * Whether the arbiter's last conclusive reading found the witness lamp lit, or null
+     * when no armed session has reached a conclusion yet.
+     *
+     * The owner asking "/status" in this mode is asking exactly one question — is the power
+     * still on — and the arbiter is the only thing that knows, because a raw lux value means
+     * nothing without the commissioned bands it is judged against.
+     */
+    fun witnessLit(): Boolean? = synchronized(lock) { arbiterState?.lastConclusiveWitnessLit }
+
+    /**
      * Feeds one composite charging/witness sample. Returns the verdicts produced by the
      * sample — empty while no session is active (no compatible calibration exists, so no
      * outage claim is possible) or when the sample causes no transition.
