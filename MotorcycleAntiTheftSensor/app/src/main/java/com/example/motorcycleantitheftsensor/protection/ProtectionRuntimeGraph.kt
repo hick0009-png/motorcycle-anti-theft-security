@@ -667,7 +667,14 @@ object ProtectionRuntimeGraph {
                 val prev = previousNotifiedState
                 previousNotifiedState = current
 
-                val messages = stateNotifier.messagesFor(prev, current, snapshot.degradationReasons)
+                val messages = stateNotifier.messagesFor(
+                    previous = prev,
+                    current = current,
+                    degradationReasons = snapshot.degradationReasons,
+                    // Read from the same snapshot that carries the state, so the alert
+                    // cannot name a mode the transition did not happen under.
+                    context = snapshot.modeContext,
+                )
                 if (messages.isNotEmpty()) {
                     scope.launch(Dispatchers.IO) {
                         for (msg in messages) {

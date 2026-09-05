@@ -29,6 +29,43 @@ object PresentationTextCatalog {
     }
 
     /**
+     * What this mode promises to catch, with the door watch's two levels told apart.
+     *
+     * [profile] carries one sentence per mode, and for the door watch that sentence is
+     * about an angle the lower level cannot measure. Every surface that states the promise
+     * has to make the same distinction, so it is made once here rather than at each of
+     * them: a report and a state-change alert that disagreed about what is being watched
+     * would be two answers to the owner's only question.
+     */
+    fun profilePromise(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String =
+        if (profile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT) {
+            "แจ้งเตือนเมื่อได้ยินเสียงพร้อมกับการขยับที่ประตูซึ่งติดตั้งโทรศัพท์ไว้"
+        } else {
+            profile(profile).promise
+        }
+
+    /** How far the door watch can see, in the words both the report and the alert use. */
+    fun entryLevelLabel(level: EntryWatchLevel): String = when (level) {
+        EntryWatchLevel.DOOR_ANGLE -> "มุมประตู (วัดองศาได้)"
+        EntryWatchLevel.SOUND_AND_MOVEMENT -> "เสียงและการขยับ (วัดองศาไม่ได้)"
+    }
+
+    /**
+     * "โหมดประตูและทางเข้า · มุมประตู (วัดองศาได้)" — the mode, named the way an alert has room for.
+     *
+     * The level rides along only where it changes the answer, which is the door watch and
+     * nowhere else.
+     */
+    fun modeLabel(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String {
+        val name = "โหมด" + profile(profile).name
+        return if (profile == ProtectionProfile.ENTRY && entryLevel != null) {
+            "$name · " + entryLevelLabel(entryLevel)
+        } else {
+            name
+        }
+    }
+
+    /**
      * Why a profile locks the sensors it does not use, in the owner's words.
      *
      * [SensorLockPresentation.notice] heads the advanced sensor card; [reason] repeats

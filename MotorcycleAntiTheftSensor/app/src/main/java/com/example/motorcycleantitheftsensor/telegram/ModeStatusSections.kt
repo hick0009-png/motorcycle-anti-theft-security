@@ -174,21 +174,12 @@ object ModeStatusSections {
         val roles = ProtectionProfilePolicy.signalRoles(profile, entryLevel)
         // The door watch's headline promise is about an angle, which the lower level cannot
         // measure. Repeating it there and then admitting on the next line that degrees are
-        // unavailable is worse than saying at once what this level actually does.
-        val promise = if (
-            profile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT
-        ) {
-            "แจ้งเตือนเมื่อได้ยินเสียงพร้อมกับการขยับที่ประตูซึ่งติดตั้งโทรศัพท์ไว้"
-        } else {
-            PresentationTextCatalog.profile(profile).promise
-        }
-        val lines = mutableListOf(promise)
+        // unavailable is worse than saying at once what this level actually does. The
+        // distinction lives in the catalog because the state-change alert has to draw it too.
+        val lines = mutableListOf(PresentationTextCatalog.profilePromise(profile, entryLevel))
 
         if (profile == ProtectionProfile.ENTRY) {
-            lines += "ระดับการเฝ้า: " + when (entryLevel) {
-                EntryWatchLevel.DOOR_ANGLE -> "มุมประตู (วัดองศาได้)"
-                EntryWatchLevel.SOUND_AND_MOVEMENT -> "เสียงและการขยับ (วัดองศาไม่ได้)"
-            }
+            lines += "ระดับการเฝ้า: " + PresentationTextCatalog.entryLevelLabel(entryLevel)
         }
 
         val hosts = ProtectionProfilePolicy.hosts(profile, entryLevel)
