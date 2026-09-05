@@ -723,8 +723,19 @@ object ProtectionRuntimeGraph {
                     } else {
                         null
                     },
-                    parkingThresholdMeters = anchor
-                        ?.let { MovementDisplacementPolicy.BASE_DISPLACEMENT_METERS },
+                    // The threshold that would actually be applied to this pair of fixes,
+                    // computed the way MovementDisplacementPolicy computes it. Printing the
+                    // base constant instead would quote 100 metres while a pair of coarse
+                    // fixes was really being judged at 180, which is the kind of number that
+                    // teaches an owner their app is guessing.
+                    parkingThresholdMeters = if (anchor != null && fix != null) {
+                        MovementDisplacementPolicy.displacementThresholdMeters(
+                            anchor.fix.accuracyMeters,
+                            fix.accuracyMeters,
+                        )
+                    } else {
+                        null
+                    },
                     pursuitActive = movement?.let { it.session != null },
                     smsFallbackMasked = PresentationTextCatalog.maskedSmsDestination(
                         preferences.getSmsDestination(),

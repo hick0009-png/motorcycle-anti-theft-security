@@ -4,7 +4,6 @@ import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.SetupBlocker
-import com.example.motorcycleantitheftsensor.protection.SensorKind
 
 class ProtectionStatusFormatter(
     private val wallClock: () -> Long = { System.currentTimeMillis() },
@@ -35,20 +34,21 @@ class ProtectionStatusFormatter(
         }
     }
 
-    fun format(projection: ProtectionStatusProjection): String =
-        if (projection.modeAware) formatForMode(projection) else formatWithoutMode(projection)
-
     /**
-     * The report an owner who has chosen a mode gets.
+     * One report, in one order, for every installation.
      *
-     * Order is the argument, not decoration: which mode and how long, then what that mode
-     * can see right now, then how far it can be believed, then what to do about it. Half of
-     * owners read the notification preview and close it, so the first three lines have to
-     * be the answer rather than a preamble about the Telegram connection — which the owner
-     * is demonstrably not having trouble with, since this message reached them.
+     * The order carries the argument rather than decorating it: which mode and for how
+     * long, then what that mode can see right now, then how far it can be believed, then
+     * what to do about it. Half of owners read the notification preview and close it, so
+     * the first lines are the answer — not a preamble about the Telegram connection, whose
+     * health is not in question for someone reading the message it just delivered.
+     *
+     * There was briefly a second layout for installations with no mode chosen. It was the
+     * same mistake this whole report was rebuilt to remove: a second table of truth, which
+     * drifts from the first one quietly and is discovered by an owner rather than by us.
      */
-    private fun formatForMode(projection: ProtectionStatusProjection): String = buildString {
-        val identity = projection.modeIdentity ?: return@buildString
+    fun format(projection: ProtectionStatusProjection): String = buildString {
+        val identity = projection.modeIdentity
         appendLine(identity.headerTh)
         identity.armDurationTh?.let { appendLine(it) }
         identity.noticeTh?.let {
@@ -56,11 +56,9 @@ class ProtectionStatusFormatter(
             appendLine(it)
         }
 
-        projection.watchScope?.let { section ->
-            appendLine()
-            appendLine(section.titleTh)
-            section.lines.forEach { appendLine(it) }
-        }
+        appendLine()
+        appendLine(projection.watchScope.titleTh)
+        projection.watchScope.lines.forEach { appendLine(it) }
 
         projection.modeSections.forEach { section ->
             appendLine()
@@ -84,6 +82,7 @@ class ProtectionStatusFormatter(
                 ?: "SMS สำรอง: ยังไม่ได้ตั้งไว้",
         )
         appendLine(projection.batteryPower.combinedTh)
+        appendLine(projection.batteryPower.powerSourceTh)
 
         appendLine()
         appendLine("🚨 เหตุการณ์ล่าสุด")
@@ -95,7 +94,7 @@ class ProtectionStatusFormatter(
             )
             incident.deliveryTh?.let { appendLine("📤 Telegram: $it") }
         } else {
-            appendLine("ยังไม่มีเหตุการณ์ในโหมดนี้")
+            appendLine("ยังไม่มีเหตุการณ์")
         }
 
         appendLine()
@@ -107,71 +106,6 @@ class ProtectionStatusFormatter(
                 append("\nวิธีแก้: ")
                 append(issue.guidanceTh)
             }
-        }
-    }.trimEnd()
-
-    /**
-     * The report of a customer who has never chosen a mode, kept exactly as it was.
-     *
-     * They are the one audience for whom listing all five sensor kinds is correct: nothing
-     * has told this installation what it is guarding, so nothing may be filtered out of the
-     * answer. The heading above says so plainly instead of leaving them to guess why the
-     * report looks unlike the one in the manual.
-     */
-    private fun formatWithoutMode(projection: ProtectionStatusProjection): String = buildString {
-        appendLine("🛡️ สถานะระบบป้องกัน")
-        appendLine()
-        projection.unchosenModeNoticeTh?.let {
-            appendLine(it)
-            appendLine()
-        }
-        appendLine("สถานะระบบ: ${projection.protectionState.displayStatusTh}")
-        projection.protectionState.armDurationTh?.let {
-            appendLine("ทำงานมาแล้ว: $it")
-        }
-        appendLine(projection.protectionState.sensitivityTh)
-        appendLine()
-        appendLine("📡 ระบบหลัก")
-        appendLine(projection.primarySystems.serviceStatusTh)
-        appendLine(projection.primarySystems.telegramStatusTh)
-        appendLine()
-        appendLine(projection.sensorSummary.headerTh)
-
-        val orderedKinds = listOf(
-            SensorKind.VIBRATION,
-            SensorKind.LIGHT,
-            SensorKind.MICROPHONE,
-            SensorKind.LOCATION,
-            SensorKind.POWER_THERMAL,
-        )
-        orderedKinds.forEach { kind ->
-            projection.sensorSummary.sensors[kind]?.let { item ->
-                appendLine(item.statusLineTh)
-            }
-        }
-        appendLine()
-        appendLine(projection.batteryPower.batteryPercentTh)
-        appendLine(projection.batteryPower.temperatureTh)
-        appendLine(projection.batteryPower.powerSourceTh)
-
-        val inc = projection.lastIncident
-        if (inc != null && inc.hasIncident) {
-            appendLine()
-            appendLine("🚨 เหตุการณ์ล่าสุด")
-            inc.typeTh?.let { appendLine("ประเภท: $it") }
-            inc.timeTh?.let { appendLine("เวลา: $it") }
-            inc.statusTh?.let { appendLine("สถานะ: $it") }
-            inc.deliveryTh?.let { appendLine("📤 Telegram: $it") }
-        }
-
-        appendLine()
-        if (!projection.issuesSummary.hasIssues) {
-            append(projection.issuesSummary.summaryMessageTh)
-        } else {
-            val issueText = projection.issuesSummary.issues.joinToString("\n\n") { issue ->
-                "${issue.issueTh}\nวิธีแก้: ${issue.guidanceTh}"
-            }
-            append(issueText)
         }
     }.trimEnd()
 }

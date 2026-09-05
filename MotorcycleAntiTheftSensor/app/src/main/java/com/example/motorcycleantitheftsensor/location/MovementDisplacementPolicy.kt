@@ -32,6 +32,23 @@ class MovementDisplacementPolicy {
         const val MIN_CONFIRMATION_SEPARATION_MS = 15_000L
         const val MAX_CONFIRMATION_SEPARATION_MS = 60_000L
 
+        /**
+         * How far this pair of fixes must disagree before the vehicle counts as moved.
+         *
+         * The floor is what makes it honest: two fixes each good to fifty metres cannot
+         * demonstrate a hundred-metre move, so the threshold rises to meet them. Exposed
+         * because the status report has to state the number it is really being judged
+         * against, and a report that recomputed the rule for itself would eventually quote
+         * a threshold the detector does not use.
+         */
+        fun displacementThresholdMeters(
+            anchorAccuracyMeters: Float,
+            fixAccuracyMeters: Float,
+        ): Double = max(
+            BASE_DISPLACEMENT_METERS,
+            (anchorAccuracyMeters + fixAccuracyMeters + ACCURACY_MARGIN_METERS).toDouble(),
+        )
+
         fun calculateHaversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
             val r = 6371000.0 // Earth radius in meters
             val dLat = Math.toRadians(lat2 - lat1)
@@ -95,9 +112,9 @@ class MovementDisplacementPolicy {
                 fix.latitude, fix.longitude
             )
 
-            val threshold = max(
-                BASE_DISPLACEMENT_METERS,
-                (anchor.fix.accuracyMeters + fix.accuracyMeters + ACCURACY_MARGIN_METERS).toDouble()
+            val threshold = displacementThresholdMeters(
+                anchor.fix.accuracyMeters,
+                fix.accuracyMeters,
             )
 
             if (distance <= threshold) {

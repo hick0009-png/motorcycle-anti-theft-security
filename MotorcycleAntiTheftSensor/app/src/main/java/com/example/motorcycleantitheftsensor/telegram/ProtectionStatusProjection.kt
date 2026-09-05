@@ -61,7 +61,6 @@ data class ProtectionStateProjection(
     val state: ProtectionState,
     val displayStatusTh: String,
     val armDurationTh: String?,
-    val sensitivityTh: String,
 )
 
 data class PrimarySystemsProjection(
@@ -122,30 +121,20 @@ data class ProtectionStatusProjection(
     val batteryPower: BatteryPowerProjection,
     val lastIncident: LastIncidentProjection?,
     val issuesSummary: IssuesSummaryProjection,
+    /** Section A: what is being watched, and for how long. Always present. */
+    val modeIdentity: ModeIdentityProjection,
     /**
-     * Section A. Null for a customer who has never chosen a mode: their report is the one
-     * they have always had, and inventing a mode heading for it would be a guess printed
-     * where the owner is least able to check it.
+     * Section B: what this mode watches, built from the role table. With no mode chosen it
+     * says so and lists nothing, which is the one honest answer — guessing the mode from
+     * whichever sensors happen to be running would be wrong exactly where the owner cannot
+     * check it.
      */
-    val modeIdentity: ModeIdentityProjection? = null,
-    /** Section B: what this mode watches, built from the role table. */
-    val watchScope: ModeSectionProjection? = null,
+    val watchScope: ModeSectionProjection,
     /** Section C: the blocks that exist only for this mode. */
     val modeSections: List<ModeSectionProjection> = emptyList(),
     /** The masked SMS fallback destination, or null when none is configured. */
     val smsFallbackMaskedTh: String? = null,
-    /**
-     * Set only for an installation that knows about modes and has none chosen — the
-     * customer who upgraded and has not opened the picker yet.
-     *
-     * They keep the report they have always had, because nothing has told this phone what
-     * it is guarding and filtering on a guess would be worse than filtering on nothing.
-     * The line says which of those two situations they are in.
-     */
-    val unchosenModeNoticeTh: String? = null,
 ) {
-    /** Whether this report speaks for one mode, or for the pre-mode world. */
-    val modeAware: Boolean get() = modeIdentity != null
 
     companion object {
         const val FRESHNESS_VIBRATION_MS = 5_000L
@@ -160,8 +149,24 @@ data class ProtectionStatusProjection(
         /** Heads the sensor block of a mode-aware report; the divisor is the mode's own. */
         private const val MODE_SENSOR_HEADER = "🔎 เซ็นเซอร์ที่โหมดนี้ใช้"
 
+        /** Heads the sensor block when nothing has told this phone what it is guarding. */
+        private const val UNCHOSEN_SENSOR_HEADER = "🔎 เซ็นเซอร์ทั้งหมด"
+
         /** Every rendered sensor row separates its name from its detail with this. */
         private const val ROW_NAME_SEPARATOR = ": "
+
+        /**
+         * The order the report has listed sensors in since before modes existed. Kept for
+         * the unchosen mode so that an owner who has read this report for a year does not
+         * have to relearn it to gain nothing.
+         */
+        private val UNCHOSEN_ROW_ORDER = listOf(
+            SensorKind.VIBRATION,
+            SensorKind.LIGHT,
+            SensorKind.MICROPHONE,
+            SensorKind.LOCATION,
+            SensorKind.POWER_THERMAL,
+        )
 
         /**
          * @param live readings taken at the moment the owner asked. Null is normal — a
@@ -200,20 +205,12 @@ data class ProtectionStatusProjection(
                 batteryPower = batteryPowerProjection,
                 lastIncident = lastIncidentProjection,
                 issuesSummary = issuesProjection,
-                modeIdentity = modeContext?.let {
-                    ModeStatusSections.identity(snapshot, it, nowWallClockMs)
-                },
-                watchScope = modeContext?.let { ModeStatusSections.watchScope(snapshot, it) },
+                modeIdentity = ModeStatusSections.identity(snapshot, modeContext, nowWallClockMs),
+                watchScope = ModeStatusSections.watchScope(snapshot, modeContext),
                 modeSections = modeContext
                     ?.let { ModeStatusSections.modeSections(snapshot, it, live, nowWallClockMs) }
                     ?: emptyList(),
                 smsFallbackMaskedTh = live?.smsFallbackMasked,
-                unchosenModeNoticeTh = if (snapshot.modeContext != null && modeContext == null) {
-                    "⚠️ ยังไม่ได้เลือกโหมดการใช้งาน — รายงานนี้จึงแสดงเซ็นเซอร์ทั้งหมด\n" +
-                        "เปิดแอปแล้วเลือกโหมดเพื่อให้รายงานตรงกับสิ่งที่คุณเฝ้าจริง"
-                } else {
-                    null
-                },
             )
         }
 
@@ -246,13 +243,10 @@ data class ProtectionStatusProjection(
                 null
             }
 
-            val sensitivityTh = "[ 🏃 การเคลื่อนไหว ]\nความไวการตรวจจับ: ${snapshot.sensitivityLevel}/10"
-
             return ProtectionStateProjection(
                 state = snapshot.state,
                 displayStatusTh = displayStatusTh,
                 armDurationTh = armDurationTh,
-                sensitivityTh = sensitivityTh,
             )
         }
 
@@ -440,28 +434,20 @@ data class ProtectionStatusProjection(
             }
 
             val totalCount = usedKinds?.size ?: 5
+            // With no mode chosen the divisor is still five, and the heading says why: this
+            // is every sensor the hardware has, not a set anything selected.
+            val heading = if (usedKinds == null) UNCHOSEN_SENSOR_HEADER else MODE_SENSOR_HEADER
             val headerTh = when {
-                usedKinds == null && isArmedOrAlert -> "🔎 เซนเซอร์กำลังตรวจจับ: $activeCount/5"
-                usedKinds == null && isArming ->
-                    "🔎 เซนเซอร์: กำลังเริ่มการทำงาน | พร้อมใช้งาน $readyCount/5"
-                usedKinds == null && snapshot.state == ProtectionState.SETUP_REQUIRED ->
-                    "🔎 เซนเซอร์: ต้องตั้งค่าระบบก่อน | พร้อมใช้งาน $readyCount/5"
-                usedKinds == null && snapshot.state == ProtectionState.OFFLINE ->
-                    "🔎 เซนเซอร์: ออฟไลน์ | พร้อมใช้งาน $readyCount/5"
-                usedKinds == null ->
-                    "🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน $readyCount/5"
-                isArmedOrAlert -> "$MODE_SENSOR_HEADER: ทำงาน $activeCount/$totalCount"
-                isArming ->
-                    "$MODE_SENSOR_HEADER: กำลังเริ่ม | พร้อมใช้งาน $readyCount/$totalCount"
+                isArmedOrAlert -> "$heading: ทำงาน $activeCount/$totalCount"
+                isArming -> "$heading: กำลังเริ่ม | พร้อมใช้งาน $readyCount/$totalCount"
                 snapshot.state == ProtectionState.SETUP_REQUIRED ->
-                    "$MODE_SENSOR_HEADER: ต้องตั้งค่าก่อน | พร้อมใช้งาน $readyCount/$totalCount"
+                    "$heading: ต้องตั้งค่าก่อน | พร้อมใช้งาน $readyCount/$totalCount"
                 snapshot.state == ProtectionState.OFFLINE ->
-                    "$MODE_SENSOR_HEADER: ออฟไลน์ | พร้อมใช้งาน $readyCount/$totalCount"
-                else ->
-                    "$MODE_SENSOR_HEADER: หยุดตามคำสั่ง /disarm | พร้อมใช้งาน $readyCount/$totalCount"
+                    "$heading: ออฟไลน์ | พร้อมใช้งาน $readyCount/$totalCount"
+                else -> "$heading: หยุดตามคำสั่ง /disarm | พร้อมใช้งาน $readyCount/$totalCount"
             }
 
-            val ordered = modeContext?.let { orderRowsForMode(it, sensors) }.orEmpty()
+            val ordered = orderRowsForMode(modeContext, sensors)
 
             return SensorSummaryProjection(
                 headerTh = headerTh,
@@ -483,11 +469,16 @@ data class ProtectionStatusProjection(
          * there marked as corroboration — correctly, and bewilderingly.
          */
         private fun orderRowsForMode(
-            modeContext: ProtectionModeContext,
+            modeContext: ProtectionModeContext?,
             sensors: Map<SensorKind, SensorItemProjection>,
         ): List<SensorItemProjection> {
-            val profile = modeContext.selectedProfile ?: return emptyList()
-            val roles = modeContext.signalRoles() ?: return emptyList()
+            val profile = modeContext?.selectedProfile
+            val roles = modeContext?.signalRoles()
+            // No mode, no roles: every kind in the order the report has always listed them,
+            // and no role label, because nothing has assigned one.
+            if (profile == null || roles == null) {
+                return UNCHOSEN_ROW_ORDER.mapNotNull { kind -> sensors[kind] }
+            }
             val rows = mutableListOf<SensorItemProjection>()
 
             val isDoorAngle = profile == ProtectionProfile.ENTRY &&
@@ -1386,12 +1377,11 @@ data class ProtectionStatusProjection(
                 healthyTh
             } else if (!hasIssues && informationalNotices.isNotEmpty()) {
                 "✅ ระบบทำงานพร้อม ไม่พบปัญหาขัดข้อง"
-            } else if (modeContext != null) {
-                // The mode-aware report heads its issue list with this; the pre-mode report
-                // never printed the line at all when there were issues, and still does not.
-                "⚠️ พบ ${issues.size} ปัญหา"
             } else {
-                "⚠️ ตรวจพบข้อขัดข้องในระบบ"
+                // Counted rather than merely announced: an owner scrolling a lock screen
+                // needs to know whether one thing or four things went wrong before they
+                // decide whether to open the app.
+                "⚠️ พบ ${issues.size} ปัญหา"
             }
 
             return IssuesSummaryProjection(

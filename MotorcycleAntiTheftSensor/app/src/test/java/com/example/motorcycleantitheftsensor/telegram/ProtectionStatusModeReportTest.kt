@@ -258,7 +258,7 @@ class ProtectionStatusModeReportTest {
     }
 
     @Test
-    fun noSelectedProfileFallsBackToTheOldReportAndSaysSo() {
+    fun noSelectedProfileListsEverySensorAndSaysWhy() {
         // An upgraded customer who has never opened the picker. Guessing their mode from
         // whichever sensors happen to be running would be wrong exactly where they are
         // least able to check it, so nothing is filtered and the report says why.
@@ -269,8 +269,8 @@ class ProtectionStatusModeReportTest {
         val output = formatter.format(snapshot, nowMs, nowMs)
 
         assertTrue(output.contains("⚠️ ยังไม่ได้เลือกโหมดการใช้งาน"))
-        assertTrue("The old five-sensor report is kept: $output",
-            output.contains("🔎 เซนเซอร์กำลังตรวจจับ: 5/5"))
+        assertTrue("Every sensor kind is still listed: $output",
+            output.contains("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 5/5"))
         assertTrue(output.contains("✅ GPS: กำลังติดตาม"))
     }
 

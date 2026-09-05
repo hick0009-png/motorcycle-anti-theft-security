@@ -158,7 +158,7 @@ class TelegramCommandHandlerTest {
         command.handle("c1", RemoteCommand.Status) { replies += it }
 
         assertEquals(1, replies.size)
-        assertTrue(replies.single().contains("สถานะระบบ"))
+        assertTrue(replies.single().contains("🔎 เซ็นเซอร์ทั้งหมด"))
     }
 
     @Test

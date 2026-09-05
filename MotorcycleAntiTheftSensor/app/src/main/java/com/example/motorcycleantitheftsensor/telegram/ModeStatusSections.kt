@@ -97,12 +97,17 @@ object ModeStatusSections {
 
     private const val UNKNOWN_NOT_ARMED = "ยังไม่ได้อาร์ม"
 
+    /**
+     * @param context null when this installation has no profile layer at all — an older
+     *   build, or a host test with no repository. Treated exactly as a mode nobody has
+     *   chosen yet, because from the owner's side it is the same situation.
+     */
     fun identity(
         snapshot: ProtectionSnapshot,
-        context: ProtectionModeContext,
+        context: ProtectionModeContext?,
         nowWallClockMs: Long,
     ): ModeIdentityProjection {
-        val profile = context.selectedProfile
+        val profile = context?.selectedProfile
         val stateTh = stateLabel(snapshot.state)
         val header = if (profile == null) {
             "🛡️ ยังไม่ได้เลือกโหมด · $stateTh"
@@ -113,7 +118,7 @@ object ModeStatusSections {
         return ModeIdentityProjection(
             headerTh = header,
             armDurationTh = armDuration,
-            noticeTh = notice(context),
+            noticeTh = context?.let(::notice),
         )
     }
 
@@ -151,17 +156,21 @@ object ModeStatusSections {
      */
     fun watchScope(
         snapshot: ProtectionSnapshot,
-        context: ProtectionModeContext,
+        context: ProtectionModeContext?,
     ): ModeSectionProjection {
-        val profile = context.selectedProfile
+        val profile = context?.selectedProfile
             ?: return ModeSectionProjection(
-                titleTh = "🎯 โหมดนี้เฝ้าอะไร",
+                titleTh = "🎯 ตอนนี้เฝ้าอะไรอยู่",
                 lines = listOf(
                     "⚠️ ยังไม่ได้เลือกโหมดการใช้งาน — รายงานนี้จึงแสดงเซ็นเซอร์ทั้งหมด",
                     "เปิดแอปแล้วเลือกโหมดเพื่อให้รายงานตรงกับสิ่งที่คุณเฝ้าจริง",
+                    // Kept here, unlike in the door and lamp modes: with no mode chosen the
+                    // legacy configuration is what runs, and this slider really does move
+                    // the vibration detector's threshold.
+                    "ความไวการตรวจจับ: ${snapshot.sensitivityLevel}/10",
                 ),
             )
-        val entryLevel = context.entryLevel ?: EntryWatchLevel.DOOR_ANGLE
+        val entryLevel = context?.entryLevel ?: EntryWatchLevel.DOOR_ANGLE
         val roles = ProtectionProfilePolicy.signalRoles(profile, entryLevel)
         // The door watch's headline promise is about an angle, which the lower level cannot
         // measure. Repeating it there and then admitting on the next line that degrees are

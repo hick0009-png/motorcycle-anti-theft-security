@@ -112,14 +112,17 @@ class ProtectionStatusProjectionTest {
 
         assertEquals("กำลังป้องกัน", projection.protectionState.displayStatusTh)
         assertEquals("24 นาที", projection.protectionState.armDurationTh)
-        assertEquals("[ 🏃 การเคลื่อนไหว ]\nความไวการตรวจจับ: 8/10", projection.protectionState.sensitivityTh)
+        // The fixed movement label is gone: it spoke for every mode and was true of one.
+        // With no mode chosen the sensitivity still governs the vibration detector, so it
+        // is stated in section B rather than dropped.
+        assertTrue(projection.watchScope.lines.contains("ความไวการตรวจจับ: 8/10"))
 
         assertEquals("✅ Service: ทำงาน", projection.primarySystems.serviceStatusTh)
         assertTrue(projection.primarySystems.serviceHealthy)
         assertEquals("✅ Telegram: เชื่อมต่อ | ติดต่อล่าสุด 3 วินาทีที่แล้ว", projection.primarySystems.telegramStatusTh)
         assertTrue(projection.primarySystems.telegramHealthy)
 
-        assertEquals("🔎 เซนเซอร์กำลังตรวจจับ: 5/5", projection.sensorSummary.headerTh)
+        assertEquals("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 5/5", projection.sensorSummary.headerTh)
         assertEquals(5, projection.sensorSummary.activeCount)
         assertEquals(5, projection.sensorSummary.readyCount)
 
@@ -298,7 +301,7 @@ class ProtectionStatusProjectionTest {
         val projection = ProtectionStatusProjection.evaluate(snapshot, nowMs, nowMs)
         assertEquals("ปลดการป้องกันแล้ว", projection.protectionState.displayStatusTh)
         assertNull(projection.protectionState.armDurationTh)
-        assertEquals("🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน 5/5", projection.sensorSummary.headerTh)
+        assertEquals("🔎 เซ็นเซอร์ทั้งหมด: หยุดตามคำสั่ง /disarm | พร้อมใช้งาน 5/5", projection.sensorSummary.headerTh)
         assertFalse(projection.issuesSummary.hasIssues)
     }
 
