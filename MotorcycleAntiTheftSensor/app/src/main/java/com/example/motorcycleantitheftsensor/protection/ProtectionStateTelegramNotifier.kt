@@ -32,16 +32,23 @@ class ProtectionStateTelegramNotifier {
                     .withModeLine(context, includePromise = true)
             }
             previous == ProtectionState.ARMING && current == ProtectionState.ARMED_DEGRADED -> {
-                // Filter out transient warm-up reasons (GPS acquiring initial satellite fix, audio classifier noise floor calibration)
-                val hardReasons = degradationReasons.filter { reason ->
-                    !reason.contains("LOCATION not healthy", ignoreCase = true) &&
-                        !reason.contains("MICROPHONE not healthy", ignoreCase = true)
-                }
-                if (hardReasons.isEmpty()) {
+                // Every reason reaches the owner. This used to drop the location and
+                // microphone ones as transient warm-up, and could not have been doing that:
+                // a sensor that is warming up reports AVAILABLE, and unhealthySensorReasons
+                // writes a reason only for UNAVAILABLE, STALE and FAILED
+                // (ProtectionCoordinator.unhealthySensorReasons; the audio runtime reports
+                // CALIBRATING as AVAILABLE, and a location provider waiting for its first
+                // fix likewise). So the filter never saw a warm-up condition; the only
+                // things it could remove were missing hardware, a denied permission, a
+                // failed provider, or a sensor that had stopped reporting — told to the
+                // owner at the one moment they are still standing next to the vehicle.
+                if (degradationReasons.isEmpty()) {
                     UserGuidanceCatalog.content(GuidanceCode.ARMED_HEALTHY).telegramTh
                         .withModeLine(context, includePromise = true)
                 } else {
-                    val thaiReasons = hardReasons.map { formatReasonThai(it, context) }.joinToString(", ")
+                    val thaiReasons = degradationReasons
+                        .map { formatReasonThai(it, context) }
+                        .joinToString(", ")
                     val base = (UserGuidanceCatalog.content(GuidanceCode.ARMED_DEGRADED).telegramTh ?: "⚠️ การป้องกันทำงานแบบจำกัด:").trim()
                     if (thaiReasons.isNotBlank()) {
                         "$base $thaiReasons"

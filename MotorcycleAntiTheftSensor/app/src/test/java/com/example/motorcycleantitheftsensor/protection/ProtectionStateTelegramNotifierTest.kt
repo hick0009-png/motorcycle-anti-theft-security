@@ -22,9 +22,13 @@ class ProtectionStateTelegramNotifierTest {
             listOf("✅ การป้องกันทำงานปกติ"),
             notifier.messagesFor(ProtectionState.ARMING, ProtectionState.ARMED_HEALTHY)
         )
-        // Transient warmup reasons (GPS lock wait, mic noise floor calibration) resolve to healthy
+        // Location and microphone faults reach the owner like any other; see
+        // aWarmingUpSensorNeverProducedAReasonToDrop for why they used not to.
         assertEquals(
-            listOf("✅ การป้องกันทำงานปกติ"),
+            listOf(
+                "⚠️ การป้องกันทำงานแบบจำกัด: " +
+                    "ระบบระบุตำแหน่ง GPS ไม่พร้อมใช้งาน, ไมโครโฟนไม่พร้อมใช้งาน"
+            ),
             notifier.messagesFor(ProtectionState.ARMING, ProtectionState.ARMED_DEGRADED, setOf("LOCATION not healthy", "MICROPHONE not healthy"))
         )
         // Hard failure reasons format in Thai
@@ -205,6 +209,57 @@ class ProtectionStateTelegramNotifierTest {
                 notifier.messagesFor(ProtectionState.ARMED_HEALTHY, ProtectionState.DISARMED_ONLINE, context = ctx),
             )
         }
+    }
+
+    /**
+     * Why nothing is filtered out any more.
+     *
+     * The dropped reasons were called transient warm-up — a GPS waiting for its first fix,
+     * an audio classifier still finding its noise floor. Neither condition can produce a
+     * reason at all: both report AVAILABLE, and `unhealthySensorReasons` writes a reason
+     * only for UNAVAILABLE, STALE and FAILED. This test states that contract from the
+     * producing side, so that a change making AVAILABLE reportable has to come past here.
+     */
+    @Test
+    fun aWarmingUpSensorNeverProducedAReasonToDrop() {
+        val warmingUp = mapOf(
+            SensorKind.LOCATION to SensorHealth(SensorHealthState.AVAILABLE),
+            SensorKind.MICROPHONE to SensorHealth(SensorHealthState.AVAILABLE),
+        )
+        assertEquals(
+            emptySet<String>(),
+            unhealthySensorReasons(warmingUp, SensorKind.entries.toSet()),
+        )
+
+        // The states that do reach the notifier: nothing about them is transient.
+        for (state in listOf(
+            SensorHealthState.UNAVAILABLE,
+            SensorHealthState.STALE,
+            SensorHealthState.FAILED,
+        )) {
+            assertEquals(
+                setOf("MICROPHONE not healthy"),
+                unhealthySensorReasons(
+                    mapOf(SensorKind.MICROPHONE to SensorHealth(state)),
+                    setOf(SensorKind.MICROPHONE),
+                ),
+            )
+        }
+    }
+
+    /**
+     * A denied location permission on the vehicle watch used to arrive as "✅ ทำงานปกติ".
+     * The owner is still standing next to the vehicle at this moment, which is the only
+     * moment the advice is cheap to act on.
+     */
+    @Test
+    fun aDeniedPermissionIsToldAtTheMomentItCanStillBeFixed() {
+        val message = armedMessage(
+            context(ProtectionProfile.VEHICLE),
+            reasons = setOf("LOCATION not healthy"),
+        )
+        assertTrue(message.startsWith("⚠️ การป้องกันทำงานแบบจำกัด: ระบบระบุตำแหน่ง GPS ไม่พร้อมใช้งาน"))
+        assertFalse(message.contains("การป้องกันทำงานปกติ"))
     }
 
     /**
