@@ -1576,7 +1576,9 @@ class ProtectionCoordinatorTest {
         assertEquals(7L, calibration.generation)
         assertEquals(1, runtime.entryBeginCalls)
         assertEquals(frozen.armedSessionId, runtime.lastBeganSessionId)
-        assertEquals(model, runtime.lastBeganModel)
+        // Commissioning stamps the date the model was accepted, so what the session runs on
+        // is the stored model, not the bare geometry the test handed the repository.
+        assertEquals(model.copy(commissionedAtWallMs = 1_000L), runtime.lastBeganModel)
     }
 
     @Test
@@ -1799,7 +1801,7 @@ class ProtectionCoordinatorTest {
         assertTrue(calibration.witnessPlacementValidated)
         assertEquals(1, runtime.powerBeginCalls)
         assertEquals(frozen.armedSessionId, runtime.lastBeganPowerSessionId)
-        assertEquals(model, runtime.lastBeganPowerModel)
+        assertEquals(model.copy(commissionedAtWallMs = 1_000L), runtime.lastBeganPowerModel)
     }
 
     @Test

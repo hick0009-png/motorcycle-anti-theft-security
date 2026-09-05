@@ -46,6 +46,60 @@ object PresentationTextCatalog {
         )
     }
 
+    /**
+     * The same role, in the two words a status row has space for.
+     *
+     * [evidenceRoleLabel] is the settings screen's sentence-length label. A report that
+     * lists six sensors cannot repeat "ใช้ประกอบการยืนยัน" on every line and stay readable on a
+     * lock screen, and the distinction it draws is the one that matters: which signals can
+     * raise an alert on their own.
+     */
+    fun evidenceRoleShortLabel(role: SensorRole): String? = when (role) {
+        SensorRole.PRIMARY -> "หลัก"
+        SensorRole.SUPPORTING -> "ประกอบ"
+        SensorRole.OFF -> null
+    }
+
+    /**
+     * The orientation source a hinge model was commissioned on, named as the owner would.
+     *
+     * The stored value is a fingerprint token ("game-rotation-vector") that must never
+     * change; this is the only place it is translated, and an unrecognised token is passed
+     * through rather than guessed at.
+     */
+    fun orientationSourceName(label: String?): String? = when (label) {
+        null -> null
+        EntryOrientationSource.GAME_ROTATION_VECTOR.label -> "ไจโรสโคป"
+        EntryOrientationSource.ROTATION_VECTOR.label -> "ไจโรสโคปร่วมกับเข็มทิศ"
+        EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR.label -> "เข็มทิศ"
+        else -> label
+    }
+
+    /**
+     * A destination the owner can recognise but a reader of the chat cannot dial.
+     *
+     * The owner has to be able to confirm they set the right number — a fallback pointing
+     * at an old SIM is worse than none, and they cannot check it from where they are. The
+     * chat is not private enough for the whole number: it survives in Telegram's history,
+     * on any device still signed in, and in whatever backup that device keeps.
+     */
+    fun maskedSmsDestination(destination: String?): String? {
+        val digits = destination?.filter(Char::isDigit) ?: return null
+        if (digits.length < 4) return null
+        val head = digits.take(2)
+        val tail = digits.takeLast(2)
+        val hidden = digits.length - 4
+        val middle = buildString {
+            repeat(hidden) { index ->
+                // Grouped the way a Thai mobile number is read aloud, so the shape of the
+                // number the owner remembers is still visible through the mask.
+                if (index == 1 || index == 4) append('-')
+                append('x')
+            }
+        }
+        return "$head$middle$tail"
+    }
+
     /** Evidence-role labels approved by the spec (§3.3). */
     fun evidenceRoleLabel(role: SensorRole): String = when (role) {
         SensorRole.PRIMARY -> "ใช้ยืนยันหลัก"
