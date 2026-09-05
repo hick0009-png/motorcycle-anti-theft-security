@@ -8,6 +8,7 @@ import com.example.motorcycleantitheftsensor.protection.EntryArmedCalibrationSna
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.EntryModeFacts
 import com.example.motorcycleantitheftsensor.protection.EntryWatchLevel
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionModeContext
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
@@ -192,6 +193,118 @@ class HeartbeatCeilingWarningTest {
         verify(telegram).sendTelegramMessage(eq("12345"), messages.capture())
         assertTrue(messages.firstValue.contains("รายงานสถานะระบบ"))
         pinger.stopHeartbeat()
+    }
+}
+
+/**
+ * The ping arrives ninety-six times a day and used to say only that protection was on. An
+ * owner who keeps a door watch and a lamp watch set up could not tell which one was running.
+ */
+class HeartbeatModeLineTest {
+
+    private val nowMs = 1_700_000_000_000L
+
+    private fun snapshot(context: ProtectionModeContext?) =
+        ProtectionSnapshot.offline(nowMs).copy(
+            state = ProtectionState.ARMED_HEALTHY,
+            modeContext = context,
+        )
+
+    private fun ping(context: ProtectionModeContext?): String {
+        val prefs = mock(EncryptedPrefsManager::class.java)
+        val telegram = mock(TelegramBotClient::class.java)
+        `when`(prefs.getAllowedChatIds()).thenReturn(setOf("12345"))
+        `when`(prefs.isSystemArmed()).thenReturn(true)
+
+        val pinger = HeartbeatPinger(
+            context = mock(Context::class.java),
+            prefsManager = prefs,
+            telegramBotClient = telegram,
+            snapshotSupplier = { snapshot(context) },
+            nowMs = { nowMs },
+        )
+        HeartbeatPinger::class.java
+            .getDeclaredMethod("sendHeartbeatPing")
+            .apply { isAccessible = true }
+            .invoke(pinger)
+
+        val messages = argumentCaptor<String>()
+        verify(telegram).sendTelegramMessage(eq("12345"), messages.capture())
+        return messages.firstValue
+    }
+
+    @Test
+    fun theModeSitsBetweenTheProtectionLineAndTheClock() {
+        val message = ping(
+            ProtectionModeContext(
+                selectedProfile = ProtectionProfile.ENTRY,
+                entryLevel = EntryWatchLevel.DOOR_ANGLE,
+            ),
+        )
+        val lines = message.lines()
+
+        assertEquals("รายงานสถานะระบบ / System Status", lines[0])
+        assertEquals("บริการ: ออนไลน์ | Service: Online", lines[1])
+        assertEquals("การป้องกัน: เปิดใช้งาน | Protection: Armed", lines[2])
+        assertEquals("โหมด: ประตูและทางเข้า · มุมประตู (วัดองศาได้)", lines[3])
+        assertTrue(lines[4].startsWith("รายงานเมื่อ: "))
+        assertEquals(5, lines.size)
+    }
+
+    /** Never a guess: the customer who has never chosen a mode is told so. */
+    @Test
+    fun anUnchosenModeIsSaidOutLoudRatherThanGuessed() {
+        val message = ping(ProtectionModeContext(selectedProfile = null))
+        assertTrue(message.contains("โหมด: ยังไม่ได้เลือก (เปิดแอปเพื่อเลือกโหมด)"))
+    }
+
+    /**
+     * Mid-switch the old mode has stopped and the new one is not armed, so naming either
+     * would claim a watch that is not running.
+     */
+    @Test
+    fun midSwitchThePingNamesNeitherModeAsWatching() {
+        val message = ping(
+            ProtectionModeContext(
+                selectedProfile = ProtectionProfile.VEHICLE,
+                switchingTo = ProtectionProfile.POWER,
+            ),
+        )
+        assertTrue(
+            message.contains("โหมด: กำลังสลับ ยานพาหนะ → ไฟเลี้ยงจุดติดตั้ง (ระหว่างนี้ยังไม่มีการเฝ้า)"),
+        )
+    }
+
+    /** A build with no protection layer to ask sends exactly the message it always sent. */
+    @Test
+    fun aPingWithNoModeContextCarriesNoModeLine() {
+        val message = ping(context = null)
+        assertFalse(message.contains("โหมด"))
+        assertEquals(4, message.lines().size)
+    }
+
+    /**
+     * The heartbeat is the third surface to answer "what is being watched". It has to answer
+     * it with the same words as `/status` and the state-change alerts, which means the
+     * catalog's words and no copy of its own.
+     */
+    @Test
+    fun everyModeLineComesFromTheCatalog() {
+        val cases = listOf(
+            ProtectionProfile.VEHICLE to null,
+            ProtectionProfile.ENTRY to EntryWatchLevel.DOOR_ANGLE,
+            ProtectionProfile.ENTRY to EntryWatchLevel.SOUND_AND_MOVEMENT,
+            ProtectionProfile.POWER to null,
+        )
+        for ((profile, level) in cases) {
+            val message = ping(
+                ProtectionModeContext(selectedProfile = profile, entryLevel = level),
+            )
+            assertEquals(
+                "โหมด: " + PresentationTextCatalog.modeName(profile, level),
+                message.lines()[3],
+            )
+        }
     }
 }
 

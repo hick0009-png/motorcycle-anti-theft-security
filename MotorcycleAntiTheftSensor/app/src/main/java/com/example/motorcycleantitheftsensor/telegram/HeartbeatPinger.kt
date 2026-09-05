@@ -4,6 +4,8 @@ import android.content.Context
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.protection.BreadcrumbDomain
 import com.example.motorcycleantitheftsensor.protection.BreadcrumbEvent
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionModeContext
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -113,15 +115,51 @@ class HeartbeatPinger(
             timeZone = TimeZone.getTimeZone("Asia/Bangkok")
         }.format(Date())
 
+        // Placed under the protection line and above the timestamp: an owner reading
+        // this on a lock screen needs "armed" and "at what" together, and the clock last.
+        val modeLine = modeLine()?.let { "$it\n" } ?: ""
+
         for (chatId in allowedChatIds) {
             telegramBotClient.sendTelegramMessage(
                 chatId,
                 "รายงานสถานะระบบ / System Status\n" +
                     "บริการ: ออนไลน์ | Service: Online\n" +
                     "การป้องกัน: $protectionStatus\n" +
+                    modeLine +
                     "รายงานเมื่อ: $timestamp",
             )
         }
+    }
+
+    /**
+     * Which mode this ping speaks for, or null when this build has no protection layer
+     * to ask.
+     *
+     * Every fifteen minutes for the whole of an overnight watch, this message said only
+     * that protection was on. An owner who keeps a door watch and a lamp watch set up
+     * could not tell from it which one was running — the fault `/status` and the
+     * state-change alerts were both rebuilt to remove, arriving here ninety-six times a
+     * day. The words are [PresentationTextCatalog]'s, so this cannot answer differently
+     * from either of them.
+     */
+    private fun modeLine(): String? {
+        val context = snapshotSupplier?.invoke()?.modeContext ?: return null
+        return "โหมด: " + modeDescription(context)
+    }
+
+    private fun modeDescription(context: ProtectionModeContext): String {
+        // Mid-switch the old mode has stopped and the new one is not armed. A ping that
+        // named either would claim a watch that is not running.
+        val switchingTo = context.switchingTo
+        if (switchingTo != null && switchingTo != context.selectedProfile) {
+            val from = context.selectedProfile?.let { PresentationTextCatalog.profile(it).name }
+                ?: "ยังไม่ได้เลือก"
+            val to = PresentationTextCatalog.profile(switchingTo).name
+            return "กำลังสลับ $from → $to (ระหว่างนี้ยังไม่มีการเฝ้า)"
+        }
+        val profile = context.selectedProfile
+            ?: return "ยังไม่ได้เลือก (เปิดแอปเพื่อเลือกโหมด)"
+        return PresentationTextCatalog.modeName(profile, context.entryLevel)
     }
 
     /**

@@ -51,19 +51,23 @@ object PresentationTextCatalog {
     }
 
     /**
-     * "โหมดประตูและทางเข้า · มุมประตู (วัดองศาได้)" — the mode, named the way an alert has room for.
+     * "ประตูและทางเข้า · มุมประตู (วัดองศาได้)" — the mode, for a line that already says โหมด.
      *
      * The level rides along only where it changes the answer, which is the door watch and
      * nowhere else.
      */
-    fun modeLabel(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String {
-        val name = "โหมด" + profile(profile).name
+    fun modeName(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String {
+        val name = profile(profile).name
         return if (profile == ProtectionProfile.ENTRY && entryLevel != null) {
             "$name · " + entryLevelLabel(entryLevel)
         } else {
             name
         }
     }
+
+    /** The same name where nothing else on the line supplies the word โหมด. */
+    fun modeLabel(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String =
+        "โหมด" + modeName(profile, entryLevel)
 
     /**
      * Why a profile locks the sensors it does not use, in the owner's words.
