@@ -111,9 +111,9 @@ ProtectionStatusProjection.evaluate(snapshot, wall, elapsed, live)
 
 ## 6. หนี้ที่เหลือ
 
-- **คู่มือ PDF ยังเป็นของเก่า** — แก้ `docs/MotorcycleAntiTheftSensor_User_Manual.html` แล้ว
-  แต่ยังไม่ได้ re-render เป็น PDF (`MotorcycleAntiTheftSensor_User_Manual_v2.5.pdf`
-  กับ `docs/...User_Manual.pdf` เป็นไฟล์เดียวกัน byte ต่อ byte)
+- ~~คู่มือ PDF ยังเป็นของเก่า~~ — **จบแล้ว** re-render จาก HTML เรียบร้อย (13 → 14 หน้า)
+  และลบสำเนาซ้ำ `MotorcycleAntiTheftSensor_User_Manual_v2.5.pdf` ที่รากทิ้ง
+  (มันเป็นไฟล์เดียวกับ `docs/...User_Manual.pdf` ทุก byte ไม่ใช่คนละเวอร์ชัน)
 - **S6 ยังไม่ได้ทดสอบบนเครื่องจริง** — `liveDoorAngleDeg` / `liveWitnessLit` /
   `liveConfirmationCountdownMs` ผ่านเทสต์ระดับ host แต่ยังไม่เคยเห็นค่าจริงจากเซ็นเซอร์
 - **ยังไม่ทำ (ตาม §12):** `/status <โหมด>` · inline keyboard ·
@@ -127,3 +127,19 @@ cd D:\security\MotorcycleAntiTheftSensor
 set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr
 gradlew --offline --no-daemon --max-workers=1 testDebugUnitTest
 ```
+
+## 8. สร้างคู่มือ PDF ใหม่
+
+`docs/MotorcycleAntiTheftSensor_User_Manual.html` คือต้นฉบับ · PDF เป็นผลผลิต
+เดิมสร้างด้วย Chrome print-to-PDF (metadata ของไฟล์เก่าเขียนว่า `Skia/PDF m151`)
+ไม่มีสคริปต์ในรีโป จึงบันทึกคำสั่งไว้ตรงนี้:
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu ^
+  --no-pdf-header-footer ^
+  --print-to-pdf="D:\security\docs\MotorcycleAntiTheftSensor_User_Manual.pdf" ^
+  "file:///D:/security/docs/MotorcycleAntiTheftSensor_User_Manual.html"
+```
+
+**แก้ HTML แล้วต้องรันคำสั่งนี้เสมอ** ไม่งั้น PDF กับ HTML จะพูดคนละเรื่องกันเงียบ ๆ
+ซึ่งเป็นสิ่งที่เกิดขึ้นมาแล้วรอบนี้
