@@ -1477,6 +1477,16 @@ class ProtectionCoordinator(
         armedEntryLevel.get() == EntryWatchLevel.SOUND_AND_MOVEMENT
 
     /**
+     * Whether the running session is the door watch measuring an angle. At this level the
+     * orientation verdict from the dedicated Entry listener is the only host; a raw movement
+     * sample reaching the engine is corroboration, never an alarm of its own. The engine needs
+     * to be told, because the source role stamped upstream still reads PRIMARY for the
+     * orientation sensors the general detector set also samples.
+     */
+    fun doorAngleWatchArmed(): Boolean =
+        armedEntryLevel.get() == EntryWatchLevel.DOOR_ANGLE
+
+    /**
      * Whether this armed session has a movement signal that could vouch for a door verdict.
      *
      * The door watch reads an angle, and an angle moves on its own: the orientation a still

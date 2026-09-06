@@ -48,6 +48,9 @@ class IncidentEngine(
     /** Set per call from [accept]; see that parameter for why the caller owns this. */
     private var soundAndMovementDoorWatch: Boolean = false
 
+    /** Set per call from [accept]; see that parameter for why the caller owns this. */
+    private var doorAngleWatch: Boolean = false
+
     @Synchronized
     fun accept(
         observation: SensorObservation,
@@ -66,8 +69,18 @@ class IncidentEngine(
          * reading, which is what every caller got before this existed.
          */
         soundAndMovementDoorWatch: Boolean = false,
+        /**
+         * Whether the armed use is the door watch running at the angle level. Here the
+         * orientation verdict is the sole host and arrives with its own entry diagnostic;
+         * every other movement sample that reaches an opening decision is a raw orientation
+         * or accelerometer tick that `signalRoles(ENTRY, DOOR_ANGLE)` makes supporting, even
+         * though the source role stamped upstream still reads PRIMARY. A caller that does not
+         * say gets the vehicle reading, which is what every caller got before this existed.
+         */
+        doorAngleWatch: Boolean = false,
     ): IncidentUpdate {
         this.soundAndMovementDoorWatch = soundAndMovementDoorWatch
+        this.doorAngleWatch = doorAngleWatch
         if (protectionState !in ACTIVE_PROTECTION_STATES) {
             clearAllPrecursors()
             return IncidentUpdate.Ignored
@@ -573,11 +586,28 @@ class IncidentEngine(
         return role == SensorRole.PRIMARY
     }
 
+    /**
+     * Whether this signal is allowed to host — open or re-type — an incident of its own.
+     *
+     * At the door-angle level the orientation verdict is the only host, and it is dispatched
+     * to [acceptEntry] by its entry diagnostic before any opening decision runs here. Every
+     * raw movement sample that reaches one is therefore a bare orientation or accelerometer
+     * tick that `signalRoles(ENTRY, DOOR_ANGLE)` makes supporting, yet the source role stamped
+     * upstream still reads PRIMARY. Demote it here so it corroborates — it has already advanced
+     * the movement clock, and may still join an open door incident as evidence — but can never
+     * start or relabel a generic incident. Two orientation pipelines read the same sensor at
+     * this level; without this the raw one opens a vehicle-shaped incident beside the door one.
+     */
+    private fun hostsIncident(role: SensorRole?, kind: SensorKind?): Boolean {
+        if (doorAngleWatch && kind == SensorKind.VIBRATION) return false
+        return isPrimaryRole(role)
+    }
+
     private fun hasPrimaryRole(vararg items: Any?): Boolean {
         return items.any { item ->
             when (item) {
-                is SensorObservation -> isPrimaryRole(item.role)
-                is IncidentEvidence -> isPrimaryRole(item.role)
+                is SensorObservation -> hostsIncident(item.role, item.kind)
+                is IncidentEvidence -> hostsIncident(item.role, item.kind)
                 else -> false
             }
         }

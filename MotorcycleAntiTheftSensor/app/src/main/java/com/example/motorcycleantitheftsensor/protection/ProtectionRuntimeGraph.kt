@@ -441,6 +441,7 @@ object ProtectionRuntimeGraph {
                                 location = batch.location,
                                 movementCorroborationArmed = coordinator.movementCorroborationArmed(),
                                 soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
+                                doorAngleWatch = coordinator.doorAngleWatchArmed(),
                             )
                         } else {
                             IncidentUpdate.Ignored
@@ -455,6 +456,7 @@ object ProtectionRuntimeGraph {
                                     location = batch.location,
                                     movementCorroborationArmed = coordinator.movementCorroborationArmed(),
                                     soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
+                                    doorAngleWatch = coordinator.doorAngleWatchArmed(),
                                 )
                                 evidenceUpdate.incidentOrNull()?.let { latest -> update.withIncident(latest) } ?: update
                             }
