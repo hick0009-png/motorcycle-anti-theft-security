@@ -4,20 +4,87 @@
 > รอบก่อนหน้า (วัดการไหลของมุมเอง + คอลัมน์กล่องดำ) อยู่ใน
 > `checkpoint-2026-09-05-entry-drift-auto-and-blackbox-columns.md`
 
+> **อัปเดตล่าสุด (รอบที่ 2 ของ 2026-09-06):** คำว่า "รถ" ในโหมดประตู **แก้ถึงต้นตอแล้ว**
+> (ไม่ใช่แค่เปลี่ยนคำ) + เพิ่มปุ่มปรับเทียบประตูใหม่ · รายละเอียดใน
+> [ส่วน "รอบที่ 2"](#รอบที่-2-แก้คำว่ารถถึงต้นตอ--ปุ่มปรับเทียบใหม่-2026-09-06) ด้านล่าง
+
 ## Resume point
 
 - **Worktree:** `D:\security` · **Branch:** `feature/motorcycle-guard-protection`
-- **โค้ดล่าสุด:** `8ed0e54` — `feat(sms): the radio's reason for refusing reaches the file`
-- **ยังไม่ push** — นำหน้า `origin` **59 commit** (10 ของรอบนี้)
-- **เทสต์ ณ HEAD:** host **1342 ผ่าน 0 fail** (เริ่มรอบนี้ที่ 1195 → +147) ·
-  `compileDebugAndroidTestKotlin` ผ่าน · instrumented ยังไม่ได้รันรอบนี้
-- **เครื่องทดสอบ:** Huawei INE-LX2 `JUCDU18811013149` — ติดตั้งบิลด์จาก `8ed0e54` แล้ว
+- **โค้ดล่าสุด:** `690ff76` — `feat(entry): a commissioned door watch can be recalibrated…`
+  (รอบที่ 2 เพิ่ม 3 commit บน `8ff765f`: `0a78c2d`, `38b0233`, `690ff76`)
+- **ยังไม่ push** — นำหน้า `origin/main` **109 commit** (วัดด้วย `git rev-list`; +3 รอบที่ 2)
+- **เทสต์ ณ HEAD:** host **1349 ผ่าน 0 fail** (รอบที่ 2: 1342 → +7) ·
+  `compileDebugAndroidTestKotlin` ผ่าน · instrumented **ยังไม่ได้รัน** (ไม่มี emulator/ไม่ได้รัน `connectedDebugAndroidTest`)
+- **เครื่องทดสอบ:** Huawei INE-LX2 `JUCDU18811013149` — **ติดตั้งบิลด์จาก `690ff76` แล้ว** (2026-09-06 14:48)
   สถานะเมื่อจบรอบ: **ปลดการป้องกันแล้ว** · โหมดที่เลือกคือ ENTRY (ปรับเทียบไว้แล้ว 15°) ·
-  wifi + mobile data เปิดปกติ · `svc power stayon` คืนค่าเดิมแล้ว · แบต ~31% เสียบสายอยู่
+  หน้าปกป้อง · แบต ~50% เสียบสายอยู่
   Telegram **จับคู่แล้วและใช้งานได้** · ปลายทาง SMS **ตั้งไว้แล้ว**
 - **adb ไม่อยู่ใน PATH:** `C:\Users\ASUS\AppData\Local\Android\Sdk\platform-tools\adb.exe`
   ใน Git Bash ต้อง `export MSYS_NO_PATHCONV=1` ก่อน ไม่งั้น `/sdcard/...` จะถูกแปลงเป็น path วินโดวส์
 - **JAVA_HOME:** `C:\Program Files\Android\Android Studio\jbr` (ดู `scripts/setup_env.ps1`)
+
+---
+
+## รอบที่ 2: แก้คำว่ารถถึงต้นตอ + ปุ่มปรับเทียบใหม่ (2026-09-06)
+
+เจ้าของส่ง **ภาพข้อความ Telegram จริง** มาให้ (ก่อนแก้) นั่นคือสิ่งที่ checkpoint เดิม
+บอกว่ายังขาด — "ยังไม่ยืนยันว่าข้อความจริงคือฉบับไหน" ภาพนั้นเปลี่ยนงานทั้งรอบ
+
+### 3 commit ของรอบนี้
+
+| commit | เรื่อง |
+|---|---|
+| `0a78c2d` | คำพูดโหมดประตูเลือกตาม**โหมด**ไม่ใช่**เซ็นเซอร์** (`watchedSubject()` อ่าน `armedProfileSnapshot`) — **เกราะชั้นสอง** |
+| `38b0233` | movement ดิบในโหมดวัดองศาเป็น**แค่ยืนยัน** ไม่เปิดเหตุผี (`doorAngleWatch` flag) — **แก้ต้นตอ** |
+| `690ff76` | ปุ่ม "ปรับเทียบประตูใหม่" หลัง commissioning เสร็จ |
+
+### 🔑 ต้นตอที่เจอ: โหมดวัดองศามี "2 ท่อ" อ่านเซ็นเซอร์หมุนตัวเดียวกัน
+
+ภาพเจ้าของแสดงเหตุ **"การเคลื่อนไหวผิดปกติ" (VIBRATION)** พร้อม 30+ บรรทัด
+`• รถถูกขยับ… Δ 8.12 … 24.38` ทั้งที่อยู่โหมดประตู "มุมประตู (วัดองศาได้)" สาเหตุจริง:
+
+- **ท่อ A (ถูก):** `AndroidProtectionRuntime.registerEntryOrientationSource` มี listener เฉพาะ
+  ของตัวเอง อ่าน rotation vector → `EntryDetectionPolicy` → verdict ที่มี **entry diagnostic**
+  → `IncidentEngine.acceptEntry` → เหตุ `ENTRY_DOOR` ("🚪 ตรวจพบประตูเปิด")
+- **ท่อ B (ผี):** `recommendedRoles(ENTRY)` ตั้ง ROTATION_VECTOR/GYROSCOPE = **PRIMARY**
+  → `SensorCapabilityController` รัน adapter บน source เดียวกันนั้นด้วย → `SensorObservationNormalizer.mapKind`
+  แปลง **ทุก source ที่ไม่ใช่ LIGHT → `SensorKind.VIBRATION`** → observation ดิบ (role=PRIMARY,
+  **ไม่มี** entry diagnostic) → `IncidentEngine` เปิดเหตุ VIBRATION ทั่วไปคู่ขนาน
+
+**ความขัดแย้งในโค้ด:** `signalRoles(ENTRY, DOOR_ANGLE)` ตั้งใจให้ VIBRATION = SUPPORTING
+(ยืนยันเท่านั้น) แต่ role ระดับ **source** ที่ stamp มา ยังเป็น PRIMARY → engine เชื่อ source เลยเปิดเหตุ
+อันเดียวนี้อธิบายครบทั้ง 3 อาการ: ผิดชนิด (VIBRATION), 30+ บรรทัดซ้ำ (rotation ยิงถี่), และคำว่า "รถ"
+
+### 🔑 ทางแก้ (แบบ C — flag ที่ engine, สมมาตรกับ `soundAndMovementDoorWatch`)
+
+- `IncidentEngine` เพิ่ม flag `doorAngleWatch` + helper `hostsIncident(role, kind)` — ในโหมดวัดองศา
+  VIBRATION ถูกปลดจากการเป็น "host" ที่ประตูเดียว (`hasPrimaryRole`) ที่ทุก path การเปิดเหตุใช้ร่วมกัน
+- ยัง**อัปเดต movement clock** (ให้ประตู corroborate) และยัง **join เหตุ ENTRY_DOOR ที่เปิดอยู่**
+  ได้ (ฟีเจอร์ "ตรวจพบแรงกระแทกที่ประตู" ไม่พัง) — แค่ห้าม "เปิด/เปลี่ยนชนิด" เหตุ generic
+- wire: `ProtectionCoordinator.doorAngleWatchArmed()` (= entry level เป็น DOOR_ANGLE) →
+  `ProtectionRuntimeGraph` ส่งเข้า `accept()` ทั้ง 2 จุด
+- **ถ้าเผลอเปลี่ยน `hostsIncident` ให้ VIBRATION เป็น host อีก บั๊กเหตุผีจะกลับมาทันที**
+
+> `IncidentMessagePresentationFactory` (ที่ใช้ `incidentTitle`="🚨 รถอาจถูกเคลื่อนย้าย" /
+> `formatEvidence`="มุมของรถ…") **ไม่มี caller ใน main** — อ้างจากเทสต์เท่านั้น ไม่ได้อยู่บนเส้นทาง
+> push จริง คำว่า "รถ" ที่เหลือใน `PresentationTextCatalog` 644/776/778/781 โผล่เฉพาะ**หน้าประวัติ
+> เหตุการณ์ (Events UI)** ซึ่ง `SecurityIncident` ไม่ได้เก็บโหมดไว้ → แก้ต้องเพิ่ม field ก่อน = งานแยก
+
+### ✅ ยืนยันบนเครื่องจริงแล้ว (Huawei INE-LX2, 2026-09-06 14:48–14:50)
+
+- **งานที่ 3 (ปุ่มปรับเทียบใหม่) — ครบวงจร:** ติดตั้ง `690ff76` → เปิดแอป → โหมด ENTRY หน้า READY
+  แสดงปุ่ม **"ปรับเทียบประตูใหม่"** ใต้ "ปรับมุมแจ้งเตือน" → กดแล้วกางฟอร์มเต็ม (หัวข้อ
+  "ปรับเทียบแนวประตูใหม่" + สไลเดอร์มุม 5/15/30 + close deadband + แกนบานพับ) → ปุ่ม
+  "ยกเลิกการปรับเทียบใหม่" ถอยกลับ READY โดยโมเดลเดิมยังอยู่ (screenshots ใน scratchpad รอบนี้)
+
+### ⏳ ยังไม่ยืนยัน — ต้องมีเหตุจริง (ทำระยะไกลแทนไม่ได้)
+
+- **งานที่ 1+2 (คำว่ารถ + เหตุผี VIBRATION):** build ติดตั้งแล้ว แต่ต้อง **ขยับ/เปิดประตูจริง**
+  ถึงจะเห็นข้อความ — adb ฉีด rotation-vector sample บนเครื่องจริงไม่ได้ ต้องมีคนอยู่กับเครื่อง
+  เกณฑ์ผ่าน: เหตุขึ้นเป็น **"🚪 ตรวจพบประตูเปิด"** ไม่ใช่ "การเคลื่อนไหวผิดปกติ" และไม่มีบรรทัด "รถ"
+- **instrumented test** `readyEntrySummaryOffersRecalibrationBackIntoTheSetupForm` (เพิ่มแล้ว,
+  compile ผ่าน) ยังไม่ได้รันจริง — ต้อง `connectedDebugAndroidTest` (จะถอนแอป = ล้าง token/pairing/calibration)
 
 ---
 
@@ -106,7 +173,13 @@
 
 ## งานที่ยังไม่ได้ทำ — เรียงตามที่ควรทำก่อน
 
-### 1. 🔴 คำว่า "รถ" ยังโผล่ในข้อความของโหมดประตู
+> **หมายเหตุ:** งานที่ 1 ด้านล่างเป็นการวิเคราะห์ **ตอนต้นรอบที่ 2** — ตอนนี้ **แก้แล้ว**
+> (ทั้งเกราะคำ `0a78c2d` และต้นตอ `38b0233`) ดูสรุปจริงใน
+> [ส่วน "รอบที่ 2"](#รอบที่-2-แก้คำว่ารถถึงต้นตอ--ปุ่มปรับเทียบใหม่-2026-09-06) เก็บบันทึกนี้ไว้เป็น
+> ที่มาของการวิเคราะห์ · **สิ่งที่ยังค้าง:** ยืนยันบนเครื่องจริงด้วยเหตุประตูจริง + คำว่า "รถ" ในหน้า
+> ประวัติเหตุการณ์ (Events UI) ที่ยังไม่แก้ (ต้องเพิ่ม field โหมดใน `SecurityIncident` ก่อน = งานแยก)
+
+### 1. ✅ (แก้แล้วรอบที่ 2) คำว่า "รถ" ยังโผล่ในข้อความของโหมดประตู
 
 **อาการ:** เจ้าของรายงานว่าข้อความที่ส่งมา Telegram (รวมข้อความส่งย้อนหลัง) ยังมีคำว่า "รถ"
 ทั้งที่กำลังใช้โหมดเฝ้าประตู
