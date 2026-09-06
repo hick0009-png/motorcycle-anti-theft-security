@@ -55,7 +55,15 @@ data class DeliveryAttempt(
     val state: DeliveryState,
     val attemptedAtMs: Long,
     val detail: String? = null,
-)
+) {
+    companion object {
+        /**
+         * Marks an attempt made by the redelivery sweep rather than by the event itself, so
+         * the sweep's own budget can be counted apart from what the incident did live.
+         */
+        const val REDELIVERY = "redelivery"
+    }
+}
 
 data class SecurityIncident(
     val id: String,

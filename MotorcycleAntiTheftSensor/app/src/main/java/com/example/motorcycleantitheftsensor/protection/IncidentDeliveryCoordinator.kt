@@ -203,10 +203,15 @@ class IncidentDeliveryCoordinator(
             if (error is CancellationException) throw error
             false
         }
+        // Marked so the sweep can count its own attempts apart from the ones the event made
+        // live: a door held open while offline fails a dozen times in half a minute, and a
+        // budget that counted those would be spent before the network ever came back.
+        val attemptDetail = if (delayedByMs == null) null else DeliveryAttempt.REDELIVERY
         val telegramAttempt = DeliveryAttempt(
             channel = DeliveryChannel.TELEGRAM,
             state = if (telegramSent) DeliveryState.SENT else DeliveryState.FAILED,
             attemptedAtMs = incident.updatedAtMs,
+            detail = attemptDetail,
         )
 
         val smsEligible = !telegramSent &&
@@ -228,6 +233,7 @@ class IncidentDeliveryCoordinator(
                 channel = DeliveryChannel.SMS,
                 state = if (smsSent) DeliveryState.SENT else DeliveryState.FAILED,
                 attemptedAtMs = incident.updatedAtMs,
+                detail = attemptDetail,
             )
         } else {
             pending.deliveryAttempts + telegramAttempt

@@ -47,10 +47,36 @@ class IncidentRedeliveryPolicyTest {
     fun anIncidentTriedEnoughTimesStopsBeingTried() {
         val exhausted = failed("tried", at = 1_000L)
             .copy(deliveryAttempts = List(IncidentRedeliveryPolicy.DEFAULT_MAX_REMOTE_ATTEMPTS) { attempt ->
-                DeliveryAttempt(DeliveryChannel.TELEGRAM, DeliveryState.FAILED, attemptedAtMs = 1_000L + attempt)
+                DeliveryAttempt(
+                    DeliveryChannel.TELEGRAM,
+                    DeliveryState.FAILED,
+                    attemptedAtMs = 1_000L + attempt,
+                    detail = DeliveryAttempt.REDELIVERY,
+                )
             })
 
         assertTrue(policy.select(listOf(exhausted), nowMs = 2_000L).isEmpty())
+    }
+
+    /**
+     * From the device: a door held open while the phone was offline raised an update every two
+     * seconds, each a full delivery that failed, and left twenty-nine attempts on one incident
+     * inside thirty seconds. Counting those against the sweep's budget of six disqualified the
+     * alert from ever being resent — the sweep declining to run in the one case it exists for.
+     */
+    @Test
+    fun aBurstOfLiveFailuresDoesNotSpendTheSweepsBudget() {
+        val hammered = failed("door-held-open", at = 1_000L).copy(
+            deliveryAttempts = List(29) { attempt ->
+                DeliveryAttempt(
+                    if (attempt % 2 == 0) DeliveryChannel.TELEGRAM else DeliveryChannel.SMS,
+                    DeliveryState.FAILED,
+                    attemptedAtMs = 1_000L + attempt,
+                )
+            },
+        )
+
+        assertEquals(listOf("door-held-open"), policy.select(listOf(hammered), nowMs = 2_000L).map { it.id })
     }
 
     @Test

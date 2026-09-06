@@ -36,8 +36,18 @@ class IncidentRedeliveryPolicy(
         .take(maxPerFlush)
         .toList()
 
+    /**
+     * Only what this sweep has already spent on the incident.
+     *
+     * Counting every remote attempt looked equivalent and was not. A door held open while the
+     * phone is offline raises an update every couple of seconds, each one a full delivery that
+     * fails: the device test produced twenty-nine attempts on a single incident inside thirty
+     * seconds. Against a budget of six, the alert was disqualified from being resent before
+     * the network had even come back — the sweep refusing to run in exactly the case it exists
+     * for. The budget is there to stop the sweep looping, so it counts the sweep.
+     */
     private fun SecurityIncident.remoteAttempts(): Int = deliveryAttempts.count { attempt ->
-        attempt.channel == DeliveryChannel.TELEGRAM || attempt.channel == DeliveryChannel.SMS
+        attempt.detail == DeliveryAttempt.REDELIVERY
     }
 
     /**
