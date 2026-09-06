@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -183,6 +184,76 @@ class SmsFallbackManagerTest {
         val res2 = second.await()
 
         assertTrue("One call must succeed and one must be rejected due to cooldown mutex", res1 xor res2)
+    }
+
+    /**
+     * Every one of these used to answer `false`, and the black box could therefore say nothing
+     * about the owner's last channel: a night with no SMS read the same whether none was ever
+     * configured, the rate limit held one back, or the radio refused it.
+     */
+    @Test
+    fun eachWayASendCanFailIsNamed() = runTest {
+        val dispatcher = FakeSmsDispatcher()
+
+        val noKey = SmsFallbackManager(
+            smsKeyProvider = { null },
+            dispatcher = dispatcher,
+            nowMs = { 1_000L },
+        )
+        assertEquals(SmsSendOutcome.NO_KEY, noKey.send("+15555550123", alert))
+
+        val noDestination = SmsFallbackManager(
+            smsKeyProvider = { deviceKey },
+            dispatcher = dispatcher,
+            nowMs = { 1_000L },
+        )
+        assertEquals(SmsSendOutcome.NO_DESTINATION, noDestination.send("   ", alert))
+
+        val refused = SmsFallbackManager(
+            smsKeyProvider = { deviceKey },
+            dispatcher = SmsDispatcher { _, _, _ -> throw SecurityException("permission denied") },
+            nowMs = { 1_000L },
+            sendTimeoutMs = 30_000L,
+        )
+        assertEquals(SmsSendOutcome.FAILED, refused.send("+15555550123", alert))
+    }
+
+    @Test
+    fun aSendHeldBackByTheRateLimitIsNotReportedAsAFailure() = runTest {
+        val dispatcher = FakeSmsDispatcher()
+        var clock = 1_000L
+        val manager = SmsFallbackManager(
+            smsKeyProvider = { deviceKey },
+            dispatcher = dispatcher,
+            nowMs = { clock },
+            sendTimeoutMs = 30_000L,
+            minIntervalMs = 60_000L,
+        )
+
+        val first = async { manager.send("+15555550123", alert) }
+        runCurrent()
+        dispatcher.complete(true)
+        assertEquals(SmsSendOutcome.SENT, first.await())
+
+        clock += 1_000L
+        assertEquals(SmsSendOutcome.RATE_LIMITED, manager.send("+15555550123", alert))
+    }
+
+    @Test
+    fun aRadioThatNeverConfirmsIsATimeoutRatherThanARefusal() = runTest {
+        val manager = SmsFallbackManager(
+            smsKeyProvider = { deviceKey },
+            dispatcher = SmsDispatcher { _, _, _ -> {} },
+            nowMs = { 1_000L },
+            sendTimeoutMs = 100L,
+        )
+
+        val result = async { manager.send("+15555550123", alert) }
+        runCurrent()
+        advanceTimeBy(101L)
+        runCurrent()
+
+        assertEquals(SmsSendOutcome.TIMED_OUT, result.await())
     }
 }
 

@@ -6,6 +6,7 @@ import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telephony.SmsFallbackManager
+import com.example.motorcycleantitheftsensor.telephony.SmsSendOutcome
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -202,9 +203,20 @@ object ProtectionRuntimeGraph {
             sms = IncidentTransport { message ->
                 val destination = preferences.getSmsDestination()
                 if (destination.isNullOrBlank()) {
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.SMS,
+                        BreadcrumbEvent.DENIED,
+                        listOf(BreadcrumbDetail.NOT_CONFIGURED),
+                    )
                     false
                 } else {
-                    sms.sendEncryptedSmsAlert(destination, message)
+                    val outcome = sms.send(destination, message)
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.SMS,
+                        outcome.breadcrumbEvent(),
+                        outcome.breadcrumbDetails(),
+                    )
+                    outcome == SmsSendOutcome.SENT
                 }
             },
             labelResolver = labelResolver,
@@ -282,14 +294,27 @@ object ProtectionRuntimeGraph {
                 DeliveryAction.SEND_CLOSE_SUMMARY,
                 -> {
                     coordinator.recordIncident(incident)
+                    // The key is generated on demand, so a destination is the only thing the
+                    // owner still has to supply.
+                    val smsConfigured = withContext(Dispatchers.IO) {
+                        !preferences.getSmsDestination().isNullOrBlank()
+                    }
                     val delivered = withContext(Dispatchers.IO) {
                         delivery.deliver(
                             update = update,
-                            configuration = DeliveryConfiguration(
-                                // The key is generated on demand, so a destination is the
-                                // only thing the owner still has to supply.
-                                smsConfigured = !preferences.getSmsDestination().isNullOrBlank(),
-                            ),
+                            configuration = DeliveryConfiguration(smsConfigured = smsConfigured),
+                        )
+                    }
+                    if (delivered.deliveryState == DeliveryState.FAILED && !smsConfigured) {
+                        // Nothing reached the owner and there is no second way to reach them.
+                        // Recorded here because the fallback itself is never called in this
+                        // case, so the only place that knows is the one that skipped it — and
+                        // a silent night explained by an absent fallback is exactly what a
+                        // reader of this file comes looking for.
+                        breadcrumbRelay.note(
+                            BreadcrumbDomain.SMS,
+                            BreadcrumbEvent.DENIED,
+                            listOf(BreadcrumbDetail.NOT_CONFIGURED),
                         )
                     }
                     coordinator.recordIncident(delivered)

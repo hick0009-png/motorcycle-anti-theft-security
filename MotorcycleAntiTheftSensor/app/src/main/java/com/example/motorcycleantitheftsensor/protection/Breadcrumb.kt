@@ -1,5 +1,7 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.telephony.SmsSendOutcome
+
 /**
  * The subsystem a breadcrumb came from, and how many rows an hour belong to it alone.
  *
@@ -67,6 +69,33 @@ enum class BreadcrumbEvent(val code: String) {
 }
 
 /**
+ * How one SMS fallback attempt reads in the file.
+ *
+ * The split that matters is [BreadcrumbEvent.DENIED] against [BreadcrumbEvent.FAILED]: a
+ * fallback that decided not to send is a working fallback, and a reader who cannot tell that
+ * from a refused radio goes hunting a fault that never happened.
+ */
+fun SmsSendOutcome.breadcrumbEvent(): BreadcrumbEvent = when (this) {
+    SmsSendOutcome.SENT -> BreadcrumbEvent.OK
+    SmsSendOutcome.NO_KEY,
+    SmsSendOutcome.NO_DESTINATION,
+    SmsSendOutcome.RATE_LIMITED,
+    -> BreadcrumbEvent.DENIED
+    SmsSendOutcome.TIMED_OUT,
+    SmsSendOutcome.FAILED,
+    -> BreadcrumbEvent.FAILED
+}
+
+fun SmsSendOutcome.breadcrumbDetails(): List<BreadcrumbDetail> = when (this) {
+    SmsSendOutcome.SENT -> emptyList()
+    SmsSendOutcome.NO_KEY -> listOf(BreadcrumbDetail.NO_KEY)
+    SmsSendOutcome.NO_DESTINATION -> listOf(BreadcrumbDetail.NOT_CONFIGURED)
+    SmsSendOutcome.RATE_LIMITED -> listOf(BreadcrumbDetail.RATE_LIMITED)
+    SmsSendOutcome.TIMED_OUT -> listOf(BreadcrumbDetail.TIMEOUT)
+    SmsSendOutcome.FAILED -> listOf(BreadcrumbDetail.UNKNOWN)
+}
+
+/**
  * A breadcrumb destination chosen later than the code that writes to it.
  *
  * The runtime graph is built before there is a file to write into: the recorder belongs to the
@@ -130,6 +159,13 @@ enum class BreadcrumbDetail(val code: String) {
     TIMEOUT("timeout"),
     NO_NETWORK("nonet"),
     UNKNOWN("unknown"),
+
+    // Why a fallback did not carry a message, as a class. A reader who finds no SMS after a
+    // failed alert has to be able to tell "never set up" from "refused on purpose" from
+    // "tried and did not go", because those are three different things to do about it.
+    NOT_CONFIGURED("noconf"),
+    NO_KEY("nokey"),
+    RATE_LIMITED("limited"),
 
     // Which capability. Named for the permission, not for the API that grants it.
     PERM_LOCATION("loc"),

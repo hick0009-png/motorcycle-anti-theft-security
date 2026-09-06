@@ -27,6 +27,29 @@ fun interface SmsDispatcher {
 }
 
 /** Encrypts fallback alerts and reports only the platform sent-result callback. */
+/**
+ * What became of one SMS fallback attempt. Every value except [SENT] is a message the owner
+ * did not get, and they are separated because the thing to do about each one differs.
+ */
+enum class SmsSendOutcome {
+    SENT,
+
+    /** No usable device key, so nothing could be sealed. Nothing will send until that is fixed. */
+    NO_KEY,
+
+    /** No destination number saved: this phone has no fallback at all. */
+    NO_DESTINATION,
+
+    /** Held back on purpose — another SMS went out inside the minimum interval. */
+    RATE_LIMITED,
+
+    /** Handed to the radio, which did not confirm it in time. */
+    TIMED_OUT,
+
+    /** The radio refused it, or the attempt threw. */
+    FAILED,
+}
+
 class SmsFallbackManager internal constructor(
     private val smsKeyProvider: () -> String?,
     private val dispatcher: SmsDispatcher,
@@ -51,18 +74,35 @@ class SmsFallbackManager internal constructor(
      * to [destinationNumber]. The message is truncated to [maxPayloadBytes] first, because
      * the ciphertext expands by a third through Base64 and an unbounded Thai alert would
      * turn one event into a dozen SMS parts, each its own chance to arrive alone.
+     *
+     * Kept as the boolean [IncidentTransport] wants. Callers that have somewhere to record
+     * what happened should use [send]: a `false` here covers five different situations, one
+     * of which is the fallback deciding on purpose not to send.
      */
     suspend fun sendEncryptedSmsAlert(
         destinationNumber: String,
         message: String,
-    ): Boolean = sendMutex.withLock {
+    ): Boolean = send(destinationNumber, message) == SmsSendOutcome.SENT
+
+    /**
+     * The same send, saying which of its outcomes happened.
+     *
+     * The boolean above was the only answer this class gave, and it made the last channel an
+     * owner has unreadable from outside: a night with no SMS looked identical whether the
+     * fallback was never configured, held back by its own rate limit, or tried and refused by
+     * the radio. Those have three different answers and the black box could record none of them.
+     */
+    suspend fun send(
+        destinationNumber: String,
+        message: String,
+    ): SmsSendOutcome = sendMutex.withLock {
         val deviceKey = smsKeyProvider()?.takeIf { EncryptedSmsCodec.isValidKeyBase64(it) }
-            ?: return@withLock false
-        if (destinationNumber.isBlank()) return@withLock false
+            ?: return@withLock SmsSendOutcome.NO_KEY
+        if (destinationNumber.isBlank()) return@withLock SmsSendOutcome.NO_DESTINATION
         val now = nowMs()
         val last = lastSmsSentMs.get()
         if (last > 0L && now - last in 0 until minIntervalMs) {
-            return@withLock false
+            return@withLock SmsSendOutcome.RATE_LIMITED
         }
         // Body first, timestamp last: if only the leading parts of a multipart SMS arrive,
         // what happened is worth more than exactly when.
@@ -76,14 +116,18 @@ class SmsFallbackManager internal constructor(
                     }
                     continuation.invokeOnCancellation { cancel() }
                 }
-            } ?: false
-            if (result) {
-                lastSmsSentMs.set(nowMs())
             }
-            result
+            when (result) {
+                null -> SmsSendOutcome.TIMED_OUT
+                true -> {
+                    lastSmsSentMs.set(nowMs())
+                    SmsSendOutcome.SENT
+                }
+                false -> SmsSendOutcome.FAILED
+            }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            false
+            SmsSendOutcome.FAILED
         }
     }
 
