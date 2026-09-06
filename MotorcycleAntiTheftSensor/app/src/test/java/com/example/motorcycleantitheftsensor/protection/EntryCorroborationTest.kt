@@ -124,6 +124,39 @@ class EntryCorroborationTest {
         assertEquals(IncidentSeverity.CRITICAL, (accepted as IncidentUpdate.Opened).incident.severity)
     }
 
+    /**
+     * The degraded displaced watch has to be able to speak. Reported as an escalation to a
+     * severity the owner has already been told, a second displacement is swallowed by the
+     * rule that says so — which is right about severity and wrong about this: it is a new
+     * fact, that somebody is handling the phone again.
+     */
+    @Test
+    fun aSecondDisplacementOnAnOpenCriticalIncidentStillReachesTheOwner() {
+        feed(movement(100_000L))
+        val opened = feed(verdict(101_000L, ProtectionDiagnostics.ENTRY_MOUNT_MOVED, angleDeg = 0.0))
+        assertTrue(opened is IncidentUpdate.Opened)
+
+        feed(movement(400_000L))
+        val again = feed(verdict(401_000L, ProtectionDiagnostics.ENTRY_MOUNT_MOVED, angleDeg = 0.0))
+
+        assertTrue(again is IncidentUpdate.Updated)
+        assertTrue((again as IncidentUpdate.Updated).ownerVisibleConditionChange)
+    }
+
+    @Test
+    fun aRestoredMountClosesTheDisplacementIncident() {
+        feed(movement(100_000L))
+        assertTrue(
+            feed(verdict(101_000L, ProtectionDiagnostics.ENTRY_MOUNT_MOVED, angleDeg = 0.0))
+                is IncidentUpdate.Opened,
+        )
+
+        val closed = feed(verdict(160_000L, ProtectionDiagnostics.ENTRY_MOUNT_RESTORED, angleDeg = 0.0))
+
+        assertTrue(closed is IncidentUpdate.Closed)
+        assertFalse(engine.hasActiveIncident)
+    }
+
     @Test
     fun aHealthEpisodeIsNotAnAlarmAndIsNeverRefused() {
         // Losing the orientation source is a fact about the phone, not a claim about a door.

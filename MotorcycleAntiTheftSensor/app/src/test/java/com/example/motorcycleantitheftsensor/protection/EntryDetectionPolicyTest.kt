@@ -111,10 +111,100 @@ class EntryDetectionPolicyTest {
             state = next
         }
 
-        // And a sample back inside tolerance stays terminal rather than resuming the watch.
+        // And one sample back inside tolerance is not enough to resume the watch: the way
+        // back is sustained compatible evidence, proved below.
         val (afterSettling, settled) = p.evaluate(state, sample(9_000L, rotZ(0.0)))
         assertNull(afterSettling)
         assertTrue(settled.mountMoved)
+    }
+
+    /**
+     * The displacement used to be the end of the armed session: every later sample returned
+     * nothing, so a phone knocked at dusk left the door unwatched until morning. One shove
+     * bought a burglar the whole night, and the moment right after somebody touches the
+     * alarm is the worst possible moment for it to go blind.
+     */
+    @Test
+    fun aDisplacedMountThatComesBackResumesTheWatch() {
+        val p = policy()
+        val combined = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+        val (moved, displaced) = p.evaluate(p.initialState(), sample(1_000L, combined))
+        assertTrue(moved is EntryDetectionVerdict.MountMoved)
+
+        // Back inside tolerance, on-axis and shut. Compatible for the required five seconds.
+        var state = displaced
+        var restored: EntryDetectionVerdict? = null
+        var t = 10_000L
+        while (t <= 15_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, rotZ(0.0)))
+            restored = verdict ?: restored
+            state = next
+            t += 1_000L
+        }
+        assertTrue(restored is EntryDetectionVerdict.MountRestored)
+        assertFalse(state.mountMoved)
+
+        // And the watch really is watching again, not merely un-flagged.
+        var opened: EntryDetectionVerdict? = null
+        var openT = 16_000L
+        while (openT <= 17_000L) {
+            val (verdict, next) = p.evaluate(state, sample(openT, rotZ(18.0)))
+            opened = verdict ?: opened
+            state = next
+            openT += 250L
+        }
+        assertTrue(opened is EntryDetectionVerdict.DoorOpened)
+    }
+
+    /**
+     * The other half of not being terminal: a phone that stays displaced is still worth
+     * watching, because the commissioned axis is what was lost — not the ability to tell
+     * that somebody is handling the phone right now.
+     */
+    @Test
+    fun aDisplacedPhoneMovedAgainIsAnnouncedAgain() {
+        val p = policy()
+        val displacedPose = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+        val (moved, afterMove) = p.evaluate(p.initialState(), sample(1_000L, displacedPose))
+        assertTrue(moved is EntryDetectionVerdict.MountMoved)
+
+        // Left alone where it landed: it settles, and settling is never news.
+        var state = afterMove
+        var t = 2_000L
+        while (t <= 9_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, displacedPose))
+            assertNull(verdict)
+            state = next
+            t += 1_000L
+        }
+
+        // Then somebody turns it another fifteen degrees off the pose it settled at.
+        val movedAgain = EntryOrientationMath.multiply(rotZ(20.0), rotX(45.0))
+        val (second, _) = p.evaluate(state, sample(10_000L, movedAgain))
+        assertTrue(second is EntryDetectionVerdict.MountMoved)
+    }
+
+    @Test
+    fun aRestoredMountResolvesTheEpisodeTheDisplacementInterrupted() {
+        val p = policy()
+        val (openState, _) = driveOpen(p)
+        val combined = EntryOrientationMath.multiply(rotZ(10.0), rotX(30.0))
+        val (movedVerdict, movedState) = p.evaluate(openState, sample(5_000L, combined))
+        assertTrue(movedVerdict is EntryDetectionVerdict.MountMoved)
+        assertTrue(movedState.doorEpisode!!.interrupted)
+
+        var state = movedState
+        var resolved: EntryDetectionVerdict? = null
+        var t = 10_000L
+        while (t <= 15_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, rotZ(0.0)))
+            resolved = verdict ?: resolved
+            state = next
+            t += 1_000L
+        }
+        assertTrue(resolved is EntryDetectionVerdict.DoorClosedConfirmed)
+        assertFalse(state.mountMoved)
+        assertNull(state.doorEpisode)
     }
 
     @Test

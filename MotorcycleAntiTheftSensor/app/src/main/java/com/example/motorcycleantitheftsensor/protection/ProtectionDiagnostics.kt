@@ -17,6 +17,13 @@ internal object ProtectionDiagnostics {
     const val ENTRY_SOURCE_RECOVERED = "entry_source_recovered"
     const val ENTRY_MOUNT_MOVED = "entry_mount_moved"
 
+    /**
+     * A displaced mount that reads compatible with its commissioned geometry again. The
+     * counterpart of [ENTRY_MOUNT_MOVED], and the reason a displacement is no longer the end
+     * of the armed session.
+     */
+    const val ENTRY_MOUNT_RESTORED = "entry_mount_restored"
+
     const val POWER_PREFIX = "power_"
     const val POWER_CHARGING_HEALTH = "power_charging_health"
     const val POWER_WITNESS_DARK = "power_witness_dark"

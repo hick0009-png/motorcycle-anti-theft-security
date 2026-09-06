@@ -10,6 +10,12 @@ sealed interface EntryDetectionVerdict {
     data object SourceUnavailable : EntryDetectionVerdict
     data object SourceRecovered : EntryDetectionVerdict
     data object MountMoved : EntryDetectionVerdict
+
+    /**
+     * The displaced mount reads compatible with the commissioned geometry again, and has
+     * for long enough to be believed. Emitted once, on the way back to normal detection.
+     */
+    data object MountRestored : EntryDetectionVerdict
 }
 
 /** One physical door opening and its lifecycle inside a single armed session. */
@@ -42,6 +48,17 @@ class EntryDetectionPolicy(
         val openStreakStartMs: Long? = null,
         val closeStreakStartMs: Long? = null,
         val episodeCounter: Int = 0,
+        /** Since when a displaced mount has read compatible again; see [evaluateMountRestore]. */
+        val mountRestoreHealthySinceMs: Long? = null,
+        /**
+         * Orientation a displaced phone came to rest at, and when it was taken.
+         *
+         * Not a door zero and never used as one — the commissioned axis no longer describes
+         * this geometry. It is only a reference for the one question still worth asking while
+         * displaced: has the phone been moved *again*.
+         */
+        val displacedAnchor: EntryQuaternion? = null,
+        val displacedAnchorSinceMs: Long? = null,
     )
 
     private val axis = doubleArrayOf(model.axisX, model.axisY, model.axisZ)
@@ -79,13 +96,17 @@ class EntryDetectionPolicy(
             return evaluateDuringRecovery(state, swingDeg, wrongDirection, angleDeg, sample.timestampMs)
         }
 
+        // A session already displaced is judged by its own rules; the gates below describe a
+        // geometry it no longer has.
+        if (state.mountMoved) {
+            return evaluateWhileDisplaced(state, swingDeg, wrongDirection, angleDeg, sample)
+        }
+
         // Gates 2-3: hinge residual then allowed direction. Mount movement outranks any
         // door event, including an already-open episode.
         if (swingDeg > model.residualToleranceDeg || wrongDirection) {
             return mountMoved(state)
         }
-        // Mount movement is terminal for the session until controlled recommissioning.
-        if (state.mountMoved) return null to state
 
         return evaluateAngle(state, angleDeg, sample.timestampMs)
     }
@@ -138,8 +159,8 @@ class EntryDetectionPolicy(
      * each one a Telegram message and an SMS: the owner's phone bill and attention spent on
      * repeating a thing they had already been told, for as long as the session stayed armed.
      *
-     * The state transition is unchanged and still terminal. Only the verdict is withheld,
-     * because there is nothing new to say.
+     * Only the verdict is withheld, because there is nothing new to say. What happens after
+     * it is [evaluateWhileDisplaced], which is where this stopped being terminal.
      */
     private fun mountMoved(state: State): Pair<EntryDetectionVerdict?, State> {
         val moved = state.copy(
@@ -149,6 +170,101 @@ class EntryDetectionPolicy(
             closeStreakStartMs = null,
         )
         return if (state.mountMoved) null to moved else EntryDetectionVerdict.MountMoved to moved
+    }
+
+    /**
+     * What a displaced watch does instead of nothing.
+     *
+     * A phone whose residual has left the hinge tolerance cannot be read as a door angle any
+     * more: the commissioned axis describes a geometry that has moved. Refusing to guess an
+     * angle is right. Going silent for the rest of the armed session was not, and it made one
+     * shove the whole attack — bump the phone, absorb the single critical alert, and every
+     * door opening after it went unwatched until the owner came back and re-armed by hand,
+     * which on a sleeping owner is the entire night. The worst moment for a burglar alarm to
+     * go blind is the moment right after somebody touches it.
+     *
+     * So the session keeps working, on the two things still true after a mount move:
+     *
+     * - **It can come back.** A knock, a gust, or a bike settling displaces the phone and
+     *   leaves it where it was. When the residual is inside tolerance, the direction is
+     *   allowed and the door reads shut, and all three hold for [MOUNT_RESTORE_REQUIRED_MS],
+     *   the commissioned geometry describes this door again and normal detection resumes.
+     * - **It can be moved again.** While it stays displaced the current orientation is still
+     *   an anchor to measure against, even though it is not a door zero. Once the phone has
+     *   come to rest, [DISPLACED_MOVEMENT_DEG] of further rotation off that anchor is a
+     *   second displacement and is said out loud, because somebody is still handling it.
+     */
+    private fun evaluateWhileDisplaced(
+        state: State,
+        swingDeg: Double,
+        wrongDirection: Boolean,
+        angleDeg: Double,
+        sample: EntryOrientationSample,
+    ): Pair<EntryDetectionVerdict?, State> {
+        val timestampMs = sample.timestampMs
+        val backOnAxis = swingDeg <= model.residualToleranceDeg &&
+            !wrongDirection &&
+            angleDeg <= settings.closeThresholdDegrees.toDouble()
+        if (backOnAxis) return evaluateMountRestore(state, timestampMs)
+
+        val cleared = state.copy(mountRestoreHealthySinceMs = null)
+        val anchor = state.displacedAnchor
+            ?: return null to cleared.copy(
+                displacedAnchor = sample.quaternion,
+                displacedAnchorSinceMs = timestampMs,
+            )
+        val movedDeg = EntryOrientationMath.totalRotationDeg(
+            EntryOrientationMath.relativeRotation(anchor, sample.quaternion),
+        )
+        val anchoredSinceMs = state.displacedAnchorSinceMs ?: timestampMs
+        return when {
+            // Still coming to rest: follow the phone rather than measure against a reading
+            // taken mid-swing, which would report the one displacement over and over.
+            timestampMs - anchoredSinceMs < DISPLACED_SETTLE_MS ->
+                if (movedDeg > DISPLACED_QUIET_DEG) {
+                    null to cleared.copy(
+                        displacedAnchor = sample.quaternion,
+                        displacedAnchorSinceMs = timestampMs,
+                    )
+                } else {
+                    null to cleared
+                }
+            movedDeg >= DISPLACED_MOVEMENT_DEG -> EntryDetectionVerdict.MountMoved to cleared.copy(
+                displacedAnchor = sample.quaternion,
+                displacedAnchorSinceMs = timestampMs,
+            )
+            else -> null to cleared
+        }
+    }
+
+    /**
+     * The way back from a displacement, held to the same standard as the source-loss recovery
+     * beside it: sustained compatible evidence, never one good sample. A door episode that the
+     * displacement interrupted resolves here as the confirmed close it has become.
+     */
+    private fun evaluateMountRestore(
+        state: State,
+        timestampMs: Long,
+    ): Pair<EntryDetectionVerdict?, State> {
+        val since = state.mountRestoreHealthySinceMs ?: timestampMs
+        if (timestampMs - since < MOUNT_RESTORE_REQUIRED_MS) {
+            return null to state.copy(mountRestoreHealthySinceMs = since)
+        }
+        val restored = state.copy(
+            mountMoved = false,
+            mountRestoreHealthySinceMs = null,
+            displacedAnchor = null,
+            displacedAnchorSinceMs = null,
+            openStreakStartMs = null,
+            closeStreakStartMs = null,
+        )
+        val episode = state.doorEpisode
+        return if (episode != null) {
+            EntryDetectionVerdict.DoorClosedConfirmed(episode.episodeId) to
+                restored.copy(doorEpisode = null)
+        } else {
+            EntryDetectionVerdict.MountRestored to restored
+        }
     }
 
     private fun evaluateAngle(
@@ -223,5 +339,25 @@ class EntryDetectionPolicy(
     companion object {
         /** Fresh compatible evidence required to clear a health episode (spec section 7.2). */
         const val RECOVERY_REQUIRED_MS: Long = 5_000L
+
+        /**
+         * Compatible evidence required before a displaced mount is trusted again. The same
+         * five seconds the source-loss recovery asks for, for the same reason: one good
+         * sample off a phone that is being handled proves nothing.
+         */
+        const val MOUNT_RESTORE_REQUIRED_MS: Long = 5_000L
+
+        /** How long a displaced phone must hold still before its anchor is measured from. */
+        const val DISPLACED_SETTLE_MS: Long = 5_000L
+
+        /** Small enough to be a displaced phone still settling rather than a new event. */
+        const val DISPLACED_QUIET_DEG: Double = 3.0
+
+        /**
+         * Rotation off a settled displaced anchor that counts as being moved again. Well
+         * clear of the few degrees a resting phone wanders, and far below what handling one
+         * produces, so it reports hands and not noise.
+         */
+        const val DISPLACED_MOVEMENT_DEG: Double = 10.0
     }
 }

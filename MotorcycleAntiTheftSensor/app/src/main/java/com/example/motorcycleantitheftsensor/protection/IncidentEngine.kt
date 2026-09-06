@@ -668,7 +668,7 @@ class IncidentEngine(
                 // Mount movement outranks any door event and escalates to critical. Which is
                 // exactly why it is asked for the same proof: drift reaches the residual gate
                 // before the angle gate on most mountings, and a mount-moved verdict does not
-                // merely alarm — it stops the session detecting anything for the rest of the day.
+                // merely alarm — it puts the session into the degraded displaced watch.
                 if (active == null || !isEntryIncident) {
                     if (!corroborated) return IncidentUpdate.Ignored
                     openIncident(
@@ -679,6 +679,7 @@ class IncidentEngine(
                         location,
                     )
                 } else {
+                    val alreadyCritical = active.incident.severity == IncidentSeverity.CRITICAL
                     val updated = active.incident.copy(
                         severity = IncidentSeverity.CRITICAL,
                         evidence = appendEvidence(active.incident.evidence, evidence),
@@ -687,7 +688,17 @@ class IncidentEngine(
                         location = location ?: active.incident.location,
                     )
                     activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
-                    IncidentUpdate.Escalated(updated)
+                    // A displaced phone that is displaced *again* says something the owner has
+                    // not been told: somebody is still handling it. Reported as an escalation
+                    // it would be swallowed by the rule that a rise to a severity already
+                    // announced is not news — which is right about severity and wrong about
+                    // this. It is a condition change, and takes the floor between repeats
+                    // rather than the silence.
+                    if (alreadyCritical) {
+                        IncidentUpdate.Updated(updated, ownerVisibleConditionChange = true)
+                    } else {
+                        IncidentUpdate.Escalated(updated)
+                    }
                 }
             }
             ENTRY_SOURCE_UNAVAILABLE -> {
@@ -710,14 +721,14 @@ class IncidentEngine(
                     IncidentUpdate.Updated(updated)
                 }
             }
-            ENTRY_DOOR_CLOSED, ENTRY_SOURCE_RECOVERED -> {
+            ENTRY_DOOR_CLOSED, ENTRY_SOURCE_RECOVERED, ENTRY_MOUNT_RESTORED -> {
                 if (isEntryIncident) {
                     close(
                         nowMs = observation.wallClockMs,
-                        reason = if (observation.diagnostic == ENTRY_DOOR_CLOSED) {
-                            "entry door closed confirmed"
-                        } else {
-                            "entry source recovered"
+                        reason = when (observation.diagnostic) {
+                            ENTRY_DOOR_CLOSED -> "entry door closed confirmed"
+                            ENTRY_MOUNT_RESTORED -> "entry mount restored"
+                            else -> "entry source recovered"
                         },
                     ) ?: IncidentUpdate.Ignored
                 } else {
@@ -829,6 +840,7 @@ class IncidentEngine(
         val ENTRY_SOURCE_UNAVAILABLE = ProtectionDiagnostics.ENTRY_SOURCE_UNAVAILABLE
         val ENTRY_SOURCE_RECOVERED = ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
+        val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
