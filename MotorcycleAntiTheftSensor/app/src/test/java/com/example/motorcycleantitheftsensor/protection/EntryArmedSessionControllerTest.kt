@@ -133,6 +133,57 @@ class EntryArmedSessionControllerTest {
         assertEquals(2.5, controller.liveAngleDeg() ?: -1.0, 0.3)
     }
 
+    /**
+     * The blind spot the freshness gate could not cover by itself. It notices a gap when a
+     * sample arrives late — so it catches a stuttering source and misses the one that stops
+     * dead, where no sample ever arrives to be judged. A door watch with nothing to report
+     * looks exactly like a door that never opened.
+     */
+    @Test
+    fun aStreamThatStopsDeadIsReported() {
+        val controller = armed()
+        controller.onSample(sample(1_000L, rotZ(0.0)), 1L)
+
+        assertTrue("inside the gap is not a complaint", controller.onSilence(6_000L).isEmpty())
+
+        val verdicts = controller.onSilence(12_000L)
+        assertTrue(verdicts.any { it is EntryDetectionVerdict.SourceUnavailable })
+
+        // And it stays one fact, not one per tick.
+        assertTrue(controller.onSilence(17_000L).none { it is EntryDetectionVerdict.SourceUnavailable })
+    }
+
+    @Test
+    fun aStreamThatComesBackAfterASilenceRecoversNormally() {
+        val controller = armed()
+        controller.onSample(sample(1_000L, rotZ(0.0)), 1L)
+        assertTrue(controller.onSilence(12_000L).any { it is EntryDetectionVerdict.SourceUnavailable })
+
+        var recovered = false
+        var t = 13_000L
+        while (t <= 20_000L) {
+            recovered = recovered || controller.onSample(sample(t, rotZ(0.0)), 1L)
+                .any { it is EntryDetectionVerdict.SourceRecovered }
+            t += 1_000L
+        }
+        assertTrue(recovered)
+    }
+
+    /**
+     * A listener that failed to register, or a source the phone refused, leaves a session
+     * armed with no stream at all. There is no baseline to judge and never was — and that is
+     * the loudest form of the same fact, not a reason to say nothing.
+     */
+    @Test
+    fun anArmedSessionThatNeverReceivesASampleSaysSoOnce() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = model, settings = settings)
+
+        assertTrue("the first look only starts the clock", controller.onSilence(0L).isEmpty())
+        assertTrue(controller.onSilence(11_000L).any { it is EntryDetectionVerdict.SourceUnavailable })
+        assertTrue(controller.onSilence(22_000L).isEmpty())
+    }
+
     @Test
     fun anOpenDoorHeldPastTheWindowIsNeverRebaselinedShut() {
         val controller = armed()

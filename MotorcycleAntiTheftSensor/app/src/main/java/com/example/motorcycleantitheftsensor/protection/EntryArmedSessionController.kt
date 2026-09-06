@@ -34,6 +34,22 @@ class EntryArmedSessionController {
      */
     private var closedStillSinceMs: Long? = null
 
+    /**
+     * When the sample stream last showed a sign of life, or when the watchdog first went
+     * looking and found none.
+     *
+     * Not simply "when the last sample arrived": a session armed onto a source that never
+     * delivers a single sample has no last sample, and that is the case most worth catching.
+     * So the first silence check with nothing behind it starts the clock instead.
+     */
+    private var lastActivityAtMs: Long? = null
+
+    /** Last orientation actually received, so a silence has something to be judged against. */
+    private var lastQuaternion: EntryQuaternion? = null
+
+    /** Whether an armed session that never received anything has already said so. */
+    private var silentArmAnnounced: Boolean = false
+
     @Volatile
     private var liveAngleDeg: Double? = null
 
@@ -54,6 +70,9 @@ class EntryArmedSessionController {
             this.policyState = null
             this.liveAngleDeg = null
             this.closedStillSinceMs = null
+            this.lastActivityAtMs = null
+            this.lastQuaternion = null
+            this.silentArmAnnounced = false
         }
     }
 
@@ -67,6 +86,9 @@ class EntryArmedSessionController {
             baseline = null
             liveAngleDeg = null
             closedStillSinceMs = null
+            lastActivityAtMs = null
+            lastQuaternion = null
+            silentArmAnnounced = false
         }
     }
 
@@ -81,6 +103,9 @@ class EntryArmedSessionController {
     ): List<EntryDetectionVerdict> {
         synchronized(lock) {
             val activeModel = model ?: return emptyList()
+            lastActivityAtMs = sample.timestampMs
+            lastQuaternion = sample.quaternion
+            silentArmAnnounced = false
             if (currentGeneration != generation) {
                 // Listener re-registration: debounce windows restart from zero, and so does
                 // the closed-still window — the sample stream had a gap, so nothing before it
@@ -176,6 +201,55 @@ class EntryArmedSessionController {
         val angleDeg = EntryOrientationMath.doorAngleDeltaDeg(rel, axis)
         val swingDeg = EntryOrientationMath.swingResidualDeg(rel, axis)
         return angleDeg <= closeThresholdDeg && swingDeg <= model.residualToleranceDeg
+    }
+
+    /**
+     * Asks what the sample stream has stopped being able to say.
+     *
+     * The freshness gate has always been driven by a sample: it notices a gap when something
+     * finally arrives *after* the gap and is judged late. That catches a stuttering source and
+     * is blind to the one that matters most — a stream that stops dead. No sample means no
+     * evaluation, no evaluation means no verdict, and a door watch with nothing to report
+     * looks exactly like a door that never opened. On a phone whose vendor freezes background
+     * apps, which is most of them, that is the difference between a watch and the appearance
+     * of one.
+     *
+     * So something outside the stream has to ask. Called on a timer while the session is
+     * armed: if nothing has arrived for [maxGapMs], the last known orientation is judged again
+     * as a stale sample, which is what it has become, and the detection policy produces the
+     * same `SourceUnavailable` it would have produced had a late sample carried the news. A
+     * session that never received anything at all — a listener that failed to register, a
+     * source the phone refused — has no orientation to judge and says so once directly.
+     *
+     * @return verdicts produced by the silence; empty while the session is healthy.
+     */
+    fun onSilence(
+        nowMs: Long,
+        maxGapMs: Long = EntrySourceFreshnessTracker.DEFAULT_MAX_GAP_MS,
+    ): List<EntryDetectionVerdict> {
+        synchronized(lock) {
+            if (model == null) return emptyList()
+            val since = lastActivityAtMs
+            if (since == null) {
+                lastActivityAtMs = nowMs
+                return emptyList()
+            }
+            if (nowMs - since <= maxGapMs) return emptyList()
+            closedStillSinceMs = null
+            val detection = policy
+            val lastKnown = lastQuaternion
+            if (detection == null || lastKnown == null) {
+                if (silentArmAnnounced) return emptyList()
+                silentArmAnnounced = true
+                return listOf(EntryDetectionVerdict.SourceUnavailable)
+            }
+            val (verdict, newState) = detection.evaluate(
+                policyState ?: detection.initialState(),
+                EntryOrientationSample(timestampMs = nowMs, quaternion = lastKnown, fresh = false),
+            )
+            policyState = newState
+            return listOfNotNull(verdict)
+        }
     }
 
     /** Live relative door angle in degrees for the UI; null with no active session/baseline. */

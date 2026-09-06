@@ -57,6 +57,13 @@ internal data class CachedPowerWitness(
 internal const val POWER_COMMISSIONING_REPEAT_INTERVAL_MS = 1_000L
 
 /**
+ * How often an armed door watch checks that its orientation source is still delivering.
+ * Short enough that a stopped stream is noticed inside the same minute it stops, and cheap
+ * enough to be nothing: the tick reads two fields and usually returns having done no work.
+ */
+internal const val ENTRY_SOURCE_WATCHDOG_INTERVAL_MS = 5_000L
+
+/**
  * `Sensor.TYPE_LIGHT` is an on-change source: a genuinely stable reading produces no
  * further callbacks, which is exactly the condition witness commissioning measures.
  * Without a steady re-emit the guided window's continuity budget lapses and the window
@@ -653,6 +660,24 @@ class PlatformAndroidDetectorSet(
             evaluatePowerArbiter(powerWitnessContinuity.latest(), SystemClock.elapsedRealtime())
         }
     }
+    /**
+     * Asks the armed door session whether its source has gone quiet, because nothing else can.
+     *
+     * Every other part of this pipeline is driven by a sample arriving. A source that stops
+     * delivering therefore produces silence in a shape indistinguishable from a door that
+     * never opened — and silence is what the whole guard is supposed to be able to rule out.
+     * This is the one thing here that runs when nothing has happened.
+     */
+    private val entrySourceWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (!entrySession.isActive) return
+            val nowMs = SystemClock.elapsedRealtime()
+            entrySession.onSilence(nowMs).forEach { verdict ->
+                record(entryVerdictObservation(verdict, nowMs))
+            }
+            handlerOwner.handler.postDelayed(this, ENTRY_SOURCE_WATCHDOG_INTERVAL_MS)
+        }
+    }
     private val powerCommissioningRepeatRunnable = object : Runnable {
         override fun run() {
             if (!powerCommissioningStreamActive) return
@@ -873,6 +898,7 @@ class PlatformAndroidDetectorSet(
             running = false
             handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
             handlerOwner.handler.removeCallbacks(powerCommissioningRepeatRunnable)
+            handlerOwner.handler.removeCallbacks(entrySourceWatchdogRunnable)
             controller.stop()
             vibration.stopListening()
             val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -954,6 +980,8 @@ class PlatformAndroidDetectorSet(
     override fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
         entrySession.begin(controller.currentGenerationId(), model, settings)
         registerEntryOrientationSource()
+        handlerOwner.handler.removeCallbacks(entrySourceWatchdogRunnable)
+        handlerOwner.handler.postDelayed(entrySourceWatchdogRunnable, ENTRY_SOURCE_WATCHDOG_INTERVAL_MS)
     }
 
     override fun startEntryCommissioningStream() {
@@ -980,6 +1008,7 @@ class PlatformAndroidDetectorSet(
         powerSession.nextConfirmationAtMs()?.minus(nowElapsedMs)?.takeIf { it > 0L }
 
     override fun clearEntryBaseline() {
+        handlerOwner.handler.removeCallbacks(entrySourceWatchdogRunnable)
         entrySession.end()
         unregisterEntryOrientationSource()
     }
@@ -1279,6 +1308,14 @@ class PlatformAndroidDetectorSet(
         else -> EntrySourceAccuracy.UNKNOWN
     }
 
+    /**
+     * Every early return and the catch below leave the session armed with no listener, which
+     * used to be indistinguishable from an armed session watching a door that stayed shut.
+     * They are not silent any more: with no listener there are no samples, and
+     * [EntryArmedSessionController.onSilence] tells the owner so on the watchdog's next tick.
+     * That covers the failures nobody thought to catch as well as these — a listener the
+     * platform accepts and then never feeds included.
+     */
     private fun registerEntryOrientationSource() {
         val manager = sensorManager ?: return
         if (entryOrientationListener != null) return
@@ -1303,7 +1340,9 @@ class PlatformAndroidDetectorSet(
                 )
                 val verdicts = entrySession.onSample(sample, controller.currentGenerationId())
                 entrySampleFlow.tryEmit(sample)
-                verdicts.forEach { verdict -> record(entryVerdictObservation(verdict, sample)) }
+                verdicts.forEach { verdict ->
+                    record(entryVerdictObservation(verdict, sample.timestampMs))
+                }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
@@ -1330,7 +1369,7 @@ class PlatformAndroidDetectorSet(
 
     private fun entryVerdictObservation(
         verdict: EntryDetectionVerdict,
-        sample: EntryOrientationSample,
+        eventElapsedMs: Long,
     ): SensorObservation {
         val (diagnostic, value) = when (verdict) {
             is EntryDetectionVerdict.DoorOpened -> ProtectionDiagnostics.ENTRY_DOOR_OPEN to verdict.angleDeg
@@ -1347,7 +1386,7 @@ class PlatformAndroidDetectorSet(
             capability = SensorCapability.MOVEMENT,
             role = SensorRole.PRIMARY,
             unit = SensorUnit.DEGREES,
-            eventElapsedMs = sample.timestampMs,
+            eventElapsedMs = eventElapsedMs,
             wallClockMs = System.currentTimeMillis(),
             normalizedValue = value,
             baselineDelta = value,
