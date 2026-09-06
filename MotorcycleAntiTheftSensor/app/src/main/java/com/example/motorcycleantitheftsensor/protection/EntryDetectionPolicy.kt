@@ -128,12 +128,28 @@ class EntryDetectionPolicy(
         return null to state.copy(recoveryHealthySinceMs = null)
     }
 
-    private fun mountMoved(state: State): Pair<EntryDetectionVerdict, State> = EntryDetectionVerdict.MountMoved to state.copy(
-        mountMoved = true,
-        doorEpisode = state.doorEpisode?.let { it.copy(interrupted = true) },
-        openStreakStartMs = null,
-        closeStreakStartMs = null,
-    )
+    /**
+     * Announced once per session, which is what "terminal" has always meant here and never
+     * did. The guard for it sat one statement below the gate that fires it, so it could only
+     * be reached by a sample that no longer tripped the gate — and a phone that has been
+     * displaced stays displaced, so every sample after the first tripped it again.
+     *
+     * On the device that was fifteen full alerts in thirty seconds from a single incident,
+     * each one a Telegram message and an SMS: the owner's phone bill and attention spent on
+     * repeating a thing they had already been told, for as long as the session stayed armed.
+     *
+     * The state transition is unchanged and still terminal. Only the verdict is withheld,
+     * because there is nothing new to say.
+     */
+    private fun mountMoved(state: State): Pair<EntryDetectionVerdict?, State> {
+        val moved = state.copy(
+            mountMoved = true,
+            doorEpisode = state.doorEpisode?.let { it.copy(interrupted = true) },
+            openStreakStartMs = null,
+            closeStreakStartMs = null,
+        )
+        return if (state.mountMoved) null to moved else EntryDetectionVerdict.MountMoved to moved
+    }
 
     private fun evaluateAngle(
         state: State,

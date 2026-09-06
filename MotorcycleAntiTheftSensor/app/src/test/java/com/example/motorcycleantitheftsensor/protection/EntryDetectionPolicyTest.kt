@@ -86,6 +86,37 @@ class EntryDetectionPolicyTest {
         assertNull(state.doorEpisode)
     }
 
+    /**
+     * A phone that has been displaced stays displaced. Re-announcing that on every sample
+     * turned one incident into fifteen full alerts in thirty seconds on the test device —
+     * each a Telegram message and an SMS — and the guard meant to stop it sat one statement
+     * below the gate that fires it, where only a sample that no longer tripped the gate could
+     * reach it.
+     */
+    @Test
+    fun aDisplacedMountIsAnnouncedOnceAndThenStaysQuiet() {
+        val p = policy()
+        val combined = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+
+        val (first, afterFirst) = p.evaluate(p.initialState(), sample(1_000L, combined))
+        assertTrue(first is EntryDetectionVerdict.MountMoved)
+        assertTrue(afterFirst.mountMoved)
+
+        // Still displaced, still tripping the residual gate, and now with nothing to add.
+        var state = afterFirst
+        repeat(10) { tick ->
+            val (verdict, next) = p.evaluate(state, sample(2_000L + tick * 200L, combined))
+            assertNull(verdict)
+            assertTrue(next.mountMoved)
+            state = next
+        }
+
+        // And a sample back inside tolerance stays terminal rather than resuming the watch.
+        val (afterSettling, settled) = p.evaluate(state, sample(9_000L, rotZ(0.0)))
+        assertNull(afterSettling)
+        assertTrue(settled.mountMoved)
+    }
+
     @Test
     fun oppositeDirectionMotionReportsMountMoved() {
         val p = policy()
