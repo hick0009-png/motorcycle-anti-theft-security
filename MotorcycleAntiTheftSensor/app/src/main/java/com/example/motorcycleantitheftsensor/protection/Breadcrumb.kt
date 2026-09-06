@@ -166,6 +166,7 @@ enum class BreadcrumbDetail(val code: String) {
     NOT_CONFIGURED("noconf"),
     NO_KEY("nokey"),
     RATE_LIMITED("limited"),
+    BELOW_THRESHOLD("lowsev"),
 
     // Which capability. Named for the permission, not for the API that grants it.
     PERM_LOCATION("loc"),

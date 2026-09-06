@@ -312,16 +312,25 @@ object ProtectionRuntimeGraph {
                             configuration = DeliveryConfiguration(smsConfigured = smsConfigured),
                         )
                     }
-                    if (delivered.deliveryState == DeliveryState.FAILED && !smsConfigured) {
-                        // Nothing reached the owner and there is no second way to reach them.
-                        // Recorded here because the fallback itself is never called in this
-                        // case, so the only place that knows is the one that skipped it — and
-                        // a silent night explained by an absent fallback is exactly what a
-                        // reader of this file comes looking for.
+                    val smsWasTried = delivered.deliveryAttempts.any { attempt ->
+                        attempt.channel == DeliveryChannel.SMS
+                    }
+                    if (delivered.deliveryState == DeliveryState.FAILED && !smsWasTried) {
+                        // Nothing reached the owner and the fallback was never even called, so
+                        // nothing downstream can report why. Read off the record rather than by
+                        // asking the rule again: this says what happened, not what should have.
+                        // A silent night explained by an absent or a withheld fallback is
+                        // exactly what a reader of this file comes looking for.
                         breadcrumbRelay.note(
                             BreadcrumbDomain.SMS,
                             BreadcrumbEvent.DENIED,
-                            listOf(BreadcrumbDetail.NOT_CONFIGURED),
+                            listOf(
+                                if (smsConfigured) {
+                                    BreadcrumbDetail.BELOW_THRESHOLD
+                                } else {
+                                    BreadcrumbDetail.NOT_CONFIGURED
+                                },
+                            ),
                         )
                     }
                     coordinator.recordIncident(delivered)

@@ -23,6 +23,34 @@ data class DeliveryConfiguration(
     val smsConfigured: Boolean,
 )
 
+/**
+ * Which incidents are worth the last channel the owner has.
+ *
+ * The rule was severity CRITICAL alone, and on this app that quietly excluded the event the
+ * door watch exists for: a door opening while armed is raised as WARNING, with CRITICAL kept
+ * for the mount being moved. So the one alert the owner set the mode up to receive was also
+ * the one alert with no fallback — on the night the network was gone, exactly nothing would
+ * have been sent even with a destination saved.
+ *
+ * A door that opened is now worth an SMS. The rest of WARNING is not: an unavailable
+ * orientation source is a health notice about the watch rather than a report of somebody at
+ * the door, and spending the fallback on those is how the allowance is gone before the night
+ * it matters. SMS is only ever reached after Telegram has already failed, and the manager's
+ * own minimum interval still caps the cost.
+ */
+object IncidentFallbackPolicy {
+
+    fun deservesSmsFallback(incident: SecurityIncident): Boolean =
+        incident.severity == IncidentSeverity.CRITICAL || incident.isDoorOpening()
+
+    private fun SecurityIncident.isDoorOpening(): Boolean =
+        type == IncidentType.ENTRY_DOOR &&
+            evidence.any { item ->
+                item.diagnostic == ProtectionDiagnostics.ENTRY_DOOR_OPEN ||
+                    item.diagnostic == ProtectionDiagnostics.ENTRY_DOOR_STILL_OPEN
+            }
+}
+
 class IncidentDeliveryCoordinator(
     private val repository: IncidentRepository,
     private val formatter: IncidentMessageFormatter,
@@ -182,7 +210,7 @@ class IncidentDeliveryCoordinator(
         )
 
         val smsEligible = !telegramSent &&
-            pending.severity == IncidentSeverity.CRITICAL &&
+            IncidentFallbackPolicy.deservesSmsFallback(pending) &&
             configuration.smsConfigured
         val smsSent = if (smsEligible) {
             val smsMessage = formatter.formatSms(update, pending.location)
