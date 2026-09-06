@@ -19,6 +19,21 @@ class EntryArmedSessionController {
     private var baseline: EntryQuaternion? = null
     private var generation: Long = Long.MIN_VALUE
 
+    /**
+     * When the door has read continuously closed and still since, or null when it has not.
+     *
+     * The orientation sensor drifts on its own — a still phone's reported angle wanders a few
+     * degrees an hour — and the baseline is frozen at Arm, so over a long armed session that
+     * drift alone climbs past the open threshold and alarms a shut, untouched door. While the
+     * door is confidently closed and nothing is happening, the current orientation *is* the
+     * new closed reference, so re-capturing the baseline to it tracks the drift out. The guard
+     * is what keeps it honest: it acts only from the clean closed state, never with an episode
+     * open, a mount moved, or a source lost, and a real opening leaves the closed band within a
+     * second — long before [DRIFT_REBASELINE_STABLE_MS] elapses — so this can never follow a
+     * door that is actually opening.
+     */
+    private var closedStillSinceMs: Long? = null
+
     @Volatile
     private var liveAngleDeg: Double? = null
 
@@ -38,6 +53,7 @@ class EntryArmedSessionController {
             this.policy = null
             this.policyState = null
             this.liveAngleDeg = null
+            this.closedStillSinceMs = null
         }
     }
 
@@ -50,6 +66,7 @@ class EntryArmedSessionController {
             policyState = null
             baseline = null
             liveAngleDeg = null
+            closedStillSinceMs = null
         }
     }
 
@@ -65,14 +82,16 @@ class EntryArmedSessionController {
         synchronized(lock) {
             val activeModel = model ?: return emptyList()
             if (currentGeneration != generation) {
-                // Listener re-registration: debounce windows restart from zero, but the
-                // frozen baseline survives (no auto-rebaseline while armed).
+                // Listener re-registration: debounce windows restart from zero, and so does
+                // the closed-still window — the sample stream had a gap, so nothing before it
+                // can count toward a continuous-closed run. The baseline itself survives.
                 generation = currentGeneration
                 policyState = policyState?.copy(
                     openStreakStartMs = null,
                     closeStreakStartMs = null,
                     recoveryHealthySinceMs = null,
                 )
+                closedStillSinceMs = null
             }
             val currentBaseline = baseline
             if (currentBaseline == null) {
@@ -98,10 +117,78 @@ class EntryArmedSessionController {
                 sample,
             )
             policyState = newState
+
+            maybeRebaselineForDrift(newState, rel, axis, activeModel, sample)
             return listOfNotNull(verdict)
         }
     }
 
+    /**
+     * Tracks how long the door has read closed and still, and re-captures the baseline to the
+     * current orientation once that has held for [DRIFT_REBASELINE_STABLE_MS], slewing the
+     * frozen reference along with sensor drift. Called only with an active baseline; every
+     * caller holds [lock].
+     */
+    private fun maybeRebaselineForDrift(
+        state: EntryDetectionPolicy.State,
+        rel: EntryQuaternion,
+        axis: DoubleArray,
+        model: EntryHingeModel,
+        sample: EntryOrientationSample,
+    ) {
+        if (!sample.fresh || !isClosedAndStill(state, rel, axis, model)) {
+            closedStillSinceMs = null
+            return
+        }
+        val since = closedStillSinceMs ?: sample.timestampMs
+        if (sample.timestampMs - since < DRIFT_REBASELINE_STABLE_MS) {
+            closedStillSinceMs = since
+            return
+        }
+        // Held closed and still long enough: the current orientation is the new closed zero.
+        val rebased = EntryOrientationMath.canonicalizeSign(sample.quaternion)
+        val fresh = EntryDetectionPolicy(rebased, model, settings ?: EntryProfileSettings())
+        baseline = rebased
+        policy = fresh
+        // Nothing is open in the closed-still state, so the only thing worth carrying across the
+        // rebuild is the episode counter, which keeps episode ids unique for the whole session.
+        policyState = fresh.initialState().copy(episodeCounter = state.episodeCounter)
+        closedStillSinceMs = sample.timestampMs
+        liveAngleDeg = 0.0
+    }
+
+    /**
+     * The clean closed state the drift rebaseline is allowed to act from: the door within the
+     * close band and on-axis, with no episode open, no mount displacement, and no source-loss
+     * health episode in progress. From anywhere else the current orientation is not a trustworthy
+     * closed reference.
+     */
+    private fun isClosedAndStill(
+        state: EntryDetectionPolicy.State,
+        rel: EntryQuaternion,
+        axis: DoubleArray,
+        model: EntryHingeModel,
+    ): Boolean {
+        if (state.doorEpisode != null || state.mountMoved || state.sourceUnavailableSinceMs != null) {
+            return false
+        }
+        val closeThresholdDeg = (settings?.closeThresholdDegrees ?: return false).toDouble()
+        val angleDeg = EntryOrientationMath.doorAngleDeltaDeg(rel, axis)
+        val swingDeg = EntryOrientationMath.swingResidualDeg(rel, axis)
+        return angleDeg <= closeThresholdDeg && swingDeg <= model.residualToleranceDeg
+    }
+
     /** Live relative door angle in degrees for the UI; null with no active session/baseline. */
     fun liveAngleDeg(): Double? = liveAngleDeg
+
+    companion object {
+        /**
+         * How long the door must read continuously closed and still before the baseline is
+         * re-captured to the current orientation. Two minutes is far longer than any real door
+         * spends crossing the close band, so a genuine opening always escapes it first; it is
+         * also short enough that even a badly drifting sensor moves only a fraction of the close
+         * band between re-captures, so the tracked-out drift never re-enters the open threshold.
+         */
+        const val DRIFT_REBASELINE_STABLE_MS: Long = 120_000L
+    }
 }
