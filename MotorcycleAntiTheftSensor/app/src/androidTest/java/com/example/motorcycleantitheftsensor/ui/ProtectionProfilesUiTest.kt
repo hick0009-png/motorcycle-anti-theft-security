@@ -433,6 +433,31 @@ class ProtectionProfilesUiTest {
     }
 
     @Test
+    fun readyEntrySummaryOffersRecalibrationBackIntoTheSetupForm() {
+        setState(
+            ProtectionProfileUiState(
+                selectedProfile = ProtectionProfile.ENTRY,
+                setupState = ProfileSetupState.READY,
+                entryAngleDegrees = 15,
+            ),
+        )
+
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เข็มทิศประตู"))
+        composeRule.onNodeWithText("พร้อมเฝ้าระวังทางเข้า").assertIsDisplayed()
+        // From a working watch there is a way back into calibration itself, not just the angle.
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("ปรับเทียบประตูใหม่"))
+        composeRule.onNodeWithText("ปรับเทียบประตูใหม่")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เริ่มปรับเทียบ"))
+        composeRule.onNodeWithText("เริ่มปรับเทียบ").assertIsDisplayed()
+        composeRule.onNodeWithText("ปรับเทียบแนวประตูใหม่").assertExists()
+    }
+
+    @Test
     fun unresolvedEntrySetupDoesNotClaimReady() {
         setState(
             ProtectionProfileUiState(

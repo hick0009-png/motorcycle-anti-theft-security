@@ -51,6 +51,10 @@ fun EntryGuardSection(
     var selectedAxisTolerance by rememberSaveable { mutableStateOf(16) }
     var angleControlsExpanded by rememberSaveable { mutableStateOf(false) }
     var angleSetupExpanded by rememberSaveable { mutableStateOf(false) }
+    // Once commissioned the section falls to the ready branch, which only re-picks the alert
+    // angle; this reopens the full setup form so an owner can recalibrate the hinge itself
+    // without waiting for the model to be invalidated for them.
+    var recalibrateExpanded by rememberSaveable { mutableStateOf(false) }
     val soundLevel = profile.entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT
 
     val maxAllowedClose = (selectedAngle - 2).coerceAtLeast(2)
@@ -153,9 +157,10 @@ fun EntryGuardSection(
                 }
             } else if (
                 profile.setupState == ProfileSetupState.SETUP_REQUIRED ||
-                (soundLevel && angleSetupExpanded)
+                (soundLevel && angleSetupExpanded) ||
+                recalibrateExpanded
             ) {
-                if (soundLevel) {
+                if (soundLevel && angleSetupExpanded) {
                     // Reached by choice from level one, so it needs a way back out; the
                     // uncommissioned angle level has nothing to go back to.
                     OutlinedButton(
@@ -166,8 +171,25 @@ fun EntryGuardSection(
                     ) {
                         Text(PresentationTextCatalog.ENTRY_LEVEL_ANGLE_HIDE)
                     }
+                } else if (recalibrateExpanded) {
+                    // Recalibration is a choice made from a working watch, so it must be
+                    // possible to back out and keep the model already in place.
+                    OutlinedButton(
+                        onClick = { recalibrateExpanded = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("ยกเลิกการปรับเทียบใหม่")
+                    }
                 }
-                Text("ปรับเทียบตำแหน่งปิดของประตูก่อนเริ่มใช้งาน")
+                Text(
+                    if (recalibrateExpanded) {
+                        "ปรับเทียบแนวประตูใหม่"
+                    } else {
+                        "ปรับเทียบตำแหน่งปิดของประตูก่อนเริ่มใช้งาน"
+                    }
+                )
                 Text("1. มุมแจ้งเตือนเมื่อเปิดเกิน: $selectedAngle°")
                 Text("แจ้งเมื่อประตูเปิดเกิน $selectedAngle° จากตำแหน่งปิด")
                 Slider(
@@ -315,6 +337,9 @@ fun EntryGuardSection(
 
                 Button(
                     onClick = {
+                        // The wizard takes over on the next frame; drop the reopen flag now so
+                        // finishing returns to the ready summary rather than this form again.
+                        recalibrateExpanded = false
                         actions.entryStartCommissioningWithOptions(
                             selectedAngle,
                             selectedCloseThreshold.toDouble(),
@@ -403,6 +428,17 @@ fun EntryGuardSection(
                             Text("บันทึกมุม $selectedAngle°")
                         }
                     }
+                }
+                // Changing the alert angle above only moves the threshold; recalibrating
+                // re-measures the closed reference and hinge axis, which is the only way to
+                // fix a model that has drifted while still valid.
+                OutlinedButton(
+                    onClick = { recalibrateExpanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text("ปรับเทียบประตูใหม่")
                 }
             } else {
                 Text("ตรวจสอบสถานะการตั้งค่าก่อนใช้งาน")
