@@ -57,7 +57,7 @@ class IncidentMessageFormatter(
                     } else {
                         val kindName = when (ev.kind) {
                             SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
-                            SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                            SensorKind.VIBRATION -> "${watchedSubject()}ถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
                             SensorKind.LOCATION -> "พิกัด"
@@ -202,7 +202,7 @@ class IncidentMessageFormatter(
                     } else {
                         val kindName = when (ev.kind) {
                             SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
-                            SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                            SensorKind.VIBRATION -> "${watchedSubject()}ถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
                             else -> ev.kind.thaiName()
@@ -255,7 +255,22 @@ class IncidentMessageFormatter(
             "เหตุยังตรวจพบต่อเนื่องเกิน 1 นาที\n" +
             "ประเภท: ${PresentationTextCatalog.incidentTypeLabel(incident.type)}\n" +
             "หลักฐานที่ยืนยันแล้ว: ${incident.evidence.size} รายการ\n" +
-            "ตรวจสอบรถและตำแหน่งล่าสุดทันที"
+            "ตรวจสอบ${watchedSubject()}และตำแหน่งล่าสุดทันที"
+
+    /**
+     * The noun for the thing the armed session is actually watching, so generic copy that
+     * once hard-coded "รถ" reads correctly in every mode. Chosen from the armed profile,
+     * not the sensor or incident type: an event classified as VIBRATION while Entry Guard
+     * is armed is still about a door, not a vehicle, and every message path that does not
+     * branch on ENTRY_DOOR first would otherwise borrow the vehicle word. Falls back to
+     * the vehicle word when no armed profile is known (legacy frozen sessions, disarmed
+     * replays), which preserves the original Vehicle Guard wording exactly.
+     */
+    private fun watchedSubject(): String = when (getSnapshot()?.armedProfileSnapshot?.profile) {
+        ProtectionProfile.ENTRY -> "ประตู"
+        ProtectionProfile.POWER -> "จุดติดตั้ง"
+        ProtectionProfile.VEHICLE, null -> "รถ"
+    }
 
     private fun SecurityIncident.toDefaultUpdate(): IncidentUpdate = when (lifecycle) {
         IncidentLifecycle.CLOSED -> IncidentUpdate.Closed(this)
