@@ -14,6 +14,7 @@ import com.example.motorcycleantitheftsensor.protection.EntryCommissioningPolicy
 import com.example.motorcycleantitheftsensor.protection.EntryDriftBudgetPolicy
 import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
+import com.example.motorcycleantitheftsensor.protection.EntryHingeModel
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationMath
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileOverrides
@@ -127,10 +128,24 @@ class ProtectionViewModel(
     private val profileState = MutableStateFlow(ProtectionProfileUiState())
     private val selectedPowerWitnessModel = MutableStateFlow<PowerWitnessModel?>(null)
     private val entryCommissioningState = MutableStateFlow<EntryCommissioningUiState?>(null)
-    private var commissioningPolicy: EntryCommissioningPolicy? = null
-    private var commissioningPolicyState = EntryCommissioningPolicy.State()
-    private var commissioningClosedBaseline: EntryOrientationSample? = null
-    private var commissioningJob: kotlinx.coroutines.Job? = null
+    @Volatile private var commissioningPolicy: EntryCommissioningPolicy? = null
+    @Volatile private var commissioningPolicyState = EntryCommissioningPolicy.State()
+    @Volatile private var commissioningJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Serializes every read-modify-write of [commissioningPolicyState]. Samples arrive on the
+     * commissioning job while the owner's taps arrive on the main thread, and that stream is
+     * registered at game rate: without this, a tap lands between a sample's read and its write
+     * and the sample puts the pre-tap state straight back. `@Volatile` publishes the field to
+     * the other thread; it does not make the pair of operations one.
+     */
+    private val commissioningMutex = Mutex()
+
+    /**
+     * Last sample the commissioning job saw. A tare re-zeroes onto a reading, and the only
+     * honest reading to use is the one the policy just judged.
+     */
+    @Volatile private var lastCommissioningSample: EntryOrientationSample? = null
     private val powerCommissioningState = MutableStateFlow<PowerCommissioningUiState?>(null)
     private var powerCommissioningPolicy: PowerWitnessCommissioningPolicy? = null
     private var powerCommissioningPolicyState = PowerWitnessCommissioningPolicy.State()
@@ -258,6 +273,8 @@ class ProtectionViewModel(
      */
     fun selectProfile(profile: ProtectionProfile) = runProtectionCommand(GuidanceCode.COMMAND_UNKNOWN) {
         val repository = profileRepository ?: return@runProtectionCommand
+        cancelEntryCommissioning()
+        cancelPowerCommissioning()
         val armed = coordinator.snapshot.value.state in setOf(
             ProtectionState.ARMING,
             ProtectionState.ARMED_HEALTHY,
@@ -332,17 +349,23 @@ class ProtectionViewModel(
         }
     }
 
-    /** Starts the guided two-cycle เข็มทิศประตู commissioning flow. */
-    fun startEntryCommissioning(alertAngleDeg: Int) {
+    /** Starts the guided two-cycle เข็มทิศประตู commissioning flow with user compensation settings. */
+    fun startEntryCommissioning(
+        alertAngleDeg: Int,
+        closeThresholdDeg: Double = 4.0,
+        axisToleranceDeg: Double = 16.0,
+    ) {
         val runtime = entryRuntime ?: return
         val repository = profileRepository ?: return
         val selectedAngle = alertAngleDeg.coerceIn(5, 90)
+        val selectedClose = closeThresholdDeg.coerceIn(2.0, 10.0).coerceAtMost(selectedAngle - 2.0)
+        val selectedAxis = axisToleranceDeg.coerceIn(5.0, 30.0)
         val policy = EntryCommissioningPolicy(
             stillRequiredMs = 5_000L,
             stillToleranceDeg = 2.0,
             minPeakAngleDeg = selectedAngle.toDouble(),
-            closeThresholdDeg = 3.0,
-            axisAgreementToleranceDeg = 10.0,
+            closeThresholdDeg = selectedClose,
+            axisAgreementToleranceDeg = selectedAxis,
             // The source this phone will actually arm on, not the one it usually has: a model
             // commissioned here is compared against this string at every arm.
             sensorIdentity = EntryCommissioningEnvironment.orientationIdentity(runtime.entryOrientationSource()),
@@ -354,10 +377,13 @@ class ProtectionViewModel(
         commissioningPolicy = policy
         // start() enters STILL_CHECK; a bare State() stays IDLE and drops every sample.
         commissioningPolicyState = policy.start()
-        commissioningClosedBaseline = null
+        // A tare belongs to the run it was pressed in: never re-zero onto a previous run's reading.
+        lastCommissioningSample = null
         entryCommissioningState.value = EntryCommissioningUiState(
             phase = EntryCommissioningPhase.STILL_CHECK,
             selectedAngleDeg = selectedAngle,
+            closeThresholdDeg = selectedClose,
+            axisToleranceDeg = selectedAxis,
         )
         runtime.startEntryCommissioningStream()
         commissioningJob = scope.launch {
@@ -367,11 +393,46 @@ class ProtectionViewModel(
         }
     }
 
+    /**
+     * Moves the closed reference to wherever the door is now, keeping the cycles the owner has
+     * already walked. A phone whose orientation source has drifted reads several degrees while
+     * the door is genuinely shut, and the cycle can then never come back "below closed"; this
+     * is the way out of that. It is not a way to lose a cycle that was already proven, which is
+     * what `start()` did here — the button says the reading is zero, not that the flow restarts.
+     *
+     * The still check is the exception: there is no cycle to keep and no closed reference to
+     * move yet, so the useful thing is to start the five seconds over.
+     */
+    fun tareEntryCommissioningZero() {
+        scope.launch {
+            commissioningMutex.withLock {
+                val policy = commissioningPolicy ?: return@withLock
+                val current = entryCommissioningState.value ?: return@withLock
+                val sample = lastCommissioningSample
+                commissioningPolicyState = if (
+                    sample == null ||
+                    commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.STILL_CHECK
+                ) {
+                    policy.start()
+                } else {
+                    policy.tareBaseline(commissioningPolicyState, sample)
+                }
+                entryCommissioningState.value = current.copy(
+                    phase = uiPhaseOf(commissioningPolicyState.phase),
+                    liveAngleDeg = 0.0,
+                    peakAngleDeg = 0.0,
+                    failureReason = null,
+                )
+            }
+        }
+    }
+
     fun cancelEntryCommissioning() {
         commissioningJob?.cancel()
         commissioningJob = null
         commissioningPolicy = null
-        commissioningClosedBaseline = null
+        commissioningPolicyState = EntryCommissioningPolicy.State()
+        lastCommissioningSample = null
         entryRuntime?.stopEntryCommissioningStream()
         entryCommissioningState.value = null
         scope.launch { refreshProfile() }
@@ -382,52 +443,67 @@ class ProtectionViewModel(
         runtime: ProtectionRuntime,
         sample: EntryOrientationSample,
     ) {
-        val policy = commissioningPolicy ?: return
-        val current = entryCommissioningState.value ?: return
-        val previousPhase = commissioningPolicyState.phase
-        commissioningPolicyState = policy.onSample(commissioningPolicyState, sample)
+        var commissioned = false
+        var commissionedModel: EntryHingeModel? = null
 
-        // Live angle for the compass display: relative to the most recent closed reading.
-        val closed = commissioningClosedBaseline
-        val liveDeg = if (closed != null) {
-            EntryOrientationMath.totalRotationDeg(
-                EntryOrientationMath.relativeRotation(closed.quaternion, sample.quaternion),
+        commissioningMutex.withLock {
+            val policy = commissioningPolicy ?: return
+            val current = entryCommissioningState.value ?: return
+            // A cancel that landed while this sample waited for the lock has already torn the
+            // flow down; the write below would put the card back on a screen that left it.
+            if (!coroutineContext.isActive) return
+            lastCommissioningSample = sample
+            commissioningPolicyState = policy.onSample(commissioningPolicyState, sample)
+
+            // Live angle for the compass display: the same closed reference the policy judges
+            // this cycle against, so the number on screen and the verdict cannot disagree.
+            val closed = commissioningPolicyState.cycleBaseline
+            val liveDeg = if (closed != null) {
+                EntryOrientationMath.totalRotationDeg(
+                    EntryOrientationMath.relativeRotation(closed, sample.quaternion),
+                )
+            } else {
+                0.0
+            }
+
+            entryCommissioningState.value = current.copy(
+                phase = uiPhaseOf(commissioningPolicyState.phase),
+                liveAngleDeg = liveDeg,
+                peakAngleDeg = commissioningPolicyState.peakAngleDeg,
+                failureReason = commissioningPolicyState.rejectionReason,
             )
-        } else {
-            0.0
-        }
-        if (
-            commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE ||
-            commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO ||
-            previousPhase == EntryCommissioningPolicy.Phase.STILL_CHECK
-        ) {
-            if (liveDeg <= 3.0) commissioningClosedBaseline = sample
+
+            if (commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.COMMISSIONED) {
+                commissioned = true
+                commissionedModel = commissioningPolicyState.model
+                commissioningPolicy = null
+                entryCommissioningState.value = null
+            }
         }
 
-        val nextPhase = when (commissioningPolicyState.phase) {
+        if (!commissioned) return
+        // Storing the model and refreshing the profile touch the repository and other locks,
+        // and nothing about them needs to be serialized against the next sample — which is why
+        // they run after the commissioning lock is released rather than inside it.
+        commissionedModel?.let { model ->
+            repository.update { profilePolicy.commissionEntry(it, model) }
+        }
+        runtime.stopEntryCommissioningStream()
+        // Refresh before cancelling: this runs inside the commissioning job and a
+        // self-cancel here would abort the profile-state refresh below.
+        refreshProfile()
+        commissioningJob?.cancel()
+        commissioningJob = null
+    }
+
+    private fun uiPhaseOf(phase: EntryCommissioningPolicy.Phase): EntryCommissioningPhase =
+        when (phase) {
             EntryCommissioningPolicy.Phase.STILL_CHECK -> EntryCommissioningPhase.STILL_CHECK
             EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE -> EntryCommissioningPhase.CYCLE_ONE
             EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO -> EntryCommissioningPhase.CYCLE_TWO
             EntryCommissioningPolicy.Phase.COMMISSIONED -> EntryCommissioningPhase.COMMISSIONED
             EntryCommissioningPolicy.Phase.IDLE -> EntryCommissioningPhase.FAILED
         }
-        entryCommissioningState.value = current.copy(phase = nextPhase, liveAngleDeg = liveDeg)
-
-        if (commissioningPolicyState.phase == EntryCommissioningPolicy.Phase.COMMISSIONED) {
-            val model = commissioningPolicyState.model
-            if (model != null) {
-                repository.update { profilePolicy.commissionEntry(it, model) }
-            }
-            commissioningPolicy = null
-            runtime.stopEntryCommissioningStream()
-            entryCommissioningState.value = null
-            // Refresh before cancelling: this runs inside the commissioning job and a
-            // self-cancel here would abort the profile-state refresh below.
-            refreshProfile()
-            commissioningJob?.cancel()
-            commissioningJob = null
-        }
-    }
 
     /** Starts the guided lamp off/on witness commissioning flow (charger connected). */
     fun startPowerCommissioning() {
@@ -898,6 +974,8 @@ class ProtectionViewModel(
     }
 
     override fun onCleared() {
+        cancelEntryCommissioning()
+        cancelPowerCommissioning()
         powerRuntime?.stopPowerStatusMonitoring()
         scope.cancel()
         super.onCleared()

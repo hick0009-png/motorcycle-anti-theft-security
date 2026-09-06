@@ -165,6 +165,8 @@ fun MainNavigation(
             clearDriftMeasurement = protectionViewModel::clearEntryDriftMeasurement,
             entrySetAngle = protectionViewModel::setEntryAngle,
             entryStartCommissioning = protectionViewModel::startEntryCommissioning,
+            entryStartCommissioningWithOptions = protectionViewModel::startEntryCommissioning,
+            entryTareZero = protectionViewModel::tareEntryCommissioningZero,
             entryCancelCommissioning = protectionViewModel::cancelEntryCommissioning,
             powerStartCommissioning = protectionViewModel::startPowerCommissioning,
             powerCancelCommissioning = protectionViewModel::cancelPowerCommissioning,

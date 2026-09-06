@@ -185,6 +185,36 @@ class EntryCommissioningPolicyTest {
     }
 
     @Test
+    fun twoCyclesClockwiseNegativeTwistPassesCommissioning() {
+        val p = policy()
+        var s = p.start()
+        s = feedStillAndCycle(p, s, startMs = 0L, peakDeg = 20.0, openRot = { deg -> rotZ(-deg) })
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        s = feedStillAndCycle(p, s, startMs = 10_000L, peakDeg = 20.0, openRot = { deg -> rotZ(-deg) })
+        assertEquals(EntryCommissioningPolicy.Phase.COMMISSIONED, s.phase)
+        val model = s.model
+        assertNotNull(model)
+        assertEquals(0.0, model!!.axisX, 1e-6)
+        assertEquals(0.0, model.axisY, 1e-6)
+        assertEquals(-1.0, model.axisZ, 1e-6)
+        assertEquals(1, model.allowedDirection)
+        assertTrue(model.residualToleranceDeg > 0.0)
+        assertNull(s.rejectionReason)
+    }
+
+    @Test
+    fun oppositeOpeningDirectionRejectsProperly() {
+        val p = policy()
+        var s = p.start()
+        s = feedStillAndCycle(p, s, startMs = 0L, openRot = ::rotZ)
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        s = feedStillAndCycle(p, s, startMs = 10_000L, openRot = { deg -> rotZ(-deg) })
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        assertNull(s.model)
+        assertEquals("opposite-opening-direction", s.rejectionReason)
+    }
+
+    @Test
     fun fingerprintChangesWhenAnyCoveredFieldChanges() {
         val base = EntryHingeModel(
             axisX = 0.0,
@@ -231,4 +261,201 @@ class EntryCommissioningPolicyTest {
         org.junit.Assert.assertFalse(p.requiresRecommission(base, base.copy(openConfirmationMs = 1_000L)))
         org.junit.Assert.assertFalse(p.requiresRecommission(base, base.copy()))
     }
+
+    @Test
+    fun configurableCloseThresholdAccommodatesRestingGap() {
+        // Tight 3.0 deg threshold fails when door only returns to 3.5 deg
+        val tightPolicy = EntryCommissioningPolicy(
+            stillRequiredMs = 5_000L,
+            stillToleranceDeg = 2.0,
+            minPeakAngleDeg = 15.0,
+            closeThresholdDeg = 3.0,
+            axisAgreementToleranceDeg = 10.0,
+            sensorIdentity = "rotation-vector",
+            mountSignature = "mount-a",
+            orientationSourcePolicy = "default",
+        )
+        var sTight = tightPolicy.start()
+        sTight = feedStillAndCycle(tightPolicy, sTight, startMs = 0L, peakDeg = 20.0) { deg ->
+            rotZ(if (deg < 3.5) 3.5 else deg)
+        }
+        // Never reached below 3.0 deg -> still in cycle one
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, sTight.phase)
+
+        // Compensated 4.0 deg threshold succeeds when door returns to 3.5 deg
+        val compensatedPolicy = EntryCommissioningPolicy(
+            stillRequiredMs = 5_000L,
+            stillToleranceDeg = 2.0,
+            minPeakAngleDeg = 15.0,
+            closeThresholdDeg = 4.0,
+            axisAgreementToleranceDeg = 10.0,
+            sensorIdentity = "rotation-vector",
+            mountSignature = "mount-a",
+            orientationSourcePolicy = "default",
+        )
+        var sComp = compensatedPolicy.start()
+        sComp = feedStillAndCycle(compensatedPolicy, sComp, startMs = 0L, peakDeg = 20.0) { deg ->
+            rotZ(if (deg < 3.5) 3.5 else deg)
+        }
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, sComp.phase)
+    }
+
+    @Test
+    fun resetCycleTrackingPreservesCycleBaselineForCleanRetry() {
+        val p = policy()
+        var s = p.start()
+        s = feedStillAndCycle(p, s, startMs = 0L, openRot = ::rotZ)
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        val cycleOneBaseline = s.cycleBaseline
+        assertNotNull(cycleOneBaseline)
+
+        // Force axis mismatch in cycle 2
+        s = feedStillAndCycle(p, s, startMs = 10_000L, openRot = ::rotY)
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        // cycleBaseline must be preserved rather than cleared
+        assertEquals(cycleOneBaseline, s.cycleBaseline)
+        assertEquals(0.0, s.peakAngleDeg, 1e-6)
+        assertNull(s.peakRel)
+        assertNotNull(s.rejectionReason)
+    }
+
+    @Test
+    fun openingSlightlyBelowCloseThresholdIsNotDiscardedImmediately() {
+        val p = policy(minPeak = 15.0)
+        var s = p.start()
+        var t = 0L
+        while (t <= 5_000L) {
+            s = p.onSample(s, sample(t, EntryQuaternion.IDENTITY))
+            t += 500
+        }
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+        val initialBaseline = s.cycleBaseline
+        assertNotNull(initialBaseline)
+        assertNull(s.rejectionReason)
+
+        // Door begins opening slightly: 0.0° -> 0.8° (below closeThreshold of 3.0°)
+        t += 200
+        s = p.onSample(s, sample(t, rotZ(0.8)))
+
+        // Must not be discarded as closed/peak-too-small
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+        assertNull(s.rejectionReason)
+        assertEquals(initialBaseline, s.cycleBaseline)
+        assertEquals(0.8, s.peakAngleDeg, 1e-3)
+    }
+
+    @Test
+    fun doorOpeningPastMinPeakAndClosingAdvancesToCycleTwo() {
+        val p = policy(minPeak = 15.0)
+        var s = p.start()
+        var t = 0L
+        while (t <= 5_000L) {
+            s = p.onSample(s, sample(t, EntryQuaternion.IDENTITY))
+            t += 500
+        }
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        // Start opening with slight movement 0.8°, then progress past minPeak (20.0°)
+        t += 200
+        s = p.onSample(s, sample(t, rotZ(0.8)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        t += 200
+        s = p.onSample(s, sample(t, rotZ(5.0)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        t += 200
+        s = p.onSample(s, sample(t, rotZ(20.0)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+        assertEquals(20.0, s.peakAngleDeg, 1e-3)
+
+        // Door closes back below closeThreshold (e.g., 2.0° <= 3.0°)
+        t += 200
+        s = p.onSample(s, sample(t, rotZ(2.0)))
+
+        // Must successfully qualify and advance to AWAITING_CYCLE_TWO
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        assertNotNull(s.cycleOne)
+        assertEquals(20.0, s.cycleOne!!.peakAngleDeg, 1e-3)
+        assertNull(s.rejectionReason)
+    }
+
+    @Test
+    fun invertedCloseThresholdIsConstrainedBelowMinPeak() {
+        // closeThresholdDeg (20.0) configured higher than minPeakAngleDeg (15.0)
+        val invertedPolicy = EntryCommissioningPolicy(
+            stillRequiredMs = 5_000L,
+            stillToleranceDeg = 2.0,
+            minPeakAngleDeg = 15.0,
+            closeThresholdDeg = 20.0,
+            axisAgreementToleranceDeg = 10.0,
+            sensorIdentity = "rotation-vector",
+            mountSignature = "mount-a",
+            orientationSourcePolicy = "default",
+        )
+        var s = invertedPolicy.start()
+        var t = 0L
+        while (t <= 5_000L) {
+            s = invertedPolicy.onSample(s, sample(t, EntryQuaternion.IDENTITY))
+            t += 500
+        }
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        // Open to 14.0° - since closeThreshold is clamped to 14.0, door hasn't departed yet
+        t += 200
+        s = invertedPolicy.onSample(s, sample(t, rotZ(14.0)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        // Open to 18.0° (> minPeak 15.0)
+        t += 200
+        s = invertedPolicy.onSample(s, sample(t, rotZ(18.0)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        // Close to 5.0° (<= effectiveClose of 14.0)
+        t += 200
+        s = invertedPolicy.onSample(s, sample(t, rotZ(5.0)))
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s.phase)
+        assertNotNull(s.cycleOne)
+    }
+
+    @Test
+    fun tareBaselineReSeedsZeroReference() {
+        val p = policy()
+        var s = p.start()
+        var t = 0L
+        while (t <= 5_000L) {
+            s = p.onSample(s, sample(t, EntryQuaternion.IDENTITY))
+            t += 500
+        }
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_ONE, s.phase)
+
+        // Tare zero at 5 degrees
+        val offsetSample = sample(6_000L, rotZ(5.0))
+        s = p.tareBaseline(s, offsetSample)
+        assertEquals(rotZ(5.0), s.cycleBaseline)
+        assertEquals(0.0, s.peakAngleDeg, 1e-6)
+        assertNull(s.rejectionReason)
+    }
+
+    @Test
+    fun cycleTwoPeakTooSmallRetainsCycleOne() {
+        val p = policy(minPeak = 15.0)
+        val s1 = feedStillAndCycle(p, p.start(), startMs = 0L, peakDeg = 20.0, openRot = ::rotZ)
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s1.phase)
+        val cycleOneRecord = s1.cycleOne
+        assertNotNull(cycleOneRecord)
+
+        // Second cycle opens only to 10.0° (< minPeak 15.0) then closes
+        val s2 = feedStillAndCycle(p, s1, startMs = 10_000L, peakDeg = 10.0, openRot = ::rotZ)
+        assertEquals(EntryCommissioningPolicy.Phase.AWAITING_CYCLE_TWO, s2.phase)
+        assertEquals(cycleOneRecord, s2.cycleOne)
+        assertTrue(s2.rejectionReason?.startsWith("peak-too-small") == true)
+
+        // Retry second cycle with sufficient angle (20.0°)
+        val s3 = feedStillAndCycle(p, s2, startMs = 20_000L, peakDeg = 20.0, openRot = ::rotZ)
+        assertEquals(EntryCommissioningPolicy.Phase.COMMISSIONED, s3.phase)
+        assertNotNull(s3.model)
+        assertNull(s3.rejectionReason)
+    }
 }
+

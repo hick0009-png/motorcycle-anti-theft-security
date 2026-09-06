@@ -289,6 +289,9 @@ data class EntryCommissioningUiState(
     val phase: EntryCommissioningPhase,
     val liveAngleDeg: Double = 0.0,
     val selectedAngleDeg: Int = 15,
+    val closeThresholdDeg: Double = 4.0,
+    val axisToleranceDeg: Double = 16.0,
+    val peakAngleDeg: Double = 0.0,
     val failureReason: String? = null,
 )
 

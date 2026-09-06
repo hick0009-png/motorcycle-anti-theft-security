@@ -1301,6 +1301,186 @@ class ProtectionViewModelTest {
         assertNull(viewModel.uiState.value.profile.commissioning)
     }
 
+    /**
+     * The number on the calibration screen has to answer the door, not the sample rate.
+     *
+     * The display used to carry its own closed reference and re-seat it on every sample that
+     * read under three degrees. This stream is registered at game rate, so that asked for
+     * more than 150 degrees a second before the reading would leave zero: a door pushed at
+     * any human speed dragged the reference along with it, and an owner watching a live
+     * angle sit at `0°` has no way to tell a working calibration from a dead sensor.
+     */
+    @Test
+    fun entryCommissioningLiveAngleFollowsADoorOpenedAtHumanSpeed() = runTest {
+        val (viewModel, _, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        fun twist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+            timestampMs = timestampMs,
+            quaternion = EntryQuaternion(
+                w = Math.cos(Math.toRadians(degrees / 2)),
+                x = 0.0,
+                y = 0.0,
+                z = Math.sin(Math.toRadians(degrees / 2)),
+            ),
+            fresh = true,
+        )
+
+        runtime.emit(twist(0.0, 0L))
+        var still = 1_000L
+        while (still <= 5_000L) {
+            runtime.emit(twist(0.0, still))
+            still += 1_000L
+        }
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_ONE,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // One degree every twenty milliseconds: fifty degrees a second, an ordinary push on
+        // a door, and a third of the speed the old display silently demanded.
+        var degrees = 1.0
+        var atMs = 5_020L
+        while (degrees <= 20.0) {
+            runtime.emit(twist(degrees, atMs))
+            degrees += 1.0
+            atMs += 20L
+        }
+        advanceUntilIdle()
+
+        val live = viewModel.uiState.value.profile.commissioning?.liveAngleDeg
+        assertNotNull(live)
+        assertEquals(20.0, live!!, 0.5)
+    }
+
+    @Test
+    fun entryCommissioningClampsCloseThresholdBelowAlertAngle() = runTest {
+        val (viewModel, _, _) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        // 5 - 2.0 = 3.0, so closeThreshold 4.0 must be clamped to 3.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 5, closeThresholdDeg = 4.0)
+        advanceUntilIdle()
+        assertEquals(3.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+
+        // Lower bound 2.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 15, closeThresholdDeg = 1.0)
+        advanceUntilIdle()
+        assertEquals(2.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+
+        // Upper bound 10.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 30, closeThresholdDeg = 15.0)
+        advanceUntilIdle()
+        assertEquals(10.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+    }
+
+    @Test
+    fun entryCommissioningTareZeroDuringStillCheckRestartsTheWindow() = runTest {
+        val (viewModel, _, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        // Four seconds of stillness: one short of the window.
+        runtime.emit(entryTwist(0.0, 0L))
+        var t = 1_000L
+        while (t <= 4_000L) {
+            runtime.emit(entryTwist(0.0, t))
+            t += 1_000L
+        }
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.STILL_CHECK,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // There is no cycle to keep and no closed reference to move yet, so the tare restarts
+        // the five seconds: the four already served do not count towards the new window.
+        viewModel.tareEntryCommissioningZero()
+        advanceUntilIdle()
+
+        runtime.emit(entryTwist(0.0, 5_000L))
+        runtime.emit(entryTwist(0.0, 8_000L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.STILL_CHECK,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        runtime.emit(entryTwist(0.0, 10_100L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_ONE,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+    }
+
+    /**
+     * The owner presses "this is zero" because the reading has drifted off the shut door, not
+     * because they want to walk the flow again. Sending them back through the still check would
+     * be tolerable; throwing away a cycle they already walked, without saying so, is not — and
+     * that is what routing the button through `start()` did.
+     */
+    @Test
+    fun entryCommissioningTareZeroKeepsTheCycleAlreadyProven() = runTest {
+        val (viewModel, repository, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        runtime.emit(entryTwist(0.0, 0L))
+        var t = 1_000L
+        while (t <= 5_000L) {
+            runtime.emit(entryTwist(0.0, t))
+            t += 1_000L
+        }
+        // Cycle one: open past the threshold and shut again.
+        runtime.emit(entryTwist(20.0, 5_500L))
+        runtime.emit(entryTwist(0.0, 6_000L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_TWO,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // The source has drifted: the shut door now reads two degrees, and the tare says so.
+        runtime.emit(entryTwist(2.0, 6_500L))
+        advanceUntilIdle()
+        viewModel.tareEntryCommissioningZero()
+        advanceUntilIdle()
+
+        val tared = viewModel.uiState.value.profile.commissioning
+        assertEquals(EntryCommissioningPhase.CYCLE_TWO, tared?.phase)
+        assertEquals(0.0, tared?.liveAngleDeg)
+        assertEquals(0.0, tared?.peakAngleDeg)
+        assertNull(tared?.failureReason)
+
+        // One more cycle, measured from the new zero, is all that should be left to do.
+        runtime.emit(entryTwist(22.0, 7_000L))
+        runtime.emit(entryTwist(2.0, 7_500L))
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.ENTRY)
+        assertEquals(ProfileSetupState.READY, stored.setupState)
+    }
+
+    private fun entryTwist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+        timestampMs = timestampMs,
+        quaternion = EntryQuaternion(
+            w = Math.cos(Math.toRadians(degrees / 2)),
+            x = 0.0,
+            y = 0.0,
+            z = Math.sin(Math.toRadians(degrees / 2)),
+        ),
+        fresh = true,
+    )
+
     @Test
     fun entryAngleQuickChoicesAndSliderBoundsAreEnforced() = runTest {
         val (viewModel, repository, _) = entryViewModelFixture(testScheduler)

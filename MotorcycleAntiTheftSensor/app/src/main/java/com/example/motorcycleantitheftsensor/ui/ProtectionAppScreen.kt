@@ -47,6 +47,8 @@ data class ProtectionAppActions(
     val selectDestination: (ProtectionDestination) -> Unit,
     val entrySetAngle: (Int) -> Unit = {},
     val entryStartCommissioning: (Int) -> Unit = {},
+    val entryStartCommissioningWithOptions: (Int, Double, Double) -> Unit = { angle, _, _ -> entryStartCommissioning(angle) },
+    val entryTareZero: () -> Unit = {},
     val entryCancelCommissioning: () -> Unit = {},
     val powerStartCommissioning: () -> Unit = {},
     val powerCancelCommissioning: () -> Unit = {},

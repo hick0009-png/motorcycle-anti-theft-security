@@ -12,8 +12,8 @@ data class EntryOrientationSample(
 
 /**
  * Learned hinge model produced by two consistent commissioning cycles. The axis is
- * sign-canonicalized (largest-absolute component positive) so `allowedDirection = +1`
- * means "opening rotates positively around the stored axis".
+ * oriented along opening rotation so `allowedDirection = +1` means "opening rotates
+ * positively around the stored axis".
  */
 data class EntryHingeModel(
     val axisX: Double,
@@ -45,13 +45,15 @@ class EntryCommissioningPolicy(
     private val stillRequiredMs: Long,
     private val stillToleranceDeg: Double,
     private val minPeakAngleDeg: Double,
-    private val closeThresholdDeg: Double,
-    private val axisAgreementToleranceDeg: Double,
+    closeThresholdDeg: Double = 3.0,
+    private val axisAgreementToleranceDeg: Double = 10.0,
     private val sensorIdentity: String,
     private val mountSignature: String,
     private val orientationSourcePolicy: String,
     private val residualMarginDeg: Double = 2.0,
 ) {
+    private val closeThresholdDeg: Double =
+        closeThresholdDeg.coerceAtMost((minPeakAngleDeg - 1.0).coerceAtLeast(1.0))
 
     enum class Phase { IDLE, STILL_CHECK, AWAITING_CYCLE_ONE, AWAITING_CYCLE_TWO, COMMISSIONED }
 
@@ -122,18 +124,22 @@ class EntryCommissioningPolicy(
         }
         val currentPeak = updated.peakRel ?: return updated
         val qualifies = updated.peakAngleDeg >= minPeakAngleDeg
-        val backBelowClose = total <= closeThresholdDeg && peakAngle > total || total <= closeThresholdDeg
-        if (!(backBelowClose && currentPeak != null)) return updated
+        val hasDepartedClosed = updated.peakAngleDeg > closeThresholdDeg
+        val backBelowClose = total <= closeThresholdDeg && hasDepartedClosed
+        if (!backBelowClose) return updated
         if (!qualifies) {
             // Peak never reached the selected angle: discard this attempt, keep waiting.
-            return resetCycleTracking(updated)
+            return resetCycleTracking(updated).copy(
+                rejectionReason = "peak-too-small-${updated.peakAngleDeg.toInt()}deg",
+            )
         }
         val record = buildCycleRecord(currentPeak)
         return if (updated.phase == Phase.AWAITING_CYCLE_ONE) {
             State(
                 phase = Phase.AWAITING_CYCLE_TWO,
-                cycleBaseline = sample.quaternion,
+                cycleBaseline = baseline,
                 cycleOne = record,
+                rejectionReason = null,
             )
         } else {
             validateSecondCycle(updated, record, sample)
@@ -147,12 +153,9 @@ class EntryCommissioningPolicy(
     ): State {
         val first = state.cycleOne
             ?: return resetCycleTracking(state).copy(rejectionReason = "missing-first-cycle")
-        val axisAngleDeg = Math.toDegrees(
-            acos(
-                (first.axisX * second.axisX + first.axisY * second.axisY + first.axisZ * second.axisZ)
-                    .coerceIn(-1.0, 1.0),
-            ),
-        )
+        val dot = (first.axisX * second.axisX + first.axisY * second.axisY + first.axisZ * second.axisZ)
+            .coerceIn(-1.0, 1.0)
+        val axisAngleDeg = Math.toDegrees(acos(abs(dot)))
         if (axisAngleDeg > axisAgreementToleranceDeg) {
             return resetCycleTracking(state)
                 .copy(rejectionReason = "axis-mismatch-${axisAngleDeg.toInt()}deg")
@@ -162,7 +165,7 @@ class EntryCommissioningPolicy(
             peakRel,
             doubleArrayOf(first.axisX, first.axisY, first.axisZ),
         )
-        if (signedTwist <= 0.0) {
+        if (signedTwist <= 0.0 || dot < 0.0) {
             return resetCycleTracking(state).copy(rejectionReason = "opposite-opening-direction")
         }
         val model = EntryHingeModel(
@@ -179,7 +182,7 @@ class EntryCommissioningPolicy(
             val length = kotlin.math.sqrt(raw.axisX * raw.axisX + raw.axisY * raw.axisY + raw.axisZ * raw.axisZ)
             raw.copy(axisX = raw.axisX / length, axisY = raw.axisY / length, axisZ = raw.axisZ / length)
         }
-        return State(phase = Phase.COMMISSIONED, model = model)
+        return State(phase = Phase.COMMISSIONED, model = model, rejectionReason = null)
     }
 
     private fun resetCycleTracking(state: State): State = state.copy(
@@ -187,18 +190,25 @@ class EntryCommissioningPolicy(
         peakRel = null,
     )
 
-    /** Axis is sign-canonicalized so the recorded opening direction is always +1. */
+    fun tareBaseline(state: State, sample: EntryOrientationSample): State = state.copy(
+        cycleBaseline = sample.quaternion,
+        peakAngleDeg = 0.0,
+        peakRel = null,
+        rejectionReason = null,
+    )
+
+    /** Axis is oriented along opening rotation so the recorded opening direction is always +1. */
     private fun buildCycleRecord(peakRel: EntryQuaternion): CycleRecord {
         val q = EntryOrientationMath.normalize(peakRel)
         val length = kotlin.math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z)
-        var ax = q.x / length
-        var ay = q.y / length
-        var az = q.z / length
-        val largest = maxOf(abs(ax), abs(ay), abs(az))
-        if ((largest == abs(ax) && ax < 0.0) ||
-            (largest != abs(ax) && largest == abs(ay) && ay < 0.0) ||
-            (largest != abs(ax) && largest != abs(ay) && az < 0.0)
-        ) {
+        var ax = if (length > 1e-12) q.x / length else 0.0
+        var ay = if (length > 1e-12) q.y / length else 0.0
+        var az = if (length > 1e-12) q.z / length else 1.0
+
+        // Orient axis along the opening rotation so opening twist is strictly positive.
+        // Rotation by -theta around A is mathematically identical to +theta around -A.
+        val twist = EntryOrientationMath.twistAroundAxisDeg(peakRel, doubleArrayOf(ax, ay, az))
+        if (twist < 0.0) {
             ax = -ax
             ay = -ay
             az = -az
