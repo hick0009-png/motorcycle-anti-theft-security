@@ -50,6 +50,10 @@ class EntryDetectionPolicy(
         val episodeCounter: Int = 0,
         /** Since when a displaced mount has read compatible again; see [evaluateMountRestore]. */
         val mountRestoreHealthySinceMs: Long? = null,
+        /** When the owner was last told the source was gone; see [mayAnnounceSourceLoss]. */
+        val sourceLossAnnouncedAtMs: Long? = null,
+        /** Whether the loss currently in progress was announced, so its recovery may be. */
+        val sourceLossAnnounced: Boolean = false,
         /**
          * Orientation a displaced phone came to rest at, and when it was taken.
          *
@@ -75,9 +79,12 @@ class EntryDetectionPolicy(
             val episode = state.doorEpisode?.let { ep ->
                 if (ep.interrupted) ep else ep.copy(interrupted = true)
             }
-            val verdict = if (firstTransition) EntryDetectionVerdict.SourceUnavailable else null
+            val announce = firstTransition && mayAnnounceSourceLoss(state, sample.timestampMs)
+            val verdict = if (announce) EntryDetectionVerdict.SourceUnavailable else null
             return verdict to state.copy(
                 sourceUnavailableSinceMs = state.sourceUnavailableSinceMs ?: sample.timestampMs,
+                sourceLossAnnouncedAtMs = if (announce) sample.timestampMs else state.sourceLossAnnouncedAtMs,
+                sourceLossAnnounced = if (firstTransition) announce else state.sourceLossAnnounced,
                 recoveryHealthySinceMs = null,
                 openStreakStartMs = null,
                 closeStreakStartMs = null,
@@ -137,7 +144,14 @@ class EntryDetectionPolicy(
                         closeStreakStartMs = null,
                     )
                 } else {
-                    EntryDetectionVerdict.SourceRecovered to state.copy(
+                    // A recovery from a loss nobody was told about is not news either, and
+                    // announcing it alone would be the strangest message of all.
+                    val verdict = if (state.sourceLossAnnounced) {
+                        EntryDetectionVerdict.SourceRecovered
+                    } else {
+                        null
+                    }
+                    verdict to state.copy(
                         sourceUnavailableSinceMs = null,
                         recoveryHealthySinceMs = null,
                     )
@@ -267,6 +281,27 @@ class EntryDetectionPolicy(
         }
     }
 
+    /**
+     * Whether a fresh loss of the source is worth telling the owner about again.
+     *
+     * A phone that freezes background apps — which is most of them, and is exactly the phone
+     * this gate was built for — does not lose the sensor once. It loses it for twenty seconds
+     * every few minutes, all night. Each of those was a full incident: a Telegram message, an
+     * SMS, and the same sentence the owner had already read, until the source came back for
+     * good or the ceiling stopped it. The owner learns nothing from the ninth telling that
+     * they did not learn from the first.
+     *
+     * So the fact is said, and then not said again for [SOURCE_LOSS_REANNOUNCE_MS]. What the
+     * silence costs is only the message: the health episode still opens, door evidence is
+     * still marked interrupted, recovery is still made to prove itself, and the black box
+     * still counts the samples that did not arrive — a gap in the record is a gap whether or
+     * not anybody was texted about it.
+     */
+    private fun mayAnnounceSourceLoss(state: State, timestampMs: Long): Boolean {
+        val last = state.sourceLossAnnouncedAtMs ?: return true
+        return timestampMs - last >= SOURCE_LOSS_REANNOUNCE_MS
+    }
+
     private fun evaluateAngle(
         state: State,
         angleDeg: Double,
@@ -339,6 +374,15 @@ class EntryDetectionPolicy(
     companion object {
         /** Fresh compatible evidence required to clear a health episode (spec section 7.2). */
         const val RECOVERY_REQUIRED_MS: Long = 5_000L
+
+        /**
+         * How long before a source that keeps dropping out may say so again.
+         *
+         * Long enough that a phone flapping every few minutes is one message an hour rather
+         * than one an outage, and short enough that a fresh loss hours later still arrives as
+         * its own news.
+         */
+        const val SOURCE_LOSS_REANNOUNCE_MS: Long = 600_000L
 
         /**
          * Compatible evidence required before a displaced mount is trusted again. The same

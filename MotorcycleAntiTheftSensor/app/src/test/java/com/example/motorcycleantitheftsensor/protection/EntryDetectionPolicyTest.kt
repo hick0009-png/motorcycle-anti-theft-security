@@ -50,6 +50,29 @@ class EntryDetectionPolicyTest {
         settings = settings,
     )
 
+    private val SOURCE_LOSS_REANNOUNCE = EntryDetectionPolicy.SOURCE_LOSS_REANNOUNCE_MS
+
+    /**
+     * Drives seven seconds of healthy shut-door samples through a source-loss episode.
+     * @return whether a recovery was announced, and the resulting state.
+     */
+    private fun driveRecovery(
+        policy: EntryDetectionPolicy,
+        from: EntryDetectionPolicy.State,
+        startMs: Long,
+    ): Pair<Boolean, EntryDetectionPolicy.State> {
+        var state = from
+        var recovered = false
+        var t = startMs
+        while (t <= startMs + 7_000L) {
+            val (verdict, next) = policy.evaluate(state, sample(t, rotZ(0.0)))
+            if (verdict is EntryDetectionVerdict.SourceRecovered) recovered = true
+            state = next
+            t += 1_000L
+        }
+        return recovered to state
+    }
+
     /** Drives an open past confirmation and returns the final state. */
     private fun driveOpen(policy: EntryDetectionPolicy, startMs: Long = 1_000L): Pair<EntryDetectionPolicy.State, EntryDetectionVerdict?> {
         var state = policy.initialState()
@@ -335,6 +358,49 @@ class EntryDetectionPolicyTest {
         assertTrue(v is EntryDetectionVerdict.MountMoved)
         assertTrue(movedState.doorEpisode!!.interrupted)
         assertTrue(movedState.mountMoved)
+    }
+
+    /**
+     * The overnight repeat-alert shape. A phone that freezes background apps loses the sensor
+     * for twenty seconds every few minutes, and every one of those cycles used to be a whole
+     * incident with its own Telegram message and SMS, all saying the sentence the owner read
+     * the first time.
+     */
+    @Test
+    fun aSourceThatKeepsDroppingOutIsAnnouncedOnceNotOnEveryGap() {
+        val p = policy()
+        var state = p.initialState()
+        val announcements = mutableListOf<Long>()
+
+        // Five loss/recovery cycles two minutes apart — all inside the floor — and a sixth
+        // just past it, which is a fresh piece of news and says so.
+        val lossTimes = listOf(1_000L, 121_000L, 241_000L, 361_000L, 481_000L, 611_000L)
+        for (lossAt in lossTimes) {
+            val (lost, afterLoss) = p.evaluate(state, sample(lossAt, rotZ(0.0), fresh = false))
+            if (lost is EntryDetectionVerdict.SourceUnavailable) announcements += lossAt
+            state = driveRecovery(p, afterLoss, lossAt + 20_000L).second
+        }
+
+        assertEquals(listOf(1_000L, 611_000L), announcements)
+        assertTrue(lossTimes.last() - lossTimes.first() >= SOURCE_LOSS_REANNOUNCE)
+    }
+
+    @Test
+    fun aSuppressedLossDoesNotAnnounceItsOwnRecovery() {
+        val p = policy()
+        var state = p.initialState()
+
+        val (first, afterFirst) = p.evaluate(state, sample(1_000L, rotZ(0.0), fresh = false))
+        assertTrue(first is EntryDetectionVerdict.SourceUnavailable)
+        state = afterFirst
+        state = driveRecovery(p, state, 20_000L).also { assertTrue(it.first) }.second
+
+        // Second gap inside the floor: silent going down, and silent coming back up.
+        val (second, afterSecond) = p.evaluate(state, sample(120_000L, rotZ(0.0), fresh = false))
+        assertNull(second)
+        state = afterSecond
+        val (recoveredAgain, _) = driveRecovery(p, state, 140_000L)
+        assertFalse(recoveredAgain)
     }
 
     @Test
