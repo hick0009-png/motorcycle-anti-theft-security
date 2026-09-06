@@ -239,6 +239,36 @@ class SmsFallbackManagerTest {
         assertEquals(SmsSendOutcome.RATE_LIMITED, manager.send("+15555550123", alert))
     }
 
+    /**
+     * Fifteen failed fallback attempts on the test device all recorded the same shrug, because
+     * the platform's result code was compared against OK and thrown away. A reader could not
+     * tell a phone out of coverage from a phone with its radio off from a carrier refusing the
+     * volume, and those are three different things to do about it.
+     */
+    @Test
+    fun theRadiosOwnReasonSurvivesAsFarAsTheOutcome() = runTest {
+        listOf(
+            SmsRadioResult.NO_SERVICE to SmsSendOutcome.NO_SERVICE,
+            SmsRadioResult.RADIO_OFF to SmsSendOutcome.RADIO_OFF,
+            SmsRadioResult.CARRIER_LIMIT to SmsSendOutcome.CARRIER_LIMIT,
+            SmsRadioResult.FAILED to SmsSendOutcome.FAILED,
+        ).forEach { (radio, expected) ->
+            val dispatcher = FakeSmsDispatcher()
+            val manager = SmsFallbackManager(
+                smsKeyProvider = { deviceKey },
+                dispatcher = dispatcher,
+                nowMs = { 1_000L },
+                sendTimeoutMs = 30_000L,
+            )
+
+            val result = async { manager.send("+15555550123", alert) }
+            runCurrent()
+            dispatcher.complete(radio)
+
+            assertEquals(expected, result.await())
+        }
+    }
+
     @Test
     fun aRadioThatNeverConfirmsIsATimeoutRatherThanARefusal() = runTest {
         val manager = SmsFallbackManager(
@@ -258,20 +288,24 @@ class SmsFallbackManagerTest {
 }
 
 private class FakeSmsDispatcher : SmsDispatcher {
-    private var callback: ((Boolean) -> Unit)? = null
+    private var callback: ((SmsRadioResult) -> Unit)? = null
     var lastMessage: String? = null
 
     override fun sendMultipart(
         destinationNumber: String,
         message: String,
-        onSent: (Boolean) -> Unit,
+        onResult: (SmsRadioResult) -> Unit,
     ): () -> Unit {
         lastMessage = message
-        callback = onSent
+        callback = onResult
         return { callback = null }
     }
 
     fun complete(sent: Boolean) {
-        requireNotNull(callback)(sent)
+        complete(if (sent) SmsRadioResult.SENT else SmsRadioResult.FAILED)
+    }
+
+    fun complete(result: SmsRadioResult) {
+        requireNotNull(callback)(result)
     }
 }

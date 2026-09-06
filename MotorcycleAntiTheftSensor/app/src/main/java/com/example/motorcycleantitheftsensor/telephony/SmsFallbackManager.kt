@@ -12,17 +12,43 @@ import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 
+/**
+ * What the radio said about one multipart send.
+ *
+ * The platform answers a send with a result code naming the cause, and this layer used to
+ * compare it against "OK" and throw the rest away. Fifteen failed fallback attempts on the
+ * test device were therefore recorded as fifteen shrugs: something went wrong, no idea what,
+ * and no way to tell a phone with no coverage from a phone with its radio off from a carrier
+ * refusing the message.
+ */
+enum class SmsRadioResult {
+    SENT,
+
+    /** In coverage terms: the radio is on and there is nothing to send through. */
+    NO_SERVICE,
+
+    /** Airplane mode, or the radio otherwise down. */
+    RADIO_OFF,
+
+    /** The carrier refused it for volume, which is a bill and a rate, not a fault. */
+    CARRIER_LIMIT,
+
+    /** Refused for a reason the platform did not narrow down. */
+    FAILED,
+}
+
 fun interface SmsDispatcher {
     fun sendMultipart(
         destinationNumber: String,
         message: String,
-        onSent: (Boolean) -> Unit,
+        onResult: (SmsRadioResult) -> Unit,
     ): () -> Unit
 }
 
@@ -46,7 +72,16 @@ enum class SmsSendOutcome {
     /** Handed to the radio, which did not confirm it in time. */
     TIMED_OUT,
 
-    /** The radio refused it, or the attempt threw. */
+    /** The radio was reachable and there was no service to send through. */
+    NO_SERVICE,
+
+    /** The radio was off — airplane mode, or shut down by the platform. */
+    RADIO_OFF,
+
+    /** The carrier refused it for volume. A bill and a rate, not a fault in this app. */
+    CARRIER_LIMIT,
+
+    /** Refused for a reason the platform did not narrow down, or the attempt threw. */
     FAILED,
 }
 
@@ -111,19 +146,22 @@ class SmsFallbackManager internal constructor(
         return try {
             val result = withTimeoutOrNull(sendTimeoutMs) {
                 suspendCancellableCoroutine { continuation ->
-                    val cancel = dispatcher.sendMultipart(destinationNumber, encryptedBody) { sent ->
-                        if (continuation.isActive) continuation.resume(sent)
+                    val cancel = dispatcher.sendMultipart(destinationNumber, encryptedBody) { radio ->
+                        if (continuation.isActive) continuation.resume(radio)
                     }
                     continuation.invokeOnCancellation { cancel() }
                 }
             }
             when (result) {
                 null -> SmsSendOutcome.TIMED_OUT
-                true -> {
+                SmsRadioResult.SENT -> {
                     lastSmsSentMs.set(nowMs())
                     SmsSendOutcome.SENT
                 }
-                false -> SmsSendOutcome.FAILED
+                SmsRadioResult.NO_SERVICE -> SmsSendOutcome.NO_SERVICE
+                SmsRadioResult.RADIO_OFF -> SmsSendOutcome.RADIO_OFF
+                SmsRadioResult.CARRIER_LIMIT -> SmsSendOutcome.CARRIER_LIMIT
+                SmsRadioResult.FAILED -> SmsSendOutcome.FAILED
             }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
@@ -170,7 +208,7 @@ private class AndroidSmsDispatcher(
     override fun sendMultipart(
         destinationNumber: String,
         message: String,
-        onSent: (Boolean) -> Unit,
+        onResult: (SmsRadioResult) -> Unit,
     ): () -> Unit {
         val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             context.getSystemService(SmsManager::class.java)
@@ -179,36 +217,43 @@ private class AndroidSmsDispatcher(
             SmsManager.getDefault()
         }
         if (smsManager == null) {
-            onSent(false)
+            onResult(SmsRadioResult.FAILED)
             return {}
         }
 
         val parts = try {
             smsManager.divideMessage(message)
         } catch (_: Exception) {
-            onSent(false)
+            onResult(SmsRadioResult.FAILED)
             return {}
         }
         if (parts.isNullOrEmpty()) {
-            onSent(false)
+            onResult(SmsRadioResult.FAILED)
             return {}
         }
         val action = "${context.packageName}.SMS_SENT.${UUID.randomUUID()}"
         val completed = AtomicBoolean(false)
         val remaining = AtomicInteger(parts.size)
-        val allSent = AtomicBoolean(true)
+        // The first refusal among the parts wins, and it is kept rather than reduced to a
+        // boolean: a message split into chunks has not been delivered if any chunk was
+        // refused, and why it was refused is the whole answer a reader needs.
+        val firstRefusal = AtomicReference<SmsRadioResult?>(null)
         lateinit var receiver: BroadcastReceiver
 
-        fun finish(sent: Boolean) {
+        fun finish(result: SmsRadioResult) {
             if (!completed.compareAndSet(false, true)) return
             runCatching { context.unregisterReceiver(receiver) }
-            onSent(sent)
+            onResult(result)
         }
 
         receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (resultCode != Activity.RESULT_OK) allSent.set(false)
-                if (remaining.decrementAndGet() == 0) finish(allSent.get())
+                if (resultCode != Activity.RESULT_OK) {
+                    firstRefusal.compareAndSet(null, radioResultOf(resultCode))
+                }
+                if (remaining.decrementAndGet() == 0) {
+                    finish(firstRefusal.get() ?: SmsRadioResult.SENT)
+                }
             }
         }
         val filter = IntentFilter(action)
@@ -237,8 +282,20 @@ private class AndroidSmsDispatcher(
                 null,
             )
         } catch (error: Exception) {
-            finish(false)
+            finish(SmsRadioResult.FAILED)
         }
-        return { finish(false) }
+        return { finish(SmsRadioResult.FAILED) }
+    }
+
+    /**
+     * The platform's result code as a cause this app can act on. The values are the ones
+     * SmsManager has published since the beginning and are referenced by name so a rename
+     * cannot silently turn a known cause into an unknown one.
+     */
+    private fun radioResultOf(resultCode: Int): SmsRadioResult = when (resultCode) {
+        SmsManager.RESULT_ERROR_NO_SERVICE -> SmsRadioResult.NO_SERVICE
+        SmsManager.RESULT_ERROR_RADIO_OFF -> SmsRadioResult.RADIO_OFF
+        SmsManager.RESULT_ERROR_LIMIT_EXCEEDED -> SmsRadioResult.CARRIER_LIMIT
+        else -> SmsRadioResult.FAILED
     }
 }

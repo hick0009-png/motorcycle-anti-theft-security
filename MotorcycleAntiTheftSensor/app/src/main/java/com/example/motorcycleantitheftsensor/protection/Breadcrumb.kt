@@ -82,6 +82,9 @@ fun SmsSendOutcome.breadcrumbEvent(): BreadcrumbEvent = when (this) {
     SmsSendOutcome.RATE_LIMITED,
     -> BreadcrumbEvent.DENIED
     SmsSendOutcome.TIMED_OUT,
+    SmsSendOutcome.NO_SERVICE,
+    SmsSendOutcome.RADIO_OFF,
+    SmsSendOutcome.CARRIER_LIMIT,
     SmsSendOutcome.FAILED,
     -> BreadcrumbEvent.FAILED
 }
@@ -92,6 +95,11 @@ fun SmsSendOutcome.breadcrumbDetails(): List<BreadcrumbDetail> = when (this) {
     SmsSendOutcome.NO_DESTINATION -> listOf(BreadcrumbDetail.NOT_CONFIGURED)
     SmsSendOutcome.RATE_LIMITED -> listOf(BreadcrumbDetail.RATE_LIMITED)
     SmsSendOutcome.TIMED_OUT -> listOf(BreadcrumbDetail.TIMEOUT)
+    SmsSendOutcome.NO_SERVICE -> listOf(BreadcrumbDetail.NO_NETWORK)
+    SmsSendOutcome.RADIO_OFF -> listOf(BreadcrumbDetail.RADIO_OFF)
+    // A refusal for volume, not a fault: the row says failed because the message did not go,
+    // and limited because the reason is a rate rather than anything broken.
+    SmsSendOutcome.CARRIER_LIMIT -> listOf(BreadcrumbDetail.RATE_LIMITED)
     SmsSendOutcome.FAILED -> listOf(BreadcrumbDetail.UNKNOWN)
 }
 
@@ -167,6 +175,7 @@ enum class BreadcrumbDetail(val code: String) {
     NO_KEY("nokey"),
     RATE_LIMITED("limited"),
     BELOW_THRESHOLD("lowsev"),
+    RADIO_OFF("radiooff"),
 
     // Which capability. Named for the permission, not for the API that grants it.
     PERM_LOCATION("loc"),
