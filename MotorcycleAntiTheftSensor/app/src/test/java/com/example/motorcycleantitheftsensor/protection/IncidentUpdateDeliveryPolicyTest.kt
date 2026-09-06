@@ -19,6 +19,88 @@ class IncidentUpdateDeliveryPolicyTest {
         assertEquals(DeliveryAction.NONE, policy.action(IncidentUpdate.Ignored, 2400L))
     }
 
+    /**
+     * The escalation that repeats is the shape the device found: a displaced phone re-raised
+     * mount movement on every sample, each one a full delivery. That specific path is fixed at
+     * the detector, and this is the rule that would have caught it without knowing it existed
+     * — an escalation to a severity the owner already has is not news.
+     */
+    @Test
+    fun anEscalationToASeverityAlreadyAnnouncedIsNotSentAgain() {
+        val warning = warningIncident()
+        val critical = warning.copy(severity = IncidentSeverity.CRITICAL)
+
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Opened(warning), 1_000L))
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Escalated(critical), 2_000L))
+
+        // Same severity, over and over, for as long as the phone stays displaced.
+        repeat(10) { tick ->
+            assertEquals(
+                DeliveryAction.SUPPRESS_REPEAT,
+                policy.action(IncidentUpdate.Escalated(critical), 3_000L + tick * 2_000L),
+            )
+        }
+
+        // The close summary is never bounded by any of this.
+        val closed = critical.copy(lifecycle = IncidentLifecycle.CLOSED, closedAtMs = 30_000L)
+        assertEquals(
+            DeliveryAction.SEND_CLOSE_SUMMARY,
+            policy.action(IncidentUpdate.Closed(closed), 30_000L),
+        )
+    }
+
+    /**
+     * A real rise in severity is the most important thing this app ever says, and it can
+     * happen at most once on this scale. No floor and no ceiling may reach it.
+     */
+    @Test
+    fun aRealRiseInSeverityIsNeverWithheld() {
+        val warning = warningIncident()
+        val critical = warning.copy(severity = IncidentSeverity.CRITICAL)
+
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Opened(warning), 1_000L))
+        // Immediately after the opening, well inside every window there is.
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Escalated(critical), 1_050L))
+    }
+
+    @Test
+    fun aFlappingConditionSaysItOnceAMinuteRatherThanEveryTimeItTurnsOver() {
+        val warning = warningIncident()
+        fun changed(atMs: Long) = policy.action(
+            IncidentUpdate.Updated(warning, ownerVisibleConditionChange = true),
+            atMs,
+        )
+
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Opened(warning), 1_000L))
+        // The first changed condition always owns its own message.
+        assertEquals(DeliveryAction.SEND, changed(2_000L))
+        // Flapping inside the floor repeats what the owner already knows.
+        assertEquals(DeliveryAction.SUPPRESS_REPEAT, changed(4_000L))
+        assertEquals(DeliveryAction.SUPPRESS_REPEAT, changed(30_000L))
+        assertEquals(DeliveryAction.SUPPRESS_REPEAT, changed(61_999L))
+        // Past the floor it is worth saying again.
+        assertEquals(DeliveryAction.SEND, changed(62_000L))
+    }
+
+    @Test
+    fun anIncidentThatWillNotStopChangingStillStopsCostingMessages() {
+        val warning = warningIncident()
+        assertEquals(DeliveryAction.SEND, policy.action(IncidentUpdate.Opened(warning), 0L))
+
+        var sent = 1
+        var at = 0L
+        repeat(40) {
+            at += IncidentUpdateDeliveryPolicy.DEFAULT_MIN_CONDITION_ALERT_INTERVAL_MS
+            val action = policy.action(
+                IncidentUpdate.Updated(warning, ownerVisibleConditionChange = true),
+                at,
+            )
+            if (action == DeliveryAction.SEND) sent += 1
+        }
+
+        assertEquals(IncidentUpdateDeliveryPolicy.DEFAULT_MAX_ALERTS_PER_INCIDENT, sent)
+    }
+
     @Test
     fun rapidRoutineUpdatesAreCoalesced() {
         val warning = warningIncident()

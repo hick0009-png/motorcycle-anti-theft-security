@@ -282,6 +282,20 @@ object ProtectionRuntimeGraph {
                     coordinator.recordIncident(incident)
                 }
 
+                DeliveryAction.SUPPRESS_REPEAT -> {
+                    persistPreservingDeliveryRecord(incident)
+                    coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                    coordinator.recordIncident(incident)
+                    // A silence the app chose. Recorded so that a reader asking why an
+                    // ongoing incident went quiet is not left to guess between a rule and
+                    // a fault — the two look identical from outside and are not the same.
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.TELEGRAM,
+                        BreadcrumbEvent.DENIED,
+                        listOf(BreadcrumbDetail.RATE_LIMITED),
+                    )
+                }
+
                 DeliveryAction.PERSIST_AND_EDIT -> {
                     persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
