@@ -57,6 +57,13 @@ enum class BreadcrumbEvent(val code: String) {
      * owner asks about it: whether it was ever sent at all.
      */
     CEILING("ceiling"),
+
+    /**
+     * A backlog of incidents that failed to send when they happened has now gone out.
+     * Distinct from [OK] so that a reader can tell a message sent on time from one that
+     * spent the night waiting for a network — the file is where that question gets settled.
+     */
+    RESEND("resend"),
 }
 
 /**

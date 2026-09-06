@@ -52,6 +52,12 @@ object ProtectionRuntimeGraph {
         val coordinator: ProtectionCoordinator,
         val incidents: IncidentRepository,
         val delivery: IncidentDeliveryCoordinator,
+        /**
+         * Sends incidents that were recorded but never reached the owner, once something says
+         * the path may work again. Held here rather than built by the caller: it reads the same
+         * repository and sends through the same coordinator as a first attempt does.
+         */
+        val incidentRedeliverer: IncidentRedeliverer,
         val runtime: ProtectionRuntime,
         val snapshotStore: ProtectionSnapshotStore,
         val statePersistence: ProtectionStatePersistenceArbiter,
@@ -192,6 +198,18 @@ object ProtectionRuntimeGraph {
             },
             labelResolver = labelResolver,
             progressTelegram = progressTelegram,
+        )
+        val incidentRedeliverer = IncidentRedeliverer(
+            history = { withContext(Dispatchers.IO) { repository.listNewestFirst() } },
+            delivery = delivery,
+            configuration = {
+                withContext(Dispatchers.IO) {
+                    DeliveryConfiguration(
+                        smsConfigured = !preferences.getSmsDestination().isNullOrBlank(),
+                    )
+                }
+            },
+            nowMs = System::currentTimeMillis,
         )
         val processor = SensorObservationProcessor(
             staleAfterMs = 5_000L,
@@ -690,6 +708,7 @@ object ProtectionRuntimeGraph {
             coordinator = coordinator,
             incidents = repository,
             delivery = delivery,
+            incidentRedeliverer = incidentRedeliverer,
             runtime = runtime,
             snapshotStore = snapshotStore,
             statePersistence = statePersistence,

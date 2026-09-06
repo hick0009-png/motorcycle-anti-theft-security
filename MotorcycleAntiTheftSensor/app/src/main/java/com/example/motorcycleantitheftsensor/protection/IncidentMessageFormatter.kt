@@ -106,6 +106,39 @@ class IncidentMessageFormatter(
      * Coordinates are withheld from closed updates, matching how the Telegram channel
      * drops its location block once an incident is over.
      */
+    /**
+     * The same message, led by a line saying it is late and when the event actually happened.
+     *
+     * Without this line a backlog sent the moment the network returns is indistinguishable from
+     * something happening right now, and an owner who runs outside at eight in the morning for a
+     * door that opened at midnight has been told a lie by a system built to be believed.
+     */
+    fun formatDelayed(
+        update: IncidentUpdate,
+        presentation: LocationPresentation? = null,
+        delayedByMs: Long,
+    ): String {
+        val body = formatTelegram(update, presentation)
+        val incident = update.incidentOrNull()
+        if (body.isEmpty() || incident == null) return body
+        val happenedAt = PresentationTextCatalog.formatTimestamp(incident.updatedAtMs)
+        return "⏱ ส่งย้อนหลัง — เหตุนี้เกิดเมื่อ $happenedAt " +
+            "และค้างส่งอยู่ ${delayDescription(delayedByMs)} เพราะตอนนั้นส่งออกไม่ได้\n\n" +
+            body
+    }
+
+    private fun delayDescription(delayedByMs: Long): String {
+        val minutes = (delayedByMs / 60_000L).coerceAtLeast(0L)
+        val hours = minutes / 60
+        val remainder = minutes % 60
+        return when {
+            minutes < 1L -> "ไม่ถึงหนึ่งนาที"
+            hours < 1L -> "$minutes นาที"
+            remainder == 0L -> "$hours ชั่วโมง"
+            else -> "$hours ชั่วโมง $remainder นาที"
+        }
+    }
+
     fun formatSms(update: IncidentUpdate, location: IncidentLocation? = null): String {
         val body = smsBody(update)
         if (body.isEmpty() || location == null) return body

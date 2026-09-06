@@ -195,6 +195,64 @@ class IncidentDeliveryCoordinatorTest {
         assertEquals(DeliveryState.SENT, res2.deliveryState)
         assertEquals(DeliveryState.SENT, res3.deliveryState)
     }
+
+    /**
+     * The memo exists so one event cannot be announced twice. A failure is not an announcement,
+     * and remembering it turned every later attempt at the same event into a replay of the
+     * failure — which is exactly what a retry after the network returns is.
+     */
+    @Test
+    fun aDeliveryThatFailedIsAttemptedAgainRatherThanReplayedFromTheMemo() = runTest {
+        var telegramWorks = false
+        var attempts = 0
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport {
+                attempts += 1
+                telegramWorks
+            },
+            sms = IncidentTransport { false },
+        )
+        val update = IncidentUpdate.Opened(criticalReal())
+        val configuration = DeliveryConfiguration(smsConfigured = false)
+
+        val first = coordinator.deliver(update, configuration)
+        telegramWorks = true
+        val second = coordinator.deliver(update, configuration)
+        val third = coordinator.deliver(update, configuration)
+
+        assertEquals(DeliveryState.FAILED, first.deliveryState)
+        assertEquals(DeliveryState.SENT, second.deliveryState)
+        // The success is memoized, so the third call costs nothing and announces nothing.
+        assertEquals(DeliveryState.SENT, third.deliveryState)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun aRedeliveredIncidentSaysItIsLate() = runTest {
+        val messages = mutableListOf<String>()
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { message ->
+                messages += message
+                true
+            },
+            sms = IncidentTransport { false },
+        )
+        val incident = criticalReal().copy(updatedAtMs = 1_000L)
+
+        coordinator.redeliver(
+            incident,
+            DeliveryConfiguration(smsConfigured = false),
+            nowMs = 1_000L + 90L * 60L * 1000L,
+        )
+
+        assertEquals(1, messages.size)
+        assertTrue(messages.single().startsWith("⏱ ส่งย้อนหลัง"))
+        assertTrue(messages.single().contains("1 ชั่วโมง 30 นาที"))
+    }
 }
 
 private fun coordinator(

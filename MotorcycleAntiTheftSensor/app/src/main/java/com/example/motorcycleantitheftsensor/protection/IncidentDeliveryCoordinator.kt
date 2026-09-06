@@ -54,6 +54,7 @@ class IncidentDeliveryCoordinator(
     suspend fun deliver(
         update: IncidentUpdate,
         configuration: DeliveryConfiguration,
+        delayedByMs: Long? = null,
     ): SecurityIncident {
         val incident = update.incidentOrNull() ?: error("Cannot deliver Ignored IncidentUpdate")
         val key = "${incident.id}:${update.eventKindName}:${incident.updatedAtMs}"
@@ -80,12 +81,17 @@ class IncidentDeliveryCoordinator(
 
         val deferred = myDeferred!!
         try {
-            val result = executeDelivery(update, incident, configuration)
+            val result = executeDelivery(update, incident, configuration, delayedByMs)
             deliveryMutex.withLock {
-                deliveredResults[key] = result
-                if (deliveredResults.size > 500) {
-                    val firstKey = deliveredResults.keys.first()
-                    deliveredResults.remove(firstKey)
+                // Only a delivery that actually went out is worth remembering. Memoizing a
+                // failure makes every later attempt at the same event a no-op that hands back
+                // the failure it was sent to repair — which is what a retry is.
+                if (result.deliveryState == DeliveryState.SENT) {
+                    deliveredResults[key] = result
+                    if (deliveredResults.size > 500) {
+                        val firstKey = deliveredResults.keys.first()
+                        deliveredResults.remove(firstKey)
+                    }
                 }
                 inFlightDeliveries.remove(key)
             }
@@ -104,6 +110,21 @@ class IncidentDeliveryCoordinator(
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
     ): SecurityIncident = deliver(incident.toDefaultUpdate(), configuration)
+
+    /**
+     * Another attempt at an incident that was recorded but never reached anybody, carrying how
+     * long it has been waiting so the message can say so. A door that opened at midnight must
+     * not read as a door opening now because the network only came back at eight.
+     */
+    suspend fun redeliver(
+        incident: SecurityIncident,
+        configuration: DeliveryConfiguration,
+        nowMs: Long,
+    ): SecurityIncident = deliver(
+        update = incident.toDefaultUpdate(),
+        configuration = configuration,
+        delayedByMs = (nowMs - incident.updatedAtMs).coerceAtLeast(0L),
+    )
 
     suspend fun updateProgress(incident: SecurityIncident): Boolean {
         val transport = progressTelegram ?: return false
@@ -126,6 +147,7 @@ class IncidentDeliveryCoordinator(
         update: IncidentUpdate,
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
+        delayedByMs: Long?,
     ): SecurityIncident {
         val pending = incident.copy(deliveryState = DeliveryState.PENDING)
         try {
@@ -138,7 +160,11 @@ class IncidentDeliveryCoordinator(
         val presentation = pending.location?.let { loc ->
             resolvePresentation(loc)
         }
-        val telegramMessage = formatter.formatTelegram(update, presentation)
+        val telegramMessage = if (delayedByMs == null) {
+            formatter.formatTelegram(update, presentation)
+        } else {
+            formatter.formatDelayed(update, presentation, delayedByMs)
+        }
         val telegramSent = try {
             if (update is IncidentUpdate.Opened && progressTelegram != null) {
                 progressTelegram.open(incident.id, telegramMessage)

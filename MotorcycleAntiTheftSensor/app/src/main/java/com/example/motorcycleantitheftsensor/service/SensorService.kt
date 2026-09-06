@@ -96,6 +96,13 @@ class SensorService : Service(), ServiceEnvironment {
         private const val WAKE_LOCK_LEASE_MS = 60 * 60 * 1_000L
         private const val WAKE_LOCK_RENEW_BEFORE_MS = 5 * 60 * 1_000L
         private const val TAG = "SensorService"
+
+        /**
+         * The quiet interval between backlog sweeps. Short enough that a recovered network
+         * reaches the owner in the same minute, long enough that a flapping connection or a
+         * chatty polling client cannot turn the incident history into a hot file.
+         */
+        private const val INCIDENT_FLUSH_MIN_INTERVAL_MS = 30_000L
         /** Outside the black box directory: a marker swept up by the prune retells old deaths. */
         private const val EXIT_MARK_FILE = "blackbox_exit_mark"
         const val ACTION_START_SERVICE = "ACTION_START_SERVICE"
@@ -144,6 +151,7 @@ class SensorService : Service(), ServiceEnvironment {
     private val clockWatcher = ClockChangeWatcher { cause -> blackBox?.noteClockChange(cause) }
     private val networkWatcher = NetworkWatcher { event, transport ->
         blackBox?.note(BreadcrumbDomain.NET, event, listOf(transport))
+        if (event == BreadcrumbEvent.GAINED) flushUndeliveredIncidents()
     }
     private val permissionWatcher = PermissionWatcher(
         holds = ::holdsCapability,
@@ -155,6 +163,10 @@ class SensorService : Service(), ServiceEnvironment {
         },
     )
     private val blackBoxState = BlackBoxStateMapper()
+
+    /** Elapsed time, so a clock change cannot postpone a backlog by hours or replay it. */
+    @Volatile
+    private var lastIncidentFlushAtElapsedMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -172,6 +184,11 @@ class SensorService : Service(), ServiceEnvironment {
             onTelegramContact = graph.coordinator::recordTelegramContact,
             breadcrumb = { event, details ->
                 blackBox?.note(BreadcrumbDomain.TELEGRAM, event, details)
+                // A call that just succeeded is the strongest evidence there is that the path
+                // works — stronger than a regained transport, which can be a captive portal.
+                // It also covers the outage a connectivity callback never sees: a network that
+                // was up the whole time while Telegram itself was unreachable.
+                if (event == BreadcrumbEvent.OK) flushUndeliveredIncidents()
             },
         )
         telegramRefreshBoundary = TelegramPollingRefreshBoundary(
@@ -668,6 +685,45 @@ class SensorService : Service(), ServiceEnvironment {
      * and reporting "revoked" for something the platform never asked about would be a lie
      * about the phone rather than a fact about it.
      */
+    /**
+     * The night this exists for: the phone spent eight hours out of coverage with three
+     * incidents recorded and every send timing out, the network came back at 08:17, the
+     * heartbeat resumed — and the three incidents stayed in the file and nowhere else,
+     * because one failed attempt was all any of them ever got.
+     *
+     * A regained transport is the cheapest true signal that the path may work again, and this
+     * service already listens for it to write a breadcrumb. Doing nothing else with it was the
+     * gap. The flush is idempotent and serialized, so a flapping connection costs attempts and
+     * never duplicates.
+     */
+    private fun flushUndeliveredIncidents() {
+        if (!::graph.isInitialized) return
+        // Both triggers arrive in bursts — a connectivity callback flaps, and a polling client
+        // reports every successful call. The backlog lives in the repository and reading it is
+        // a disk read, so a quiet interval between sweeps costs nothing: a flush skipped here
+        // is a flush the next signal performs.
+        val at = SystemClock.elapsedRealtime()
+        if (at - lastIncidentFlushAtElapsedMs < INCIDENT_FLUSH_MIN_INTERVAL_MS) return
+        lastIncidentFlushAtElapsedMs = at
+        val redeliverer = graph.incidentRedeliverer
+        serviceScope.launch {
+            val outcome = runCatching { redeliverer.flush() }.getOrNull() ?: return@launch
+            if (outcome.attempted == 0) return@launch
+            if (outcome.sent > 0) {
+                blackBox?.note(BreadcrumbDomain.TELEGRAM, BreadcrumbEvent.RESEND)
+            }
+            if (outcome.stillFailing > 0) {
+                // The class is genuinely unknown here: the transport reports a boolean, and
+                // inventing a cause would be the one thing the breadcrumb vocabulary forbids.
+                blackBox?.note(
+                    BreadcrumbDomain.TELEGRAM,
+                    BreadcrumbEvent.FAILED,
+                    listOf(BreadcrumbDetail.UNKNOWN),
+                )
+            }
+        }
+    }
+
     private fun holdsCapability(capability: BreadcrumbDetail): Boolean = when (capability) {
         BreadcrumbDetail.PERM_LOCATION ->
             hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
