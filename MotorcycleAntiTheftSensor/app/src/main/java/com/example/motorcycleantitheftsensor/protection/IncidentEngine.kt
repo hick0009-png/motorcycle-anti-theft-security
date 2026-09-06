@@ -102,7 +102,7 @@ class IncidentEngine(
         // Every real movement sample, whatever it goes on to do: the door watch needs to know
         // that something shook, not what the shake was classified as. Entry verdicts share the
         // movement kind but were dispatched above, so they can never answer their own question.
-        if (observation.kind == SensorKind.VIBRATION && observation.valid) {
+        if (observation.kind == SensorKind.VIBRATION && observation.valid && shookSomething(observation)) {
             lastMovementElapsedMs = observation.eventElapsedMs
         }
 
@@ -573,6 +573,34 @@ class IncidentEngine(
     }
 
     /**
+     * Whether this sample is evidence that something physically moved, rather than evidence
+     * that an angle changed.
+     *
+     * The door watch asks for corroboration because drift arrives alone: a still phone's
+     * reported angle walks a few degrees an hour, a real opening shakes the door. But the
+     * same orientation sensor the watch reads is also sampled by the general detector set,
+     * which forwards its raw angle deltas as movement — so the walk was answering its own
+     * question. Eight hours of drift crossed the alert angle, the raw form of that very drift
+     * had advanced the movement clock a moment earlier, and the gate built to stop the 03:00
+     * false alert waved it through. On the test device that was three overnight alerts on a
+     * door nobody touched, with the black box showing the phone dead still and the sample
+     * stream perfectly healthy all night.
+     *
+     * An orientation vector is an angle, and an angle is the thing being corroborated. Only
+     * the sources that measure motion itself may say that something moved. The gyroscope is
+     * not excluded: it reports a rate, and a phone at rest reports zero however far its
+     * reference has wandered. Nor is a sample whose source is unnamed — this refuses what it
+     * can prove is an angle, and nothing else, because the cost of refusing wrongly is a door
+     * watch that never speaks.
+     *
+     * Only under the angle watch, which is the only use with an angle to protect from itself.
+     */
+    private fun shookSomething(observation: SensorObservation): Boolean {
+        if (!doorAngleWatch) return true
+        return observation.source !in DOOR_ANGLE_SOURCES
+    }
+
+    /**
      * Only a declared host may open an incident.
      *
      * A missing role used to count as primary, which quietly made hosts of every signal
@@ -845,6 +873,13 @@ class IncidentEngine(
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
         val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
         val ENTRY_MOUNT_UNRECOGNIZED = ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED
+
+        /** The rotation vectors an armed door watch may itself be reading; see [shookSomething]. */
+        val DOOR_ANGLE_SOURCES = setOf(
+            SensorSource.ROTATION_VECTOR,
+            SensorSource.GAME_ROTATION_VECTOR,
+            SensorSource.GEOMAGNETIC_ROTATION_VECTOR,
+        )
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH

@@ -63,10 +63,12 @@ class EntryCorroborationTest {
     private fun feed(
         observation: SensorObservation,
         corroborationArmed: Boolean = true,
+        doorAngleWatch: Boolean = false,
     ): IncidentUpdate = engine.accept(
         observation = observation,
         protectionState = ProtectionState.ARMED_HEALTHY,
         movementCorroborationArmed = corroborationArmed,
+        doorAngleWatch = doorAngleWatch,
     )
 
     @Test
@@ -155,6 +157,41 @@ class EntryCorroborationTest {
 
         assertTrue(closed is IncidentUpdate.Closed)
         assertFalse(engine.hasActiveIncident)
+    }
+
+    /**
+     * The hole this whole file was supposed to close, found in the device's black box after
+     * it had already fired three times on a shut door. The orientation sensor the watch reads
+     * is also sampled by the general detector set, which forwards its raw angle deltas as
+     * movement — so the drift arrived twice, once as the thing to be corroborated and once as
+     * the corroboration, and the gate waved it through.
+     */
+    @Test
+    fun theAngleTheDoorWatchReadsMayNotCorroborateItself() {
+        // Eight hours in, on a silent night, the raw form of the same drift lands first.
+        val driftAsMovement = movement(8L * 3_600_000L)
+            .copy(source = SensorSource.GAME_ROTATION_VECTOR)
+        feed(driftAsMovement, doorAngleWatch = true)
+
+        val update = feed(
+            verdict(8L * 3_600_000L + 1_000L, ProtectionDiagnostics.ENTRY_DOOR_OPEN),
+            doorAngleWatch = true,
+        )
+
+        assertEquals(IncidentUpdate.Ignored, update)
+        assertFalse(engine.hasActiveIncident)
+    }
+
+    @Test
+    fun arealShakeStillCorroboratesUnderTheAngleWatch() {
+        feed(movement(100_000L), doorAngleWatch = true)
+
+        val update = feed(
+            verdict(101_000L, ProtectionDiagnostics.ENTRY_DOOR_OPEN),
+            doorAngleWatch = true,
+        )
+
+        assertTrue(update is IncidentUpdate.Opened)
     }
 
     @Test
