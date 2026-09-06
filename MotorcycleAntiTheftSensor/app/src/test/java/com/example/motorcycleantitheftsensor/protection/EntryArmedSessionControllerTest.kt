@@ -87,6 +87,43 @@ class EntryArmedSessionControllerTest {
         assertEquals(0.0, controller.liveAngleDeg() ?: -1.0, 0.5)
     }
 
+    /**
+     * A whole night at the worst drift this phone has ever measured of itself.
+     *
+     * The two synthetic proofs above step the angle in tidy jumps. This one walks it the way
+     * the hardware does, at the rate the device actually recorded in its own mount on the real
+     * door: `entry-drift-20260906-195659.csv` gives −11.9°/hr of hinge twist and −2.1°/hr of
+     * off-axis swing. Eight hours of that is ninety-five degrees past a fifteen-degree alert
+     * angle and sixteen degrees into a sixteen-degree residual tolerance — every gate the door
+     * watch has, crossed twice over, by a door that nobody touched.
+     *
+     * The rebaseline only has to beat it by outrunning it: at that rate the reference walks
+     * every two minutes and the angle has 0.4° to accumulate before it does.
+     */
+    @Test
+    fun aWholeNightAtThisPhonesMeasuredDriftNeverAlarmsAShutDoor() {
+        val controller = armed()
+        val verdicts = mutableListOf<EntryDetectionVerdict>()
+
+        val nightMs = 8L * 3_600_000L
+        val stepMs = 10_000L
+        var t = stepMs
+        while (t <= nightMs) {
+            val hours = t / 3_600_000.0
+            val pose = EntryOrientationMath.multiply(rotZ(11.9 * hours), rotX(2.1 * hours))
+            verdicts += controller.onSample(sample(t, pose), 1L)
+            t += stepMs
+        }
+
+        assertTrue("the night must outrun every gate", 11.9 * 8 > 15.0 && 2.1 * 8 > 16.0 - 0.5)
+        assertTrue(
+            "a shut door that only drifted must stay silent all night",
+            verdicts.isEmpty(),
+        )
+        // And the watch is still watching, pinned to the door rather than to eight hours ago.
+        assertEquals(0.0, controller.liveAngleDeg() ?: -1.0, 0.5)
+    }
+
     @Test
     fun slowSwingDriftNeverReportsAMountMove() {
         val controller = armed()
