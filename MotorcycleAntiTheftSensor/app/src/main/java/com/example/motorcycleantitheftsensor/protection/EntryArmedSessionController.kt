@@ -131,7 +131,14 @@ class EntryArmedSessionController {
                 policy = detection
                 val unrecognized = mountUnrecognized(activeModel, sample.quaternion)
                 policyState = if (unrecognized) {
-                    detection.initialState().copy(mountMoved = true, mountUnrecognized = true)
+                    detection.initialState().copy(
+                        mountMoved = true,
+                        mountUnrecognized = true,
+                        // Stamped so the repeat is timed from here. This first one is usually
+                        // lost — the session begins inside the arming window, where the engine
+                        // drops everything — and the repeat is what actually reaches anyone.
+                        mountUnrecognizedAnnouncedAtMs = sample.timestampMs,
+                    )
                 } else {
                     detection.initialState()
                 }

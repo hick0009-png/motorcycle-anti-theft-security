@@ -263,6 +263,36 @@ class EntryArmedSessionControllerTest {
         assertTrue(later.none { it is EntryDetectionVerdict.MountRestored })
     }
 
+    /**
+     * The bug the device found. The pose check runs on the first sample of an armed session,
+     * which arrives while the coordinator is still in ARMING — a window the incident engine
+     * drops everything in, correctly, because sensors are settling and the owner is stood over
+     * the phone. So the one time this could speak was the one time nobody was listening, and a
+     * phone taken off its door and left on a desk armed in silence, watching for a door with a
+     * hinge axis that no longer described anything.
+     */
+    @Test
+    fun anUnrecognizedMountSaysSoAgainBecauseTheFirstTimeIsUsuallyLost() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = posedModel, settings = settings)
+
+        val first = controller.onSample(sample(0L, rotX(90.0)), 1L)
+        assertTrue(first.any { it is EntryDetectionVerdict.MountUnrecognized })
+
+        // Nothing more inside the floor, however many samples arrive.
+        val quiet = mutableListOf<EntryDetectionVerdict>()
+        var t = 1_000L
+        while (t < 60_000L) {
+            quiet += controller.onSample(sample(t, rotX(90.0)), 1L)
+            t += 1_000L
+        }
+        assertTrue(quiet.none { it is EntryDetectionVerdict.MountUnrecognized })
+
+        // And then it says it again, to whoever is listening by now.
+        val repeat = controller.onSample(sample(61_000L, rotX(90.0)), 1L)
+        assertTrue(repeat.any { it is EntryDetectionVerdict.MountUnrecognized })
+    }
+
     @Test
     fun aModelCommissionedBeforePosesWereRecordedIsTakenAtItsWord() {
         val controller = EntryArmedSessionController()

@@ -75,6 +75,8 @@ class EntryDetectionPolicy(
          * [evaluateWhileDisplaced].
          */
         val mountUnrecognized: Boolean = false,
+        /** When the unrecognized mounting was last said out loud; see [evaluateWhileDisplaced]. */
+        val mountUnrecognizedAnnouncedAtMs: Long? = null,
     )
 
     private val axis = doubleArrayOf(model.axisX, model.axisY, model.axisZ)
@@ -228,6 +230,22 @@ class EntryDetectionPolicy(
         sample: EntryOrientationSample,
     ): Pair<EntryDetectionVerdict?, State> {
         val timestampMs = sample.timestampMs
+        // An unrecognized mounting is a standing condition, not an event, and it says so
+        // again on a floor rather than once. Once was nearly never: the check runs on the
+        // first sample of the session, which arrives inside the arming window, and the engine
+        // drops everything there — correctly, since sensors are still settling and the owner
+        // is stood over the phone. The one moment this could speak was the one moment nothing
+        // was listening. A condition that can only be announced once is a condition that can
+        // be missed entirely, and a lost network or a killed process would have done it too.
+        if (state.mountUnrecognized) {
+            val announcedAt = state.mountUnrecognizedAnnouncedAtMs
+            if (announcedAt == null || timestampMs - announcedAt >= MOUNT_UNRECOGNIZED_REANNOUNCE_MS) {
+                return EntryDetectionVerdict.MountUnrecognized to state.copy(
+                    mountUnrecognizedAnnouncedAtMs = timestampMs,
+                    mountRestoreHealthySinceMs = null,
+                )
+            }
+        }
         // A pose that never matched has nothing to come back to. The residual is measured
         // from a baseline taken at that very pose, so it reads perfect immediately and the
         // restore below would declare the mount good five seconds into every armed session
@@ -420,5 +438,15 @@ class EntryDetectionPolicy(
          * produces, so it reports hands and not noise.
          */
         const val DISPLACED_MOVEMENT_DEG: Double = 10.0
+
+        /**
+         * How long before an unrecognized mounting repeats itself.
+         *
+         * A minute, not the ten the source-loss floor takes, because this one is answering a
+         * question the owner is usually still stood there to hear: they have just armed, and
+         * the watch is telling them it cannot see the door they armed it for. The delivery
+         * policy's own floor and per-incident ceiling bound what the repetition costs.
+         */
+        const val MOUNT_UNRECOGNIZED_REANNOUNCE_MS: Long = 60_000L
     }
 }
