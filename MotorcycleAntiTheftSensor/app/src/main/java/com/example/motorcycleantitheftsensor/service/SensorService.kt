@@ -772,6 +772,18 @@ class SensorService : Service(), ServiceEnvironment {
         )
         blackBox = recorder
         recorder.start(blackBoxState.map(graph.coordinator.snapshot.value))
+        // After start, so that anything reaching this sink can actually be written: the graph's
+        // Telegram client — the one incidents go out on — has been handing crumbs to a relay
+        // with nothing on the other end since the process began. This is the other end.
+        // Detached in onDestroy, because the graph is a singleton and outlives this run.
+        graph.breadcrumbRelay.attach { domain, event, details ->
+            recorder.note(domain, event, details)
+            // Same reasoning as the polling client's sink: a call that just succeeded is proof
+            // the path works, and anything still undelivered should go now. The quiet interval
+            // in the flush keeps a burst of sends from re-reading the history each time, and
+            // stops a flush's own sends from calling it back into another flush.
+            if (event == BreadcrumbEvent.OK) flushUndeliveredIncidents()
+        }
         clockWatcher.start(applicationContext)
         networkWatcher.start(applicationContext)
         // After the recorder exists, so the baseline row lands under this run's `start` row
@@ -831,6 +843,9 @@ class SensorService : Service(), ServiceEnvironment {
             // gap in the file is read against it.
             clockWatcher.stop(applicationContext)
             networkWatcher.stop()
+            // Before the recorder closes: a crumb arriving after `stop` would be a line about
+            // this run written into whatever run comes next.
+            graph.breadcrumbRelay.detach()
             blackBox?.stop()
             blackBox = null
             stopDriftRecording()

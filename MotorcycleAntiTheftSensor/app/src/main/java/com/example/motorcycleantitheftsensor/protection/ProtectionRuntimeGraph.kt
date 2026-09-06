@@ -58,6 +58,11 @@ object ProtectionRuntimeGraph {
          * repository and sends through the same coordinator as a first attempt does.
          */
         val incidentRedeliverer: IncidentRedeliverer,
+        /**
+         * Where the graph's own Telegram traffic reports itself. Attached by the service when
+         * the black box opens and detached when it closes, because the graph outlives both.
+         */
+        val breadcrumbRelay: BreadcrumbRelay,
         val runtime: ProtectionRuntime,
         val snapshotStore: ProtectionSnapshotStore,
         val statePersistence: ProtectionStatePersistenceArbiter,
@@ -166,9 +171,15 @@ object ProtectionRuntimeGraph {
                 }
             },
         )
+        val breadcrumbRelay = BreadcrumbRelay()
         val telegram = TelegramBotClient(
             prefsManager = preferences,
             onTelegramContact = { atMs -> coordinator.recordTelegramContact(atMs) },
+            // This is the client incidents go out on. Without a sink here the black box saw
+            // only the heartbeat's traffic and could not say whether an alert was ever tried.
+            breadcrumb = { event, details ->
+                breadcrumbRelay.note(BreadcrumbDomain.TELEGRAM, event, details)
+            },
         )
         val progressTelegram = com.example.motorcycleantitheftsensor.telegram.TelegramIncidentProgressTransport(
             httpClient = com.example.motorcycleantitheftsensor.network.TlsPinningClient.client,
@@ -709,6 +720,7 @@ object ProtectionRuntimeGraph {
             incidents = repository,
             delivery = delivery,
             incidentRedeliverer = incidentRedeliverer,
+            breadcrumbRelay = breadcrumbRelay,
             runtime = runtime,
             snapshotStore = snapshotStore,
             statePersistence = statePersistence,

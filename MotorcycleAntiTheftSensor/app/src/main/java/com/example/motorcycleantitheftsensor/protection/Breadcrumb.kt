@@ -67,6 +67,44 @@ enum class BreadcrumbEvent(val code: String) {
 }
 
 /**
+ * A breadcrumb destination chosen later than the code that writes to it.
+ *
+ * The runtime graph is built before there is a file to write into: the recorder belongs to the
+ * service, starts after the graph, stops with the service, and the graph is a singleton that
+ * outlives any one of those runs. Anything the graph builds therefore has no sink to be given
+ * at construction, and a client built without one writes nothing for the life of the process.
+ *
+ * That is how incident sends came to be the only Telegram traffic the black box never saw. A
+ * night of `tg:failed:timeout` looked like a complete account of what the phone tried to send
+ * and was in fact only the heartbeat: whether the three incidents of that night were ever
+ * attempted is a question the file could not answer either way.
+ *
+ * Deliberately does nothing until something attaches, and never throws: a crumb must not be
+ * able to take down the thing it describes.
+ */
+class BreadcrumbRelay {
+
+    @Volatile
+    private var sink: ((BreadcrumbDomain, BreadcrumbEvent, List<BreadcrumbDetail>) -> Unit)? = null
+
+    fun attach(sink: (BreadcrumbDomain, BreadcrumbEvent, List<BreadcrumbDetail>) -> Unit) {
+        this.sink = sink
+    }
+
+    fun detach() {
+        sink = null
+    }
+
+    fun note(
+        domain: BreadcrumbDomain,
+        event: BreadcrumbEvent,
+        details: List<BreadcrumbDetail> = emptyList(),
+    ) {
+        runCatching { sink?.invoke(domain, event, details) }
+    }
+}
+
+/**
  * Every value allowed to reach the file, and there is no other way in.
  *
  * The rule this replaces was a sentence in a design document saying not to log tokens, chat
