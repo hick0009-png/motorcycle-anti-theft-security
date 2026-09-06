@@ -200,3 +200,84 @@ private class InMemoryIncidentRepository : IncidentRepository {
 
     override fun clearHistory() = incidents.clear()
 }
+
+class IncidentRedeliveryPendingTest {
+
+    private val policy = IncidentRedeliveryPolicy()
+
+    /**
+     * PENDING is written when a delivery starts and replaced within seconds. A record still
+     * saying it five minutes on is a delivery whose process was killed between the two writes,
+     * and the owner heard nothing — the same silence a FAILED record describes.
+     */
+    @Test
+    fun aDeliveryAbandonedByAKilledProcessIsPickedUp() {
+        val abandoned = incident(
+            id = "killed-mid-send",
+            updatedAtMs = 1_000L,
+            deliveryState = DeliveryState.PENDING,
+        )
+
+        val selected = policy.select(
+            listOf(abandoned),
+            nowMs = 1_000L + IncidentRedeliveryPolicy.DEFAULT_ABANDONED_AFTER_MS,
+        )
+
+        assertEquals(listOf("killed-mid-send"), selected.map { it.id })
+    }
+
+    @Test
+    fun aDeliveryStillInFlightIsLeftAlone() {
+        val inFlight = incident(
+            id = "sending-now",
+            updatedAtMs = 1_000L,
+            deliveryState = DeliveryState.PENDING,
+        )
+
+        val selected = policy.select(
+            listOf(inFlight),
+            nowMs = 1_000L + IncidentRedeliveryPolicy.DEFAULT_ABANDONED_AFTER_MS - 1L,
+        )
+
+        assertTrue(selected.isEmpty())
+    }
+}
+
+class IncidentDeliveryRecordTest {
+
+    /**
+     * The engine's copy of an open incident is born PENDING and never learns what became of
+     * the message, so persisting one directly erased the delivery record — leaving a failed
+     * alert invisible to the sweep meant to send it again.
+     */
+    @Test
+    fun aProgressUpdateKeepsTheDeliveryRecordAlreadyOnFile() {
+        val onFile = incident("door-1", updatedAtMs = 1_000L, deliveryState = DeliveryState.FAILED)
+            .copy(
+                deliveryAttempts = listOf(
+                    DeliveryAttempt(DeliveryChannel.TELEGRAM, DeliveryState.FAILED, attemptedAtMs = 1_000L),
+                ),
+            )
+        val fromEngine = incident("door-1", updatedAtMs = 2_000L, deliveryState = DeliveryState.PENDING)
+
+        val merged = fromEngine.withDeliveryRecordOf(onFile)
+
+        assertEquals(DeliveryState.FAILED, merged.deliveryState)
+        assertEquals(onFile.deliveryAttempts, merged.deliveryAttempts)
+        // Everything the update actually carries is still the update's own.
+        assertEquals(2_000L, merged.updatedAtMs)
+    }
+
+    @Test
+    fun aFirstSightingHasNoRecordToKeep() {
+        val fresh = incident("door-2", updatedAtMs = 1_000L, deliveryState = DeliveryState.PENDING)
+
+        assertEquals(fresh, fresh.withDeliveryRecordOf(null))
+        assertEquals(
+            fresh,
+            fresh.withDeliveryRecordOf(
+                incident("door-2", updatedAtMs = 500L, deliveryState = DeliveryState.PENDING),
+            ),
+        )
+    }
+}

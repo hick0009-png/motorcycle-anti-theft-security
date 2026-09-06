@@ -21,12 +21,13 @@ class IncidentRedeliveryPolicy(
     private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS,
     private val maxRemoteAttempts: Int = DEFAULT_MAX_REMOTE_ATTEMPTS,
     private val maxPerFlush: Int = DEFAULT_MAX_PER_FLUSH,
+    private val abandonedAfterMs: Long = DEFAULT_ABANDONED_AFTER_MS,
 ) {
 
     /** Oldest first: a backlog read in order is a story, and read backwards is a puzzle. */
     fun select(history: List<SecurityIncident>, nowMs: Long): List<SecurityIncident> = history
         .asSequence()
-        .filter { it.deliveryState == DeliveryState.FAILED }
+        .filter { it.reachedNobody(nowMs) }
         // A clock that moved backwards must not silently discard an undelivered warning, so
         // only genuine age disqualifies one — never a negative interval.
         .filter { nowMs - it.updatedAtMs <= maxAgeMs }
@@ -37,6 +38,25 @@ class IncidentRedeliveryPolicy(
 
     private fun SecurityIncident.remoteAttempts(): Int = deliveryAttempts.count { attempt ->
         attempt.channel == DeliveryChannel.TELEGRAM || attempt.channel == DeliveryChannel.SMS
+    }
+
+    /**
+     * A failure, or a delivery that was started and never finished.
+     *
+     * PENDING is written the moment a delivery begins and replaced within seconds — Telegram
+     * gives up after ten and SMS after thirty. A record still saying PENDING long after that
+     * is a delivery whose process was killed between the two writes, which on this phone is
+     * an ordinary event rather than a rare one, and the owner heard nothing either way.
+     *
+     * The window is far wider than any real attempt so that a send genuinely in flight is
+     * never resent underneath itself. What remains is the moment between the radio accepting
+     * a message and the record being updated: a crash exactly there costs one duplicate. A
+     * duplicate alert is a nuisance and a missed one is the thing this app exists to prevent.
+     */
+    private fun SecurityIncident.reachedNobody(nowMs: Long): Boolean = when (deliveryState) {
+        DeliveryState.FAILED -> true
+        DeliveryState.PENDING -> nowMs - updatedAtMs >= abandonedAfterMs
+        else -> false
     }
 
     companion object {
@@ -52,6 +72,12 @@ class IncidentRedeliveryPolicy(
 
         /** A burst ceiling, so a long outage cannot empty itself into the owner's phone at once. */
         const val DEFAULT_MAX_PER_FLUSH: Int = 20
+
+        /**
+         * How long a delivery may sit unfinished before it is treated as abandoned. Ten times
+         * the longest attempt any channel makes, so nothing still running is ever swept.
+         */
+        const val DEFAULT_ABANDONED_AFTER_MS: Long = 5L * 60L * 1000L
     }
 }
 

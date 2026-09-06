@@ -259,31 +259,38 @@ object ProtectionRuntimeGraph {
         val deliveryPolicy = IncidentUpdateDeliveryPolicy()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val incidentMutex = Mutex()
+        // Persists a copy the engine produced, which always says PENDING with no attempts
+        // whatever became of the message. Anything already on file about that delivery is kept.
+        suspend fun persistPreservingDeliveryRecord(incident: SecurityIncident) {
+            withContext(Dispatchers.IO) {
+                repository.upsert(incident.withDeliveryRecordOf(repository.findById(incident.id)))
+            }
+        }
         suspend fun process(update: IncidentUpdate) {
             (update as? IncidentUpdate.Opened)?.supersededIncident?.let { superseded ->
                 // Already settled and already notified at its own opening: persist the
                 // closure so history has no orphan, but never notify a second time.
-                withContext(Dispatchers.IO) { repository.upsert(superseded) }
+                persistPreservingDeliveryRecord(superseded)
                 coordinator.recordIncident(superseded)
             }
             val incident = update.incidentOrNull() ?: return
             when (deliveryPolicy.action(update)) {
                 DeliveryAction.NONE -> Unit
                 DeliveryAction.PERSIST_ONLY -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                 }
 
                 DeliveryAction.PERSIST_AND_EDIT -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                     delivery.updateProgress(incident)
                 }
 
                 DeliveryAction.SEND_CONTINUATION -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                     delivery.updateProgress(incident)
@@ -332,7 +339,7 @@ object ProtectionRuntimeGraph {
         val incidentCloseDispatcher = IncidentCloseDispatcher(
             scope = scope,
             persistLocal = { incident ->
-                withContext(Dispatchers.IO) { repository.upsert(incident) }
+                persistPreservingDeliveryRecord(incident)
                 coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                 coordinator.recordIncident(incident)
             },
