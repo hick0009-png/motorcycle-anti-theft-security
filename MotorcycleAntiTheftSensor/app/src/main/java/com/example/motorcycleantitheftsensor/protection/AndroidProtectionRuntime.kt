@@ -1379,6 +1379,8 @@ class PlatformAndroidDetectorSet(
             EntryDetectionVerdict.SourceRecovered -> ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED to 0.0
             EntryDetectionVerdict.MountMoved -> ProtectionDiagnostics.ENTRY_MOUNT_MOVED to 0.0
             EntryDetectionVerdict.MountRestored -> ProtectionDiagnostics.ENTRY_MOUNT_RESTORED to 0.0
+            EntryDetectionVerdict.MountUnrecognized ->
+                ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED to 0.0
         }
         return SensorObservation(
             kind = SensorKind.VIBRATION,

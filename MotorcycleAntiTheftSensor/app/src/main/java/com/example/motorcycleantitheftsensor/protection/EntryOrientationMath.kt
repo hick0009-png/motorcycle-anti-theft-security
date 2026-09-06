@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -19,6 +20,13 @@ data class EntryQuaternion(
     }
 }
 
+/** A direction in the device's own frame, as the phone would describe it to itself. */
+data class EntryVector3(
+    val x: Double,
+    val y: Double,
+    val z: Double,
+)
+
 /**
  * Pure-domain door-angle mathematics for Entry Guard (spec section 4).
  *
@@ -36,6 +44,36 @@ object EntryOrientationMath {
         val length = sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z)
         if (length < DEGENERATE_EPSILON) return EntryQuaternion.IDENTITY
         return EntryQuaternion(q.w / length, q.x / length, q.y / length, q.z / length)
+    }
+
+    /**
+     * Which way is up, as the device sees it.
+     *
+     * Every rotation source here reports a world frame whose Z is the vertical, so the world
+     * vertical carried back into the device frame says how the phone is being held — face up,
+     * on edge, upside down in a cradle — without depending on which way it is facing. That
+     * last part is the point: a game rotation vector has no compass, its yaw is arbitrary and
+     * unrelated between sessions, so heading is not a thing this can honestly ask about.
+     * Tilt is, and tilt is most of what changes when a phone is remounted.
+     *
+     * Sign-invariant, like everything else here: `q` and `-q` give the same vector.
+     */
+    fun deviceUpVector(q: EntryQuaternion): EntryVector3 {
+        val n = normalize(q)
+        return EntryVector3(
+            x = 2.0 * (n.x * n.z - n.w * n.y),
+            y = 2.0 * (n.y * n.z + n.w * n.x),
+            z = 1.0 - 2.0 * (n.x * n.x + n.y * n.y),
+        )
+    }
+
+    /** Angle between two device-frame directions, in degrees. Zero for a degenerate input. */
+    fun angleBetweenDeg(a: EntryVector3, b: EntryVector3): Double {
+        val lengthA = sqrt(a.x * a.x + a.y * a.y + a.z * a.z)
+        val lengthB = sqrt(b.x * b.x + b.y * b.y + b.z * b.z)
+        if (lengthA < DEGENERATE_EPSILON || lengthB < DEGENERATE_EPSILON) return 0.0
+        val dot = ((a.x * b.x + a.y * b.y + a.z * b.z) / (lengthA * lengthB)).coerceIn(-1.0, 1.0)
+        return Math.toDegrees(acos(dot))
     }
 
     /**

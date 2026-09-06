@@ -399,6 +399,11 @@ class ProtectionProfileCodec(
         obj.put("mountSignature", model.mountSignature)
         obj.put("orientationSourcePolicy", model.orientationSourcePolicy)
         model.commissionedAtWallMs?.let { obj.put("commissionedAtWallMs", it) }
+        model.mountUp?.let { up ->
+            obj.put("mountUpX", up.x)
+            obj.put("mountUpY", up.y)
+            obj.put("mountUpZ", up.z)
+        }
         return obj
     }
 
@@ -439,6 +444,17 @@ class ProtectionProfileCodec(
             mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
             commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
+            // Absent on every model commissioned before poses were recorded, which is what
+            // keeps those models valid instead of decommissioning them on the next read.
+            mountUp = if (obj.has("mountUpX") && obj.has("mountUpY") && obj.has("mountUpZ")) {
+                EntryVector3(
+                    x = obj.getDouble("mountUpX"),
+                    y = obj.getDouble("mountUpY"),
+                    z = obj.getDouble("mountUpZ"),
+                )
+            } else {
+                null
+            },
         )
     }
 

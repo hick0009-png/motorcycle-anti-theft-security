@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -182,6 +183,32 @@ class ProtectionProfileCodecTest {
 
         assertEquals(ProfileSetupState.READY, commissioned.profiles.getValue(ProtectionProfile.ENTRY).setupState)
         assertEquals(commissioned, codec.decode(codec.encode(commissioned)))
+    }
+
+    @Test
+    fun roundTripPreservesTheCommissionedMountPose() {
+        val posed = hingeModel.copy(mountUp = EntryVector3(0.0, 0.7071, 0.7071))
+        val commissioned = policy.commissionEntry(policy.newStoreState(), posed)
+
+        val decoded = codec.decode(codec.encode(commissioned))
+
+        assertEquals(
+            posed.mountUp,
+            decoded.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel?.mountUp,
+        )
+    }
+
+    @Test
+    fun aStoredModelWithoutAMountPoseStaysValid() {
+        // Everything commissioned before poses were recorded. Decoding must leave the model
+        // usable rather than decommissioning it for a measurement nobody ever took.
+        val commissioned = policy.commissionEntry(policy.newStoreState(), hingeModel)
+
+        val decoded = codec.decode(codec.encode(commissioned))
+        val model = decoded.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel
+
+        assertNotNull(model)
+        assertEquals(null, model?.mountUp)
     }
 
     @Test

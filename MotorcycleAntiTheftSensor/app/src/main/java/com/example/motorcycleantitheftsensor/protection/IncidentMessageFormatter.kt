@@ -304,6 +304,8 @@ class IncidentMessageFormatter(
         return when (latest?.diagnostic) {
             ENTRY_MOUNT_MOVED -> "โทรศัพท์หรือขายึดถูกขยับ กรุณาตรวจสอบและปรับเทียบใหม่"
             ENTRY_MOUNT_RESTORED -> "โทรศัพท์กลับเข้าตำแหน่งเดิมแล้ว การเฝ้าประตูทำงานต่อตามปกติ"
+            ENTRY_MOUNT_UNRECOGNIZED ->
+                "ตำแหน่งติดตั้งไม่ตรงกับที่ปรับเทียบไว้ วัดมุมประตูไม่ได้ กรุณาปรับเทียบประตูใหม่"
             ENTRY_SOURCE_UNAVAILABLE, ENTRY_SOURCE_RECOVERED ->
                 "ข้อมูลมุมประตูขาดหาย กำลังรอเซนเซอร์กลับมาทำงาน"
             ENTRY_DOOR_CLOSED -> "ประตูปิดและนิ่งแล้ว"
@@ -381,6 +383,7 @@ class IncidentMessageFormatter(
         val ENTRY_SOURCE_RECOVERED = ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
         val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
+        val ENTRY_MOUNT_UNRECOGNIZED = ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED
         const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX

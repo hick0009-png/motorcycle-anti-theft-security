@@ -24,6 +24,12 @@ internal object ProtectionDiagnostics {
      */
     const val ENTRY_MOUNT_RESTORED = "entry_mount_restored"
 
+    /**
+     * The phone is not mounted the way the commissioned model was measured, found at the
+     * moment the watch starts rather than later by a door verdict that was wrong.
+     */
+    const val ENTRY_MOUNT_UNRECOGNIZED = "entry_mount_unrecognized"
+
     const val POWER_PREFIX = "power_"
     const val POWER_CHARGING_HEALTH = "power_charging_health"
     const val POWER_WITNESS_DARK = "power_witness_dark"

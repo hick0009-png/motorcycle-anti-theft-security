@@ -129,9 +129,18 @@ class EntryArmedSessionController {
                     settings = settings ?: EntryProfileSettings(),
                 )
                 policy = detection
-                policyState = detection.initialState()
+                val unrecognized = mountUnrecognized(activeModel, sample.quaternion)
+                policyState = if (unrecognized) {
+                    detection.initialState().copy(mountMoved = true, mountUnrecognized = true)
+                } else {
+                    detection.initialState()
+                }
                 liveAngleDeg = 0.0
-                return emptyList()
+                return if (unrecognized) {
+                    listOf(EntryDetectionVerdict.MountUnrecognized)
+                } else {
+                    emptyList()
+                }
             }
             val detection = policy ?: return emptyList()
             val axis = doubleArrayOf(activeModel.axisX, activeModel.axisY, activeModel.axisZ)
@@ -146,6 +155,30 @@ class EntryArmedSessionController {
             maybeRebaselineForDrift(newState, rel, axis, activeModel, sample)
             return listOfNotNull(verdict)
         }
+    }
+
+    /**
+     * Whether the phone is mounted somewhere other than where the model was measured.
+     *
+     * The commissioned hinge axis is a direction in the device's own frame, so it describes
+     * this door only while the phone sits the way it sat during commissioning. Remount it and
+     * the axis quietly describes nothing — a mount signature was supposed to catch that and
+     * was a fixed placeholder string, equal to itself on every phone in every position, so
+     * nothing was ever caught. It was found later instead, by a door verdict that was wrong.
+     *
+     * The first fresh sample of an armed session is the earliest moment a live pose exists,
+     * and this is the check that moment is for. What it can see is tilt, which is most of
+     * what changes when a phone is moved; what it cannot see is heading, because the game
+     * rotation vector has no compass and its yaw means nothing between sessions. The
+     * tolerance is generous on purpose — a phone re-seated in its own cradle sits a little
+     * differently every time, and an alarm that cried wolf at every arm would be turned off.
+     *
+     * A model commissioned before poses were recorded has none, and is taken at its word.
+     */
+    private fun mountUnrecognized(model: EntryHingeModel, quaternion: EntryQuaternion): Boolean {
+        val commissioned = model.mountUp ?: return false
+        val current = EntryOrientationMath.deviceUpVector(quaternion)
+        return EntryOrientationMath.angleBetweenDeg(commissioned, current) > MOUNT_POSE_TOLERANCE_DEG
     }
 
     /**
@@ -264,5 +297,13 @@ class EntryArmedSessionController {
          * band between re-captures, so the tracked-out drift never re-enters the open threshold.
          */
         const val DRIFT_REBASELINE_STABLE_MS: Long = 120_000L
+
+        /**
+         * How far the phone's tilt may differ from the commissioned one before the model is
+         * treated as describing some other mounting. Wide enough that re-seating a phone in
+         * its own cradle never trips it, narrow enough that a different cradle, a different
+         * angle or a different door does.
+         */
+        const val MOUNT_POSE_TOLERANCE_DEG: Double = 30.0
     }
 }

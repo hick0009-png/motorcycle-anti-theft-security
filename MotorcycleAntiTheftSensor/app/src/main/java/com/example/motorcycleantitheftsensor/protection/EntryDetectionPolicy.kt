@@ -16,6 +16,12 @@ sealed interface EntryDetectionVerdict {
      * for long enough to be believed. Emitted once, on the way back to normal detection.
      */
     data object MountRestored : EntryDetectionVerdict
+
+    /**
+     * The phone is not mounted the way the model was measured, said once as the watch starts.
+     * Emitted by [EntryArmedSessionController], which is where a live pose first exists.
+     */
+    data object MountUnrecognized : EntryDetectionVerdict
 }
 
 /** One physical door opening and its lifecycle inside a single armed session. */
@@ -63,6 +69,12 @@ class EntryDetectionPolicy(
          */
         val displacedAnchor: EntryQuaternion? = null,
         val displacedAnchorSinceMs: Long? = null,
+        /**
+         * Whether the phone's pose never matched the commissioned one to begin with, rather
+         * than having been displaced away from it. A distinction with real consequences: see
+         * [evaluateWhileDisplaced].
+         */
+        val mountUnrecognized: Boolean = false,
     )
 
     private val axis = doubleArrayOf(model.axisX, model.axisY, model.axisZ)
@@ -216,7 +228,12 @@ class EntryDetectionPolicy(
         sample: EntryOrientationSample,
     ): Pair<EntryDetectionVerdict?, State> {
         val timestampMs = sample.timestampMs
-        val backOnAxis = swingDeg <= model.residualToleranceDeg &&
+        // A pose that never matched has nothing to come back to. The residual is measured
+        // from a baseline taken at that very pose, so it reads perfect immediately and the
+        // restore below would declare the mount good five seconds into every armed session
+        // — which is the opposite of what was just discovered about it.
+        val backOnAxis = !state.mountUnrecognized &&
+            swingDeg <= model.residualToleranceDeg &&
             !wrongDirection &&
             angleDeg <= settings.closeThresholdDegrees.toDouble()
         if (backOnAxis) return evaluateMountRestore(state, timestampMs)

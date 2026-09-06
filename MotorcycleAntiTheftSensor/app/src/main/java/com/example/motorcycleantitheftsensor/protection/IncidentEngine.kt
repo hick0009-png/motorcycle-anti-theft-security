@@ -701,7 +701,10 @@ class IncidentEngine(
                     }
                 }
             }
-            ENTRY_SOURCE_UNAVAILABLE -> {
+            // Neither is a claim that anything moved, so neither is asked for a shake. One
+            // says the source is gone, the other says the model does not describe where the
+            // phone is now; both are true whether or not the door was touched.
+            ENTRY_SOURCE_UNAVAILABLE, ENTRY_MOUNT_UNRECOGNIZED -> {
                 if (active == null || !isEntryIncident) {
                     openIncident(
                         Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.WARNING),
@@ -841,6 +844,7 @@ class IncidentEngine(
         val ENTRY_SOURCE_RECOVERED = ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
         val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
+        val ENTRY_MOUNT_UNRECOGNIZED = ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH

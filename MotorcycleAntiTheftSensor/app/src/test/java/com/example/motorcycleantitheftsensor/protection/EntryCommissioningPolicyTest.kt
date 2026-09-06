@@ -146,6 +146,9 @@ class EntryCommissioningPolicyTest {
         assertEquals(0.0, model.axisY, 1e-6)
         assertEquals(1.0, kotlin.math.abs(model.axisZ), 1e-6)
         assertEquals(1, model.allowedDirection)
+        // The pose the axis was measured from, so a later session can tell whether the phone
+        // is still mounted where that measurement applies.
+        assertNotNull(model.mountUp)
         assertTrue(model.residualToleranceDeg > 0.0)
         assertEquals("rotation-vector", model.sensorIdentity)
         assertEquals("mount-a", model.mountSignature)

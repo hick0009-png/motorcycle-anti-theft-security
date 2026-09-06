@@ -54,9 +54,19 @@ object EntryCommissioningEnvironment {
         source?.let { EntryOrientationSourcePolicy.sourcePolicy(it) } ?: ORIENTATION_SOURCE_POLICY
 
     /**
-     * Mount signature placeholder. Gravity-based remount capture arrives with the
-     * commissioning UI slice; until then this stays constant so Arm never
-     * spuriously decommissions a valid model.
+     * A constant, and no longer pretending to be anything else.
+     *
+     * A mount signature compared at Arm has to be a string both sides can produce, and Arm
+     * has no live orientation reading to produce one from — the listener is registered after
+     * the check, by the session the check decides whether to start. So this stayed equal to
+     * itself on every phone in every position, and the fingerprint clause that compares it
+     * has never once been able to notice a remounting.
+     *
+     * The check it was meant to be now happens where a live pose actually exists: the armed
+     * session's first sample, against [EntryHingeModel.mountUp], in
+     * [EntryArmedSessionController]. This string is kept exactly as it is because every model
+     * an owner has already commissioned carries it, and changing it would decommission all of
+     * them at the next arm for no gain.
      */
     fun mountSignature(): String = "default-mount"
 

@@ -49,6 +49,11 @@ class EntryArmedSessionControllerTest {
     // close band 3°, open threshold 15°, open confirmed after 750ms.
     private val settings = EntryProfileSettings()
 
+    /** The same model, but measured with the phone lying flat. */
+    private val posedModel = model.copy(
+        mountUp = EntryOrientationMath.deviceUpVector(EntryQuaternion.IDENTITY),
+    )
+
     private fun armed(): EntryArmedSessionController {
         val controller = EntryArmedSessionController()
         controller.begin(generation = 1L, model = model, settings = settings)
@@ -182,6 +187,63 @@ class EntryArmedSessionControllerTest {
         assertTrue("the first look only starts the clock", controller.onSilence(0L).isEmpty())
         assertTrue(controller.onSilence(11_000L).any { it is EntryDetectionVerdict.SourceUnavailable })
         assertTrue(controller.onSilence(22_000L).isEmpty())
+    }
+
+    /**
+     * The hinge axis is a direction in the device's own frame, so it describes this door only
+     * while the phone sits where it was measured. A fixed placeholder string was supposed to
+     * be the mount signature that caught a remounting; it was equal to itself on every phone
+     * in every position, so nothing was ever caught, and a phone moved to another cradle went
+     * on being read as a door until a verdict came out wrong.
+     */
+    @Test
+    fun aPhoneMountedSomewhereElseSaysSoInsteadOfMeasuringADoor() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = posedModel, settings = settings)
+
+        // Armed with the phone on edge — a quarter turn from where the model was measured.
+        val verdicts = controller.onSample(sample(0L, rotX(90.0)), 1L)
+        assertTrue(verdicts.any { it is EntryDetectionVerdict.MountUnrecognized })
+    }
+
+    /**
+     * And it must not talk itself out of it. The baseline is captured at the unrecognized
+     * pose, so the residual against it reads perfect from the first sample — the displaced
+     * watch's way back would otherwise declare the mount good five seconds later.
+     */
+    @Test
+    fun anUnrecognizedMountIsNeverRestoredByStandingStill() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = posedModel, settings = settings)
+        controller.onSample(sample(0L, rotX(90.0)), 1L)
+
+        val later = mutableListOf<EntryDetectionVerdict>()
+        var t = 1_000L
+        while (t <= 30_000L) {
+            later += controller.onSample(sample(t, rotX(90.0)), 1L)
+            t += 1_000L
+        }
+        assertTrue(later.none { it is EntryDetectionVerdict.MountRestored })
+    }
+
+    @Test
+    fun aModelCommissionedBeforePosesWereRecordedIsTakenAtItsWord() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = model, settings = settings)
+
+        // Same quarter turn, no recorded pose to compare it against: nothing to say.
+        val verdicts = controller.onSample(sample(0L, rotX(90.0)), 1L)
+        assertTrue(verdicts.none { it is EntryDetectionVerdict.MountUnrecognized })
+    }
+
+    @Test
+    fun aPhoneReseatedInItsOwnCradleIsNotCalledARemount() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = posedModel, settings = settings)
+
+        // Twelve degrees off: how differently a phone sits when it is picked up and put back.
+        val verdicts = controller.onSample(sample(0L, rotX(12.0)), 1L)
+        assertTrue(verdicts.none { it is EntryDetectionVerdict.MountUnrecognized })
     }
 
     @Test

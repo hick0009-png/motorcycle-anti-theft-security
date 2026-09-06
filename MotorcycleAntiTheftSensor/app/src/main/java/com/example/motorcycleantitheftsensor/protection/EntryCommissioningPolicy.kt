@@ -34,6 +34,21 @@ data class EntryHingeModel(
      * measured says nothing about whether the measurement still applies.
      */
     val commissionedAtWallMs: Long? = null,
+    /**
+     * How the phone was tilted when the model was measured, in its own frame.
+     *
+     * The hinge axis is expressed in the device frame, so it describes this door only while
+     * the phone sits the way it sat during commissioning. Move the phone to another cradle,
+     * another angle, another door, and the axis silently describes nothing — which used to be
+     * discovered only later, by a door verdict that was wrong.
+     *
+     * Null for every model commissioned before this was recorded. Those keep exactly the
+     * behaviour they have always had rather than being invalidated for a measurement that was
+     * never taken; recalibrating is what gives a model its pose. Deliberately outside
+     * [EntryCommissioningPolicy.fingerprint], because this is checked against a live reading
+     * at the moment the watch starts, not against a string at Arm.
+     */
+    val mountUp: EntryVector3? = null,
 )
 
 /**
@@ -178,6 +193,9 @@ class EntryCommissioningPolicy(
             sensorIdentity = sensorIdentity,
             mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
+            // The still-check baseline is the phone at rest against a shut door, which is the
+            // only pose worth remembering: it is the one the axis was measured from.
+            mountUp = state.cycleBaseline?.let(EntryOrientationMath::deviceUpVector),
         ).let { raw ->
             val length = kotlin.math.sqrt(raw.axisX * raw.axisX + raw.axisY * raw.axisY + raw.axisZ * raw.axisZ)
             raw.copy(axisX = raw.axisX / length, axisY = raw.axisY / length, axisZ = raw.axisZ / length)
