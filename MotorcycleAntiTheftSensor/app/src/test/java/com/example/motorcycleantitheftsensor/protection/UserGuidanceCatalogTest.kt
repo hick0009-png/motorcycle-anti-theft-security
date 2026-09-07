@@ -17,6 +17,27 @@ class UserGuidanceCatalogTest {
         assertFalse(content.telegramTh.orEmpty().contains("TAMPER"))
     }
 
+    /**
+     * A template variable is only ever filled from a [GuidanceDetail] a caller has to build.
+     * The arming body named one no caller built, so it rendered a frozen "0" for the whole
+     * countdown. Nothing catches that at the call site — the placeholder resolves to its
+     * fallback and reads like a real value — so the catalog is asked here instead: whatever a
+     * screen shows must survive being resolved with no detail at all.
+     */
+    @Test
+    fun everyCatalogEntryReadsCorrectlyWithNoDetail() {
+        GuidanceCode.values().forEach { code ->
+            val content = UserGuidanceCatalog.content(code, GuidanceDetail.None)
+            listOf("titleTh" to content.titleTh, "bodyTh" to content.bodyTh)
+                .forEach { (field, text) ->
+                    assertFalse(
+                        "Code $code leaves an unresolved placeholder in $field: $text",
+                        text.contains("{"),
+                    )
+                }
+        }
+    }
+
     @Test
     fun `Verify catalog negative cases for secrets`() {
         val forbiddenStrings = listOf(
@@ -50,7 +71,7 @@ class UserGuidanceCatalogTest {
         assertEquals("ℹ️ ปิดการป้องกันแล้ว", c_DISARMED.telegramTh)
         val c_ARMING = UserGuidanceCatalog.content(GuidanceCode.ARMING, GuidanceDetail.None)
         assertEquals("กำลังเปิดการป้องกัน", c_ARMING.titleTh)
-        assertEquals("กำลังปรับเทียบเซนเซอร์ เหลือ 0 วินาที", c_ARMING.bodyTh)
+        assertEquals("กำลังปรับเทียบเซนเซอร์ก่อนเริ่มเฝ้าระวัง", c_ARMING.bodyTh)
         assertEquals("ℹ️ กำลังเปิดการป้องกัน รอการปรับเทียบเซนเซอร์", c_ARMING.telegramTh)
         val c_ARMED_HEALTHY = UserGuidanceCatalog.content(GuidanceCode.ARMED_HEALTHY, GuidanceDetail.None)
         assertEquals("การป้องกันทำงานปกติ", c_ARMED_HEALTHY.titleTh)

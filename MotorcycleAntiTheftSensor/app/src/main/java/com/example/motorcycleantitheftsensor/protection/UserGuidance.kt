@@ -39,7 +39,6 @@ enum class ReasonLabel {
 
 sealed class GuidanceDetail {
     object None : GuidanceDetail()
-    data class ArmingSeconds(val seconds: Int) : GuidanceDetail()
     data class SensitivityLevel(val level: Int) : GuidanceDetail()
     data class ProtectionStateValue(val state: ProtectionState) : GuidanceDetail()
     data class IncidentTypeValue(val incidentType: IncidentType) : GuidanceDetail()
@@ -108,9 +107,13 @@ object UserGuidanceCatalog {
                 action = GuidanceAction.OPEN_PROTECTION,
                 persistent = false
             )
+            // The countdown itself belongs to the status card's own timer line, which reads the
+            // remaining seconds from the snapshot. Naming them here too asked for a detail no
+            // caller ever built, so the number rendered as a frozen zero beside a timer that was
+            // counting down correctly.
             GuidanceCode.ARMING -> GuidanceContent(
                 titleTh = "กำลังเปิดการป้องกัน",
-                bodyTh = "กำลังปรับเทียบเซนเซอร์ เหลือ {seconds} วินาที",
+                bodyTh = "กำลังปรับเทียบเซนเซอร์ก่อนเริ่มเฝ้าระวัง",
                 telegramTh = "ℹ️ กำลังเปิดการป้องกัน รอการปรับเทียบเซนเซอร์",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -467,7 +470,6 @@ object UserGuidanceCatalog {
             )
         }
 
-        val seconds = (detail as? GuidanceDetail.ArmingSeconds)?.seconds?.toString() ?: "0"
         val level = (detail as? GuidanceDetail.SensitivityLevel)?.level?.toString() ?: "0"
         val state = (detail as? GuidanceDetail.ProtectionStateValue)?.state?.name ?: ""
         val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)
@@ -484,8 +486,7 @@ object UserGuidanceCatalog {
         val featureName = "Feature"
 
         fun String?.resolve(): String? {
-            return this?.replace("{seconds}", seconds)
-                ?.replace("{level}", level)
+            return this?.replace("{level}", level)
                 ?.replace("{state}", state)
                 ?.replace("{incidentType}", incidentType)
                 ?.replace("{sensorName}", sensorName)
