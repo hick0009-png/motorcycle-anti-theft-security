@@ -37,6 +37,17 @@ data class MicrophoneReadiness(
     }
 }
 
+/**
+ * How long Arm spends calibrating before the watch is live.
+ *
+ * Written once, here, because three separate places need the same number and only one of them
+ * is the one that actually waits: the countdown on the status card and the service's own grace
+ * gate are both statements *about* [ArmingDelay]. When they were three literals, a change to
+ * the delay left the other two quietly lying — the card would finish counting while the watch
+ * was still deaf, or count past a watch already live.
+ */
+const val ARMING_WINDOW_MS: Long = 10_000L
+
 fun interface ArmingDelay {
     suspend fun await()
 }

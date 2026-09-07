@@ -660,7 +660,7 @@ object ProtectionRuntimeGraph {
                 sensorFusionConfiguration = initialConfig,
             ),
             runtime = runtime,
-            armingDelay = ArmingDelay { delay(10_000L) },
+            armingDelay = ArmingDelay { delay(ARMING_WINDOW_MS) },
             clock = wallClock,
             incidentCloser = { reason ->
                 synchronized(watchdogLock) {

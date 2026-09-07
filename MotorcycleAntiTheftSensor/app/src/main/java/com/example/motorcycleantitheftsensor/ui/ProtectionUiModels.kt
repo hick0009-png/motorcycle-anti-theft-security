@@ -578,7 +578,6 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
             com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED,
             com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
         ).bodyTh
-        else -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_UPDATED).bodyTh
     },
     updatedAtMs = updatedAtMs,
     deliveryState = deliveryState,
@@ -586,12 +585,12 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
 
 private fun ProtectionSnapshot.armingSecondsRemaining(nowMs: Long): Int? {
     if (state != ProtectionState.ARMING) return null
-    return ceil((lastTransitionAtMs + ARMING_DURATION_MS - nowMs).toDouble() / MILLIS_PER_SECOND)
+    val windowMs = com.example.motorcycleantitheftsensor.protection.ARMING_WINDOW_MS
+    return ceil((lastTransitionAtMs + windowMs - nowMs).toDouble() / MILLIS_PER_SECOND)
         .toInt()
-        .coerceIn(0, 10)
+        .coerceIn(0, ceil(windowMs / MILLIS_PER_SECOND).toInt())
 }
 
-private const val ARMING_DURATION_MS = 10_000L
 private const val MILLIS_PER_SECOND = 1_000.0
 
 internal fun AudioTelemetry.toAudioUiTelemetry(

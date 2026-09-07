@@ -28,6 +28,7 @@ import com.example.motorcycleantitheftsensor.location.AndroidAppVisibilityProvid
 import com.example.motorcycleantitheftsensor.location.AppVisibilityProvider
 import com.example.motorcycleantitheftsensor.location.ForegroundServiceTypePolicy
 import com.example.motorcycleantitheftsensor.location.ForegroundStartController
+import com.example.motorcycleantitheftsensor.protection.ARMING_WINDOW_MS
 import com.example.motorcycleantitheftsensor.protection.AndroidBlackBoxExitSource
 import com.example.motorcycleantitheftsensor.protection.BlackBoxExitWitness
 import com.example.motorcycleantitheftsensor.protection.BlackBoxProcessStateSummary
@@ -92,7 +93,6 @@ class SensorService : Service(), ServiceEnvironment {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "anti_theft_protection_silent_v2"
         private const val SERVICE_HEARTBEAT_INTERVAL_MS = 5_000L
-        private const val ARMING_GRACE_MS = 10_000L
         private const val SNAPSHOT_PROJECTION_INTERVAL_MS = 5_000L
         private const val WAKE_LOCK_LEASE_MS = 60 * 60 * 1_000L
         private const val WAKE_LOCK_RENEW_BEFORE_MS = 5 * 60 * 1_000L
@@ -618,7 +618,7 @@ class SensorService : Service(), ServiceEnvironment {
                 ProtectionState.SETUP_REQUIRED -> snapshot.permissionBlockers.sorted().joinToString()
                 ProtectionState.ARMING ->
                     ceil(
-                        (snapshot.lastTransitionAtMs + ARMING_GRACE_MS - System.currentTimeMillis())
+                        (snapshot.lastTransitionAtMs + ARMING_WINDOW_MS - System.currentTimeMillis())
                             .coerceAtLeast(0L) / 1_000.0,
                     ).toInt().toString()
                 ProtectionState.ARMED_DEGRADED -> snapshot.degradationReasons.sorted().joinToString()
