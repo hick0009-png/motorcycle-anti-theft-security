@@ -62,31 +62,6 @@ class PresentationTextCatalogTest {
     }
 
     @Test
-    fun smsFormattingNeverContainsLocation() {
-        val incident = SecurityIncident(
-            id = "INC-TEST-001",
-            type = IncidentType.VIBRATION,
-            severity = IncidentSeverity.CRITICAL,
-            lifecycle = IncidentLifecycle.OPEN,
-            evidence = emptyList(),
-            openedAtMs = 1787245200000L,
-            updatedAtMs = 1787245200000L,
-            closedAtMs = null,
-            protectionState = ProtectionState.ARMED_HEALTHY,
-            deliveryState = DeliveryState.SENT,
-            location = IncidentLocation(13.7563, 100.5018, 10f, 1787245200000L),
-        )
-
-        val presentation = IncidentMessagePresentationFactory.create(incident)
-        val sms = IncidentMessagePresentationFactory.formatSmsMessage(presentation)
-
-        assertFalse("SMS fallback must never leak GPS coordinates", sms.contains("13.7563"))
-        assertFalse("SMS fallback must never leak GPS coordinates", sms.contains("100.5018"))
-        assertTrue(sms.contains("INC-TEST-001"))
-        assertTrue(sms.contains("วิกฤต"))
-    }
-
-    @Test
     fun profilesMatchApprovedCardNamesAndPromises() {
         assertEquals("ยานพาหนะ", PresentationTextCatalog.profile(ProtectionProfile.VEHICLE).name)
         assertEquals(

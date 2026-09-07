@@ -528,14 +528,6 @@ object PresentationTextCatalog {
                 "จะเตือนผิดจนใช้งานจริงไม่ได้"
     }
 
-    /** The measurement's own verdict line, stated against the threshold it decides. */
-    fun driftLogVerdict(maxTwistDeg: Double, thresholdDeg: Int): String =
-        if (maxTwistDeg >= thresholdDeg) {
-            "⚠️ ไหลถึง $thresholdDeg° แล้ว — แหล่งทิศทางนี้ใช้ตามลำพังไม่ได้ ต้องตรึงด้วยเข็มทิศก่อน"
-        } else {
-            "ยังไม่ถึงเกณฑ์ $thresholdDeg° — ต้องวัดให้ครบ 8 ชั่วโมงจึงจะสรุปได้"
-        }
-
     /** "โหมดยานพาหนะ · หลัก 2 · ประกอบ 8 · ปิด 0" — what this use is actually set up to run. */
     fun sensorRoleTallyLine(
         profile: ProtectionProfile,
@@ -766,25 +758,6 @@ object PresentationTextCatalog {
         ProtectionState.ARMED_DEGRADED -> "การป้องกันทำงานแบบจำกัด"
         ProtectionState.ALERT_ACTIVE -> "พบเหตุการณ์ผิดปกติ"
         ProtectionState.OFFLINE -> "ออฟไลน์"
-    }
-
-    fun formatEvidence(evidence: IncidentEvidence): IncidentEvidencePresentation {
-        val src = evidence.source
-        val label = if (src != null) sourceName(src) else capabilityName(evidence.capability ?: SensorCapability.MOVEMENT)
-        val desc = when (evidence.unit) {
-            SensorUnit.METERS_PER_SECOND_SQUARED -> "ตรวจพบแรงสั่นต่อเนื่อง (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} m/s²)"
-            SensorUnit.DEGREES -> "มุมของรถเปลี่ยนประมาณ ${String.format(Locale.US, "%.1f", evidence.baselineDelta)}°"
-            SensorUnit.RADIANS_PER_SECOND -> "การหมุนความเร็ว ${String.format(Locale.US, "%.2f", evidence.normalizedValue)} rad/s"
-            SensorUnit.MICROTESLA -> "สนามแม่เหล็กรอบรถเปลี่ยนจากค่าตอนเปิดระบบ (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} µT)"
-            SensorUnit.LUX_RATIO -> "แสงบริเวณจุดติดตั้งเพิ่มขึ้นจากค่าตอนเปิดระบบ"
-            SensorUnit.NORMALIZED_STATE -> "สถานะวัตถุใกล้โทรศัพท์เปลี่ยนจาก ใกล้ เป็น ไกล"
-            SensorUnit.TRIGGER -> "เซ็นเซอร์ตรวจพบการเคลื่อนไหวของตัวรถ"
-            null -> "ตรวจพบสัญญาณความผิดปกติ"
-        }
-        return IncidentEvidencePresentation(
-            label = label,
-            valueDescription = desc,
-        )
     }
 
     fun formatTimestamp(epochMs: Long): String {

@@ -74,8 +74,6 @@ class ThaiPresentationSourceContractTest {
         "protection/PresentationTextCatalog.kt",
         "protection/UserGuidance.kt",
         "protection/IncidentMessageFormatter.kt",
-        "protection/IncidentMessagePresentationFactory.kt",
-        "protection/ProtectionMessagePresentationFactory.kt",
         "protection/ProtectionStateTelegramNotifier.kt",
         "telegram/ProtectionStatusFormatter.kt",
         "telegram/ProtectionStatusProjection.kt",
