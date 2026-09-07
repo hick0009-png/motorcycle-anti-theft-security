@@ -183,6 +183,15 @@ fun ProtectionScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
+                        // The door watch freezes its closed reference from the pose it settles on
+                        // as the countdown ends, so a door moved during it skews the whole session.
+                        if (state.profile.selectedProfile == ProtectionProfile.ENTRY) {
+                            Text(
+                                text = stringResource(R.string.protection_arming_entry_hold_still),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
                     }
                     if (powerCalibrationRequired) {
                         // States what blocks arming; the witness card below owns the

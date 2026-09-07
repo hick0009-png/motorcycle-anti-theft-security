@@ -635,6 +635,7 @@ object ProtectionRuntimeGraph {
                     handlerOwner = sensorHandlerOwner,
                     controller = sensorController,
                     resumedPowerSemantic = restoredPowerRuntime?.semantic,
+                    armingProvider = { coordinator.snapshot.value.state == ProtectionState.ARMING },
                 )
             },
             observationProcessor = processor,

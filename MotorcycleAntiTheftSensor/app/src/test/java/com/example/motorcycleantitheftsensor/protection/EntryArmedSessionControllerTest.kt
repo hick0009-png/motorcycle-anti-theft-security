@@ -313,6 +313,59 @@ class EntryArmedSessionControllerTest {
         assertTrue(verdicts.none { it is EntryDetectionVerdict.MountUnrecognized })
     }
 
+    /**
+     * Bug #5. The closed reference is captured from the first *fresh* sample, and "fresh" waits
+     * for the rotation vector to converge — which on the test device landed several seconds in,
+     * exactly while the owner still had a hand on the door during the arming countdown. Frozen
+     * there, a half-open pose became "closed" for the whole session, past the reach of the drift
+     * rebaseline. While arming the baseline is provisional and follows each fresh sample, so the
+     * pose the door settles on as the countdown ends is the one that sticks.
+     */
+    @Test
+    fun aDoorMovedDuringTheArmingWindowDoesNotFreezeItselfInAsClosed() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = model, settings = settings)
+
+        // The first fresh sample lands while the door is swung 20° open, mid-countdown.
+        controller.onSample(sample(0L, rotZ(20.0)), 1L, arming = true)
+        // The owner lets it settle shut before the countdown ends.
+        controller.onSample(sample(3_000L, rotZ(0.0)), 1L, arming = true)
+        // Countdown over with the door shut: that pose is the reference from here on.
+        controller.onSample(sample(10_000L, rotZ(0.0)), 1L, arming = false)
+
+        // The shut door reads shut — not the 20° offset a first-sample capture would have frozen.
+        assertEquals(0.0, controller.liveAngleDeg() ?: -1.0, 0.5)
+
+        // And a genuine opening still alarms through the settled baseline.
+        val verdicts = mutableListOf<EntryDetectionVerdict>()
+        var t = 11_000L
+        while (t <= 12_000L) {
+            verdicts += controller.onSample(sample(t, rotZ(18.0)), 1L, arming = false)
+            t += 250L
+        }
+        assertTrue(verdicts.any { it is EntryDetectionVerdict.DoorOpened })
+    }
+
+    /**
+     * The arming window stays silent regardless of how the door is moved in it — the baseline is
+     * still being settled, and the engine drops verdicts there anyway, so producing them would
+     * be noise timed for the one moment nobody is meant to be alarmed.
+     */
+    @Test
+    fun noDoorVerdictIsProducedWhileStillArming() {
+        val controller = EntryArmedSessionController()
+        controller.begin(generation = 1L, model = model, settings = settings)
+        controller.onSample(sample(0L, rotZ(0.0)), 1L, arming = true)
+
+        val during = mutableListOf<EntryDetectionVerdict>()
+        var t = 250L
+        while (t <= 8_000L) {
+            during += controller.onSample(sample(t, rotZ(30.0)), 1L, arming = true)
+            t += 250L
+        }
+        assertTrue("an arming window must not raise a door verdict", during.isEmpty())
+    }
+
     @Test
     fun anOpenDoorHeldPastTheWindowIsNeverRebaselinedShut() {
         val controller = armed()

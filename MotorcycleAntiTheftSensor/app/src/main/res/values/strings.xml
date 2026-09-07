@@ -20,6 +20,7 @@
     <string name="action_disarm_protection">ปิดระบบป้องกัน</string>
     <string name="action_stop_alarm">ปิดสัญญาณเตือน</string>
     <string name="protection_arming_countdown">กำลังเปิดระบบ อีก %1$d วินาที</string>
+    <string name="protection_arming_entry_hold_still">ปิดประตูให้สนิทและอย่าเพิ่งขยับระหว่างนับถอยหลัง เพื่อให้ระบบจับตำแหน่งประตูปิดได้ถูกต้อง</string>
     <string name="protection_blockers_title">สิ่งที่ยังขาดก่อนป้องกันได้</string>
     <string name="reduced_coverage_title">การตรวจจับที่ลดลง</string>
     <string name="degradation_reasons_title">เหตุผลที่ทำงานแบบจำกัด</string>

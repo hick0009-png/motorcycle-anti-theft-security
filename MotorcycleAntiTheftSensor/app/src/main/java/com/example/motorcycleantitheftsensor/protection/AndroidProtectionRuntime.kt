@@ -536,6 +536,13 @@ class PlatformAndroidDetectorSet(
         handlerOwner = handlerOwner,
     ),
     resumedPowerSemantic: PowerCompositeArbiter.SemanticState? = null,
+    /**
+     * Whether the coordinator is still counting down to armed. The entry baseline stays
+     * provisional while this is true; see [EntryArmedSessionController.baselineProvisional]. A
+     * detector set constructed without it never treats a window as arming, which is the safe
+     * default for tests and for any start path that does not wire the coordinator through.
+     */
+    private val armingProvider: () -> Boolean = { false },
 ) : AndroidDetectorSet {
     private val applicationContext = context.applicationContext
     private val sensorManager = applicationContext.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -1338,7 +1345,11 @@ class PlatformAndroidDetectorSet(
                     // The gate the detection policy has always had and never once could use.
                     fresh = entryFreshness.onSample(nowMs),
                 )
-                val verdicts = entrySession.onSample(sample, controller.currentGenerationId())
+                val verdicts = entrySession.onSample(
+                    sample,
+                    controller.currentGenerationId(),
+                    arming = armingProvider(),
+                )
                 entrySampleFlow.tryEmit(sample)
                 verdicts.forEach { verdict ->
                     record(entryVerdictObservation(verdict, sample.timestampMs))

@@ -17,6 +17,22 @@ class EntryArmedSessionController {
     private var policy: EntryDetectionPolicy? = null
     private var policyState: EntryDetectionPolicy.State? = null
     private var baseline: EntryQuaternion? = null
+
+    /**
+     * True while the baseline is still being settled inside the arming window and may be
+     * re-captured by a later, steadier sample.
+     *
+     * The reference is meant to be the shut door, captured the instant the watch begins. But the
+     * first *fresh* sample is not the first sample: the game rotation vector has to converge to
+     * good accuracy first, which can take several seconds, and on the test device that first
+     * fresh sample landed while the owner still had a hand on the door — freezing a half-open
+     * pose in as "closed" for the whole session, past the reach of the drift rebaseline, which
+     * only ever acts from inside the close band a wrong baseline never re-enters. So while the
+     * coordinator is still counting down to armed, every fresh sample re-captures the baseline;
+     * the pose in hand when the countdown ends is the one that is frozen. Nothing is lost by the
+     * churn: the engine drops every verdict during the arming window regardless.
+     */
+    private var baselineProvisional: Boolean = false
     private var generation: Long = Long.MIN_VALUE
 
     /**
@@ -66,6 +82,7 @@ class EntryArmedSessionController {
             this.model = model
             this.settings = settings
             this.baseline = null
+            this.baselineProvisional = false
             this.policy = null
             this.policyState = null
             this.liveAngleDeg = null
@@ -84,6 +101,7 @@ class EntryArmedSessionController {
             policy = null
             policyState = null
             baseline = null
+            baselineProvisional = false
             liveAngleDeg = null
             closedStillSinceMs = null
             lastActivityAtMs = null
@@ -100,6 +118,14 @@ class EntryArmedSessionController {
     fun onSample(
         sample: EntryOrientationSample,
         currentGeneration: Long,
+        /**
+         * Whether the coordinator is still in its arming countdown. While true the baseline is
+         * only provisional and every fresh sample re-captures it, so a door moved during the
+         * countdown cannot freeze itself in as the closed reference; see [baselineProvisional].
+         * A caller that does not say is taken to be past arming, which is what every caller got
+         * before this existed and what the controller's own unit proofs rely on.
+         */
+        arming: Boolean = false,
     ): List<EntryDetectionVerdict> {
         synchronized(lock) {
             val activeModel = model ?: return emptyList()
@@ -121,33 +147,20 @@ class EntryArmedSessionController {
             val currentBaseline = baseline
             if (currentBaseline == null) {
                 if (!sample.fresh) return emptyList()
-                val frozen = EntryOrientationMath.canonicalizeSign(sample.quaternion)
-                baseline = frozen
-                val detection = EntryDetectionPolicy(
-                    baseline = frozen,
-                    model = activeModel,
-                    settings = settings ?: EntryProfileSettings(),
-                )
-                policy = detection
-                val unrecognized = mountUnrecognized(activeModel, sample.quaternion)
-                policyState = if (unrecognized) {
-                    detection.initialState().copy(
-                        mountMoved = true,
-                        mountUnrecognized = true,
-                        // Stamped so the repeat is timed from here. This first one is usually
-                        // lost — the session begins inside the arming window, where the engine
-                        // drops everything — and the repeat is what actually reaches anyone.
-                        mountUnrecognizedAnnouncedAtMs = sample.timestampMs,
-                    )
-                } else {
-                    detection.initialState()
+                baselineProvisional = arming
+                return captureBaseline(sample, activeModel)
+            }
+            if (baselineProvisional) {
+                if (arming) {
+                    // Still inside the countdown: keep the reference on the latest fresh pose so a
+                    // door moved mid-window does not freeze itself in as closed. Verdicts here are
+                    // dropped by the engine anyway, so the churning window stays silent.
+                    if (sample.fresh) captureBaseline(sample, activeModel)
+                    return emptyList()
                 }
-                liveAngleDeg = 0.0
-                return if (unrecognized) {
-                    listOf(EntryDetectionVerdict.MountUnrecognized)
-                } else {
-                    emptyList()
-                }
+                // Countdown over: the pose in hand is the closed reference from here on, and the
+                // sample is evaluated against it like any other.
+                baselineProvisional = false
             }
             val detection = policy ?: return emptyList()
             val axis = doubleArrayOf(activeModel.axisX, activeModel.axisY, activeModel.axisZ)
@@ -161,6 +174,45 @@ class EntryArmedSessionController {
 
             maybeRebaselineForDrift(newState, rel, axis, activeModel, sample)
             return listOfNotNull(verdict)
+        }
+    }
+
+    /**
+     * Freezes the current sample as the closed reference and rebuilds the detection policy and
+     * state around it, returning the verdict the capture itself produces (a mount read as
+     * unrecognized, or nothing). Called with [lock] held, on the first fresh sample and again on
+     * each fresh sample while the baseline is still provisional inside the arming window.
+     */
+    private fun captureBaseline(
+        sample: EntryOrientationSample,
+        activeModel: EntryHingeModel,
+    ): List<EntryDetectionVerdict> {
+        val frozen = EntryOrientationMath.canonicalizeSign(sample.quaternion)
+        baseline = frozen
+        val detection = EntryDetectionPolicy(
+            baseline = frozen,
+            model = activeModel,
+            settings = settings ?: EntryProfileSettings(),
+        )
+        policy = detection
+        val unrecognized = mountUnrecognized(activeModel, sample.quaternion)
+        policyState = if (unrecognized) {
+            detection.initialState().copy(
+                mountMoved = true,
+                mountUnrecognized = true,
+                // Stamped so the repeat is timed from here. This first one is usually lost — the
+                // session begins inside the arming window, where the engine drops everything —
+                // and the repeat is what actually reaches anyone.
+                mountUnrecognizedAnnouncedAtMs = sample.timestampMs,
+            )
+        } else {
+            detection.initialState()
+        }
+        liveAngleDeg = 0.0
+        return if (unrecognized) {
+            listOf(EntryDetectionVerdict.MountUnrecognized)
+        } else {
+            emptyList()
         }
     }
 
