@@ -60,6 +60,15 @@ enum class EntryWatchLevel {
 data class EntryProfileSettings(
     val angleThresholdDegrees: Int = 15,
     val openConfirmationMs: Long = 750L,
+    /**
+     * At or past this angle the door is swung wide enough that the 750ms dwell is not asked for
+     * — only [fastOpenConfirmationMs], a floor short enough to catch a door flung open and shut
+     * again inside the dwell (the fast flick that used to leave no alert) and long enough to
+     * reject a lone spurious sample. A door edged just past [angleThresholdDegrees] still has to
+     * hold the full [openConfirmationMs]; the shortcut is only for a swing too wide to be noise.
+     */
+    val fastOpenAngleDegrees: Int = 45,
+    val fastOpenConfirmationMs: Long = 200L,
     val closeThresholdDegrees: Int = 3,
     val closeConfirmationMs: Long = 5_000L,
     val level: EntryWatchLevel = EntryWatchLevel.SOUND_AND_MOVEMENT,

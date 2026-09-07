@@ -268,6 +268,43 @@ class EntryDetectionPolicyTest {
         assertEquals(16.0, opened!!.angleDeg, 0.5)
     }
 
+    /**
+     * Bug #6. A door edged just past the alert angle must hold the full 750ms, but a swing flung
+     * wide is confirmed on a short floor instead — otherwise a door thrown open and shut again
+     * inside 750ms left no alert at all. The floor is never zero: a lone wide sample is a spike,
+     * not a swing, and must not alarm on its own.
+     */
+    @Test
+    fun aWideSwingConfirmsFasterThanTheFullDwell() {
+        val p = policy()
+        var state = p.initialState()
+
+        // A lone wide sample is not yet a swing.
+        val (v0, s0) = p.evaluate(state, sample(1_000L, rotZ(50.0)))
+        assertNull(v0 as? EntryDetectionVerdict.DoorOpened)
+        state = s0
+
+        // 200ms later — far short of the 750ms dwell a narrow opening would need — it confirms.
+        val (v1, _) = p.evaluate(state, sample(1_200L, rotZ(50.0)))
+        assertTrue(v1 is EntryDetectionVerdict.DoorOpened)
+        assertEquals(50.0, (v1 as EntryDetectionVerdict.DoorOpened).angleDeg, 0.5)
+    }
+
+    @Test
+    fun aLoneWideSpikeThatVanishesNextSampleNeverAlarms() {
+        val p = policy()
+        var state = p.initialState()
+
+        val (v0, s0) = p.evaluate(state, sample(1_000L, rotZ(50.0)))
+        assertNull(v0 as? EntryDetectionVerdict.DoorOpened)
+        state = s0
+
+        // Back shut before the floor elapses: the streak resets, no episode is ever opened.
+        val (v1, s1) = p.evaluate(state, sample(1_020L, EntryQuaternion.IDENTITY))
+        assertNull(v1 as? EntryDetectionVerdict.DoorOpened)
+        assertNull(s1.doorEpisode)
+    }
+
     @Test
     fun closeRequiresBelowThreeDegreesStableFiveSeconds() {
         val p = policy()

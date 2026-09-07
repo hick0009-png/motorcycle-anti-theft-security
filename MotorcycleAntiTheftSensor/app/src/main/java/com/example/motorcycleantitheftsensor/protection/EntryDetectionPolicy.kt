@@ -358,7 +358,16 @@ class EntryDetectionPolicy(
         timestampMs: Long,
     ): Pair<EntryDetectionVerdict?, State> {
         val streakStart = state.openStreakStartMs ?: timestampMs
-        val confirmed = timestampMs - streakStart >= settings.openConfirmationMs
+        // A swing wide past the alert angle is confirmed on a short floor rather than the full
+        // dwell, so a door flung open and shut again inside 750ms is still caught. The floor is
+        // never zero: a lone spurious sample must not alarm, so even a wide reading has to hold
+        // across a few samples first.
+        val requiredMs = if (angleDeg >= settings.fastOpenAngleDegrees.toDouble()) {
+            settings.fastOpenConfirmationMs
+        } else {
+            settings.openConfirmationMs
+        }
+        val confirmed = timestampMs - streakStart >= requiredMs
         val episode = state.doorEpisode
         return when {
             !confirmed -> null to state.copy(
