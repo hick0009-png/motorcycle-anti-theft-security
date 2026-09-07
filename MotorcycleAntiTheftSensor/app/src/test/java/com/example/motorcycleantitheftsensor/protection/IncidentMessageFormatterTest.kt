@@ -422,6 +422,25 @@ class IncidentMessageFormatterTest {
         assertEquals("หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย", message)
     }
 
+    /**
+     * Bug #4 (entry sibling): a door episode closed because the owner disarmed — not because
+     * the door shut — must not read the last live door-open sample back as if it were the
+     * outcome. The close reason, not the stale evidence, decides.
+     */
+    @Test
+    fun entryIncidentClosedByDisarmSaysTheWatchEndedNotThatTheDoorIsStillOpen() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_door_open", angleDeg = 41.0)),
+            lifecycle = IncidentLifecycle.CLOSED,
+            closeReason = IncidentCloseReason.OWNER_DISARMED,
+        )
+
+        val message = formatter.format(IncidentUpdate.Closed(incident))
+        assertEquals("การเฝ้าระวังที่ประตูปิดลงแล้ว", message)
+        assertFalse(message.contains("ประตูเปิด"))
+    }
+
     // -------------------------------------------------------------------------
     // Mode-aware vocabulary: nothing sent while Entry Guard is armed may say "รถ".
     // The word is chosen from the armed profile, not the sensor/incident type, so a

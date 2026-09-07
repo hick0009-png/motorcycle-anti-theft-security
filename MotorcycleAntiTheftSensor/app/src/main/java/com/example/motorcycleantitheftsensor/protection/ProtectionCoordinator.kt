@@ -686,7 +686,7 @@ class ProtectionCoordinator(
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
                 runtime.clearPowerSession()
-                val incidentHistoryPersisted = incidentCloser("owner disarmed")
+                val incidentHistoryPersisted = incidentCloser(IncidentCloseReason.OWNER_DISARMED)
                 if (!incidentHistoryPersisted) {
                     recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
                 }
@@ -899,7 +899,7 @@ class ProtectionCoordinator(
             currentArmedSessionId.set(null)
             runtime.stopDetectors()
             runtime.clearEntryBaseline()
-            val incidentHistoryPersisted = incidentCloser("owner changed protection profile")
+            val incidentHistoryPersisted = incidentCloser(IncidentCloseReason.OWNER_CHANGED_PROFILE)
             if (!incidentHistoryPersisted) {
                 recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
             }

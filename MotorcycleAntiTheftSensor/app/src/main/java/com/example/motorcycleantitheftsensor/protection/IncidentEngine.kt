@@ -368,7 +368,7 @@ class IncidentEngine(
         val quietDurationMs = nowElapsedMs - active.lastEvidenceElapsedMs
         if (quietDurationMs < quietWindowMs) return null
         val closeWallClockMs = active.incident.updatedAtMs + quietDurationMs
-        return close(closeWallClockMs, "quiet window elapsed")
+        return close(closeWallClockMs, IncidentCloseReason.QUIET_WINDOW_ELAPSED)
     }
 
     @Synchronized
@@ -382,7 +382,7 @@ class IncidentEngine(
             lifecycle = IncidentLifecycle.INTERRUPTED,
             updatedAtMs = nowMs,
             closedAtMs = nowMs,
-            closeReason = "process interrupted",
+            closeReason = IncidentCloseReason.PROCESS_INTERRUPTED,
         )
         return IncidentUpdate.Closed(interrupted)
     }
@@ -770,9 +770,9 @@ class IncidentEngine(
                     close(
                         nowMs = observation.wallClockMs,
                         reason = when (observation.diagnostic) {
-                            ENTRY_DOOR_CLOSED -> "entry door closed confirmed"
-                            ENTRY_MOUNT_RESTORED -> "entry mount restored"
-                            else -> "entry source recovered"
+                            ENTRY_DOOR_CLOSED -> IncidentCloseReason.ENTRY_DOOR_CLOSED_CONFIRMED
+                            ENTRY_MOUNT_RESTORED -> IncidentCloseReason.ENTRY_MOUNT_RESTORED
+                            else -> IncidentCloseReason.ENTRY_SOURCE_RECOVERED
                         },
                     ) ?: IncidentUpdate.Ignored
                 } else {
@@ -866,7 +866,7 @@ class IncidentEngine(
                     activeIncident = ActiveIncident(recovered, observation.eventElapsedMs)
                     close(
                         nowMs = observation.wallClockMs,
-                        reason = "power supply stable again",
+                        reason = IncidentCloseReason.POWER_SUPPLY_STABLE,
                     ) ?: IncidentUpdate.Ignored
                 } else {
                     IncidentUpdate.Ignored

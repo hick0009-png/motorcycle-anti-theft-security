@@ -42,6 +42,7 @@ import com.example.motorcycleantitheftsensor.protection.BreadcrumbEvent
 import com.example.motorcycleantitheftsensor.protection.EntryDriftAutoMeasure
 import com.example.motorcycleantitheftsensor.protection.NetworkWatcher
 import com.example.motorcycleantitheftsensor.protection.PermissionWatcher
+import com.example.motorcycleantitheftsensor.protection.IncidentCloseReason
 import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.PersistenceSource
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
@@ -373,7 +374,7 @@ class SensorService : Service(), ServiceEnvironment {
                                 lifecycle = IncidentLifecycle.INTERRUPTED,
                                 updatedAtMs = nowMs,
                                 closedAtMs = nowMs,
-                                closeReason = "process interrupted",
+                                closeReason = IncidentCloseReason.PROCESS_INTERRUPTED,
                             )
                         }
                     if (recovered != null) graph.incidents.upsert(recovered)

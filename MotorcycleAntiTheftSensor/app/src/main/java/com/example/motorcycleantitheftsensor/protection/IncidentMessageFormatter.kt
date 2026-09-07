@@ -298,6 +298,13 @@ class IncidentMessageFormatter(
         ) {
             return "หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย"
         }
+        // A close the door watch did not itself resolve — the owner disarmed, switched profile,
+        // the movement went quiet — lands no closing verdict on the incident. It must say the
+        // watch ended, not read the last live door sample (a door-open angle, a stale
+        // mount-moved) back as if it were the outcome.
+        if (update is IncidentUpdate.Closed && !IncidentCloseReason.isTerminalVerdict(incident.closeReason)) {
+            return "การเฝ้าระวังที่ประตูปิดลงแล้ว"
+        }
         val latest = incident.evidence.lastOrNull {
             it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true
         }
@@ -346,6 +353,14 @@ class IncidentMessageFormatter(
      * loss; recovery copy states the monitored point is stable again.
      */
     private fun powerMessage(update: IncidentUpdate, incident: SecurityIncident): String {
+        // A close the supply arbiter did not itself resolve — the owner disarmed, switched
+        // profile, the process was interrupted — lands no recovery verdict on the incident. It
+        // must say the watch ended, never claim "the power came back" off a leftover charger or
+        // loss reading that was never a recovery. Only [IncidentCloseReason.POWER_SUPPLY_STABLE]
+        // has appended the recovery evidence the settlement copy below reads.
+        if (update is IncidentUpdate.Closed && !IncidentCloseReason.isTerminalVerdict(incident.closeReason)) {
+            return "การเฝ้าระวังไฟเลี้ยงที่จุดนี้สิ้นสุดแล้ว"
+        }
         val latest = incident.evidence.lastOrNull {
             it.diagnostic == CHARGER_DISCONNECTED ||
                 it.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true
@@ -384,7 +399,7 @@ class IncidentMessageFormatter(
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
         val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
         val ENTRY_MOUNT_UNRECOGNIZED = ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED
-        const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
+        const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = IncidentCloseReason.EVIDENCE_INTERRUPTED_MARKER
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
         val CHARGER_DISCONNECTED = ProtectionDiagnostics.CHARGER_DISCONNECTED
