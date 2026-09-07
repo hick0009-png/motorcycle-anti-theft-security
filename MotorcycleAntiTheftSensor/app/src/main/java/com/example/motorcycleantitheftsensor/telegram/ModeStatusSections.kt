@@ -173,7 +173,7 @@ object ModeStatusSections {
                     "ความไวการตรวจจับ: ${snapshot.sensitivityLevel}/10",
                 ),
             )
-        val entryLevel = context?.entryLevel ?: EntryWatchLevel.DOOR_ANGLE
+        val entryLevel = context.entryLevel ?: EntryWatchLevel.DOOR_ANGLE
         val roles = ProtectionProfilePolicy.signalRoles(profile, entryLevel)
         // The door watch's headline promise is about an angle, which the lower level cannot
         // measure. Repeating it there and then admitting on the next line that degrees are

@@ -138,10 +138,8 @@ object EntryOrientationMath {
     /**
      * Customer door angle: absolute hinge-axis twist clamped to [0, 180] degrees.
      */
-    fun doorAngleDeltaDeg(qRel: EntryQuaternion, axis: DoubleArray): Double {
-        val twist = twistAroundAxisDeg(qRel, axis).let { if (it > 180.0) 180.0 else it }
-        return if (twist < 0.0) -twist else twist
-    }
+    fun doorAngleDeltaDeg(qRel: EntryQuaternion, axis: DoubleArray): Double =
+        abs(twistAroundAxisDeg(qRel, axis)).coerceIn(0.0, 180.0)
 
     /**
      * Cross-axis swing/residual in degrees: the geodesic angle of the swing quaternion

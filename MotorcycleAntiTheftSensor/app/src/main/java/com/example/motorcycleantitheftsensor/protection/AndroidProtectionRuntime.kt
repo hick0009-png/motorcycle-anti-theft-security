@@ -684,7 +684,9 @@ class PlatformAndroidDetectorSet(
             if (!entrySession.isActive) return
             val nowMs = SystemClock.elapsedRealtime()
             entrySession.onSilence(nowMs).forEach { verdict ->
-                record(entryVerdictObservation(verdict, nowMs))
+                // A verdict raised by silence has no sample behind it and nothing turned, so it
+                // carries no corroboration of its own — a health episode is not asked for any.
+                record(entryVerdictObservation(verdict, nowMs, doorMotionCorroborated = false))
             }
             handlerOwner.handler.postDelayed(this, ENTRY_SOURCE_WATCHDOG_INTERVAL_MS)
         }
@@ -1397,7 +1399,7 @@ class PlatformAndroidDetectorSet(
     private fun entryVerdictObservation(
         verdict: EntryDetectionVerdict,
         eventElapsedMs: Long,
-        doorMotionCorroborated: Boolean = false,
+        doorMotionCorroborated: Boolean,
     ): SensorObservation {
         val (diagnostic, value) = when (verdict) {
             is EntryDetectionVerdict.DoorOpened -> ProtectionDiagnostics.ENTRY_DOOR_OPEN to verdict.angleDeg

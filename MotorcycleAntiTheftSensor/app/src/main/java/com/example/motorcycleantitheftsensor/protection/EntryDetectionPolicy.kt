@@ -422,7 +422,7 @@ class EntryDetectionPolicy(
         val eligible = episode != null && !episode.interrupted
         val confirmed = timestampMs - streakStart >= settings.closeConfirmationMs
         return if (eligible && confirmed) {
-            EntryDetectionVerdict.DoorClosedConfirmed(episode!!.episodeId) to state.copy(
+            EntryDetectionVerdict.DoorClosedConfirmed(episode.episodeId) to state.copy(
                 doorEpisode = null,
                 closeStreakStartMs = streakStart,
                 openStreakStartMs = null,
