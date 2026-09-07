@@ -106,6 +106,10 @@ class EntryArmedSessionController {
     @Volatile
     private var liveSwingResidualDeg: Double? = null
 
+    /** Live signed twist about the commissioned axis; its sign is what the direction gate reads. */
+    @Volatile
+    private var liveTwistSignedDeg: Double? = null
+
     val isActive: Boolean
         get() = synchronized(lock) { model != null }
 
@@ -211,6 +215,7 @@ class EntryArmedSessionController {
             val rel = EntryOrientationMath.relativeRotation(currentBaseline, sample.quaternion)
             liveAngleDeg = EntryOrientationMath.doorAngleDeltaDeg(rel, axis)
             liveSwingResidualDeg = EntryOrientationMath.swingResidualDeg(rel, axis)
+            liveTwistSignedDeg = EntryOrientationMath.twistAroundAxisDeg(rel, axis)
             val (verdict, newState) = detection.evaluate(
                 policyState ?: detection.initialState(),
                 sample,
@@ -430,6 +435,13 @@ class EntryArmedSessionController {
 
     /** Live off-axis residual in degrees; null with no active session/baseline. */
     fun liveSwingResidualDeg(): Double? = liveSwingResidualDeg
+
+    /** Live signed twist about the hinge axis; null with no active session/baseline. */
+    fun liveTwistSignedDeg(): Double? = liveTwistSignedDeg
+
+    /** The residual tolerance this session actually enforces; null when not armed. */
+    fun enforcedResidualToleranceDeg(): Double? =
+        synchronized(lock) { model?.effectiveResidualToleranceDeg }
 
     companion object {
         /**

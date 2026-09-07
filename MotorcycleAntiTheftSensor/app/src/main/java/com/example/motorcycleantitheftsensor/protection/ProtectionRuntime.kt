@@ -122,6 +122,12 @@ interface ProtectionRuntime {
      */
     fun liveDoorAngleDeg(): Double? = null
 
+    /**
+     * What the two gates that run before the door angle currently measure, so a watch that keeps
+     * answering "the mount moved" to an ordinary opening can be asked why rather than guessed at.
+     */
+    fun liveDoorGate(): DoorGateReading? = null
+
     /** What the armed power arbiter currently makes of the witness lamp. */
     fun liveWitnessLit(): Boolean? = null
 

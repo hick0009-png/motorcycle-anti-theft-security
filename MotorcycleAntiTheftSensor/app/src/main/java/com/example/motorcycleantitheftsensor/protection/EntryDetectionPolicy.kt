@@ -77,6 +77,8 @@ class EntryDetectionPolicy(
         val mountUnrecognized: Boolean = false,
         /** When the unrecognized mounting was last said out loud; see [evaluateWhileDisplaced]. */
         val mountUnrecognizedAnnouncedAtMs: Long? = null,
+        /** Since when the geometry gates have read violated; see [MOUNT_MOVED_CONFIRM_MS]. */
+        val mountViolationSinceMs: Long? = null,
     )
 
     private val axis = doubleArrayOf(model.axisX, model.axisY, model.axisZ)
@@ -124,12 +126,26 @@ class EntryDetectionPolicy(
         }
 
         // Gates 2-3: hinge residual then allowed direction. Mount movement outranks any
-        // door event, including an already-open episode.
+        // door event, including an already-open episode — but only once it has held.
+        //
+        // Every other transition here is confirmed over time and this one was decided by a
+        // single sample, which is what a swinging door defeats: the steady residual of an open
+        // door measured 1.7 degrees against a ten degree tolerance, yet the swing itself threw a
+        // brief spike past it and the watch called an ordinary opening a displaced mount, then
+        // announced the mount restored a moment later. A mount that has really moved is a
+        // standing condition and has no trouble holding for [MOUNT_MOVED_CONFIRM_MS]; a
+        // transient thrown by a door in motion is gone long before it.
         if (swingDeg > model.effectiveResidualToleranceDeg || wrongDirection) {
+            val since = state.mountViolationSinceMs ?: sample.timestampMs
+            if (sample.timestampMs - since < MOUNT_MOVED_CONFIRM_MS) {
+                // Not yet believed. The door streaks are left untouched so an opening in progress
+                // is not restarted by a blip in the middle of its own confirmation.
+                return null to state.copy(mountViolationSinceMs = since)
+            }
             return mountMoved(state)
         }
 
-        return evaluateAngle(state, angleDeg, sample.timestampMs)
+        return evaluateAngle(state.copy(mountViolationSinceMs = null), angleDeg, sample.timestampMs)
     }
 
     private fun evaluateDuringRecovery(
@@ -193,6 +209,7 @@ class EntryDetectionPolicy(
     private fun mountMoved(state: State): Pair<EntryDetectionVerdict?, State> {
         val moved = state.copy(
             mountMoved = true,
+            mountViolationSinceMs = null,
             doorEpisode = state.doorEpisode?.let { it.copy(interrupted = true) },
             openStreakStartMs = null,
             closeStreakStartMs = null,
@@ -416,6 +433,13 @@ class EntryDetectionPolicy(
     }
 
     companion object {
+        /**
+         * How long the residual or direction gate must read violated before the mount is called
+         * displaced. Long enough that the transient a door throws while it swings passes
+         * unremarked, and far shorter than a real displacement, which does not end.
+         */
+        const val MOUNT_MOVED_CONFIRM_MS: Long = 1_000L
+
         /** Fresh compatible evidence required to clear a health episode (spec section 7.2). */
         const val RECOVERY_REQUIRED_MS: Long = 5_000L
 

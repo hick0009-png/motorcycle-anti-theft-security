@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.telegram
 
+import com.example.motorcycleantitheftsensor.protection.DoorGateReading
 import com.example.motorcycleantitheftsensor.protection.ChargingState
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.EntryModeFacts
@@ -36,6 +37,8 @@ import java.util.TimeZone
 data class LiveStatusReadings(
     /** Door angle against the frozen armed baseline, degrees. */
     val doorAngleDeg: Double? = null,
+    /** The residual and direction gates that run before the angle is ever consulted. */
+    val doorGate: DoorGateReading? = null,
     /** Latest witness-lamp reading, lux. */
     val witnessLux: Double? = null,
     /** Whether the arbiter currently holds the lamp to be lit. */
@@ -286,6 +289,18 @@ object ModeStatusSections {
                 val verdict = if (closed) " (ปิดอยู่)" else ""
                 "มุมขณะนี้: ${String.format(Locale.US, "%.1f", live.doorAngleDeg)}°$verdict"
             }
+        }
+        // The two gates that run before the angle. A door watch that keeps answering "the mount
+        // moved" to an ordinary opening is failing one of them, and nothing else in the report
+        // says which — so it says which.
+        live?.doorGate?.let { gate ->
+            val residualOk = gate.swingResidualDeg <= gate.toleranceDeg
+            val directionOk = gate.twistSignedDeg >= 0.0
+            angleLines += "เหวี่ยงนอกแกน: ${String.format(Locale.US, "%.1f", gate.swingResidualDeg)}° " +
+                "/ เพดาน ${String.format(Locale.US, "%.1f", gate.toleranceDeg)}° " +
+                (if (residualOk) "(ผ่าน)" else "(เกิน — ถูกตัดสินว่าขายึดขยับ)")
+            angleLines += "ทิศทางหมุน: ${String.format(Locale.US, "%+.1f", gate.twistSignedDeg)}° " +
+                (if (directionOk) "(ตรงกับที่ปรับเทียบ)" else "(สวนทาง — ถูกตัดสินว่าขายึดขยับ)")
         }
         angleLines += hingeModelLine(facts)
 

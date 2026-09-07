@@ -43,3 +43,14 @@ sealed interface ObservationDecision {
 
     data class Accepted(val observation: SensorObservation) : ObservationDecision
 }
+
+/**
+ * A live read of the residual and direction gates the door watch applies before it ever looks at
+ * the angle. Reported to the owner's status command because those two gates decide, silently and
+ * ahead of everything else, whether an opening is a door or a displaced mount.
+ */
+data class DoorGateReading(
+    val swingResidualDeg: Double,
+    val toleranceDeg: Double,
+    val twistSignedDeg: Double,
+)

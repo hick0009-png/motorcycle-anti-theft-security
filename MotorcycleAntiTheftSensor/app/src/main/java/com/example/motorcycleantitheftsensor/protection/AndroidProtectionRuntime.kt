@@ -192,6 +192,8 @@ interface AndroidDetectorSet {
     /** Live door angle against the frozen armed baseline; null with no armed session. */
     fun liveDoorAngleDeg(): Double? = null
 
+    fun liveDoorGate(): DoorGateReading? = null
+
     /** What the armed power arbiter currently makes of the witness lamp. */
     fun liveWitnessLit(): Boolean? = null
 
@@ -325,6 +327,8 @@ class AndroidProtectionRuntime(
     override fun entryOrientationSource(): EntryOrientationSource? = detectors.entryOrientationSource()
 
     override fun liveDoorAngleDeg(): Double? = detectors.liveDoorAngleDeg()
+
+    override fun liveDoorGate(): DoorGateReading? = detectors.liveDoorGate()
 
     override fun liveWitnessLit(): Boolean? = detectors.liveWitnessLit()
 
@@ -1008,6 +1012,13 @@ class PlatformAndroidDetectorSet(
     // starts a measurement, because an owner who asks repeatedly during a theft must not be
     // charged battery for asking.
     override fun liveDoorAngleDeg(): Double? = entrySession.liveAngleDeg()
+
+    override fun liveDoorGate(): DoorGateReading? {
+        val residual = entrySession.liveSwingResidualDeg() ?: return null
+        val tolerance = entrySession.enforcedResidualToleranceDeg() ?: return null
+        val twist = entrySession.liveTwistSignedDeg() ?: return null
+        return DoorGateReading(residual, tolerance, twist)
+    }
 
     override fun liveWitnessLit(): Boolean? = powerSession.witnessLit()
 

@@ -807,6 +807,7 @@ object ProtectionRuntimeGraph {
                 val fix = anchor?.let { locationProvider.currentUsableFix(nowElapsedMs) }
                 com.example.motorcycleantitheftsensor.telegram.LiveStatusReadings(
                     doorAngleDeg = runtime.liveDoorAngleDeg(),
+                    doorGate = runtime.liveDoorGate(),
                     witnessLit = runtime.liveWitnessLit(),
                     confirmationCountdownMs = runtime.liveConfirmationCountdownMs(nowElapsedMs),
                     metersFromParking = if (anchor != null && fix != null) {
