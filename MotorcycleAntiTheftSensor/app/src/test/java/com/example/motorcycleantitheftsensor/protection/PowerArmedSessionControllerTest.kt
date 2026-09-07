@@ -172,6 +172,73 @@ class PowerArmedSessionControllerTest {
     }
 
     @Test
+    fun armingWithTheWitnessDarkReportsWitnessLostInsteadOfDetected() {
+        // Reproduces the field report: commission dark/lit, then Arm with the confirm
+        // light off. The dark reading must not be rescaled into "lit" — it stays dark and
+        // surfaces as a witness health condition, never a healthy "light detected".
+        val calibrated = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 1,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+        val controller = PowerArmedSessionController()
+        controller.begin(
+            generation = 1L,
+            model = calibrated,
+            settings = PowerProfileSettings(lossConfirmationMs = 10_000L, recoveryConfirmationMs = 10_000L),
+        )
+
+        assertTrue(controller.onSample(PowerSignalSample(true, 3.0, fresh = true, timestampMs = 0L), 1L).isEmpty())
+        assertTrue(controller.onSample(PowerSignalSample(true, 3.0, fresh = true, timestampMs = 10_000L), 1L).isEmpty())
+
+        // The commissioned bands are kept verbatim, not scaled down around the dark level.
+        val active = requireNotNull(controller.activeWitnessModel())
+        assertEquals(4.0, active.darkMaxLux, 0.001)
+        assertEquals(120.0, active.litMinLux, 0.001)
+        assertEquals(false, controller.witnessLit())
+
+        // The surviving dark witness confirms as a health alert, never a healthy state.
+        val verdicts = controller.onSample(
+            PowerSignalSample(true, 3.0, fresh = true, timestampMs = 20_000L),
+            currentGeneration = 1L,
+        )
+        assertTrue(verdicts.single() is PowerArbiterVerdict.WitnessHealthAlert)
+    }
+
+    @Test
+    fun armingWithAnInBetweenWitnessLevelKeepsCommissionedBands() {
+        val calibrated = PowerWitnessModel(
+            darkMinLux = 2.0,
+            darkMaxLux = 4.0,
+            litMinLux = 120.0,
+            litMaxLux = 123.0,
+            guardBandLux = 20.0,
+            algorithmVersion = 1,
+            sensorIdentity = "light#1",
+            hoodSignature = "hood-A",
+        )
+        val controller = PowerArmedSessionController()
+        controller.begin(
+            generation = 1L,
+            model = calibrated,
+            settings = PowerProfileSettings(lossConfirmationMs = 10_000L, recoveryConfirmationMs = 10_000L),
+        )
+
+        // 50 lux is above the dark band but below the commissioned lit threshold (~85 lux).
+        controller.onSample(PowerSignalSample(true, 50.0, fresh = true, timestampMs = 0L), 1L)
+        controller.onSample(PowerSignalSample(true, 50.0, fresh = true, timestampMs = 10_000L), 1L)
+
+        val active = requireNotNull(controller.activeWitnessModel())
+        assertEquals(4.0, active.darkMaxLux, 0.001)
+        assertEquals(120.0, active.litMinLux, 0.001)
+    }
+
+    @Test
     fun generationChangeInvalidatesDarkWitnessBeforeGuardBandCableLoss() {
         val model = PowerWitnessModel(
             darkMinLux = 2.0,

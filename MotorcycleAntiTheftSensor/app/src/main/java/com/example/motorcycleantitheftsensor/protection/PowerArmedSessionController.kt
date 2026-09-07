@@ -143,8 +143,22 @@ class PowerArmedSessionController {
         if (sample.timestampMs - start < ARM_REFERENCE_WINDOW_MS) return emptyList()
 
         val reference = armReferenceSamples.average()
-        armReferenceLux = reference
-        val activeModel = commissionedModel.scaledForLitReference(reference)
+        // The window captures the *on-lamp* level so the commissioned bands can be
+        // re-expressed for tonight's ambient. That re-expression is only meaningful when
+        // the lamp is actually lit at Arm: rescaling a dark reading would slide the whole
+        // model down until that dark level sits above its own lit threshold, so a witness
+        // that is plainly off would report "detected" and the mode would guard nothing.
+        // Adopt the scaling only for a reference that reads lit against the *commissioned*
+        // model; otherwise keep the commissioned bands so the arbiter judges the true
+        // state (dark → witness lost, in-between → ambiguous) instead of forcing lit.
+        val referenceReadsLit = reference >= commissionedModel.witnessLitThresholdLux
+        val activeModel = if (referenceReadsLit) {
+            armReferenceLux = reference
+            commissionedModel.scaledForLitReference(reference)
+        } else {
+            armReferenceLux = null
+            commissionedModel
+        }
         activeWitnessModel = activeModel
         val evaluator = PowerCompositeArbiter(activeModel, requireNotNull(settings))
         arbiter = evaluator
