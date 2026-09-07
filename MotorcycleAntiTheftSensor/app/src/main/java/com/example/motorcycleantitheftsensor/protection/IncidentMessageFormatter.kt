@@ -306,9 +306,14 @@ class IncidentMessageFormatter(
             return "การเฝ้าระวังที่ประตูปิดลงแล้ว"
         }
         val latest = incident.evidence.lastOrNull {
-            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true
+            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true ||
+                it.diagnostic == CHARGER_DISCONNECTED
         }
         return when (latest?.diagnostic) {
+            // Under a door watch the charging line is tamper with the guarding phone, not a
+            // supply signal, and speaks door words — never the POWER "แหล่งจ่ายไฟผิดปกติ" copy.
+            CHARGER_DISCONNECTED ->
+                "สายชาร์จของโทรศัพท์ที่เฝ้าประตูถูกถอด อาจมีคนแตะโทรศัพท์ กรุณาตรวจสอบ"
             ENTRY_MOUNT_MOVED -> "โทรศัพท์หรือขายึดถูกขยับ กรุณาตรวจสอบและปรับเทียบใหม่"
             ENTRY_MOUNT_RESTORED -> "โทรศัพท์กลับเข้าตำแหน่งเดิมแล้ว การเฝ้าประตูทำงานต่อตามปกติ"
             ENTRY_MOUNT_UNRECOGNIZED ->

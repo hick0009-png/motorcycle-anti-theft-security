@@ -51,6 +51,13 @@ class IncidentEngine(
     /** Set per call from [accept]; see that parameter for why the caller owns this. */
     private var doorAngleWatch: Boolean = false
 
+    /**
+     * True under either door watch — the angle level or the sound-and-movement level. The
+     * charging line is a device-tamper signal under both, and is handled the same way under both.
+     */
+    private val entryDoorWatch: Boolean
+        get() = doorAngleWatch || soundAndMovementDoorWatch
+
     @Synchronized
     fun accept(
         observation: SensorObservation,
@@ -97,6 +104,18 @@ class IncidentEngine(
         // precursor correlation either.
         if (observation.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true) {
             return acceptPower(observation, protectionState, location)
+        }
+
+        // Under a door watch the charging line is not a supply signal at all — it is tamper with
+        // the guarding phone. Dispatched here, before the generic charger paths, so it can never
+        // open a POWER incident or relabel the door episode POWER (which speaks supply words and
+        // strands the episode against a recovery verdict that only a POWER incident can consume).
+        if (
+            entryDoorWatch &&
+            observation.kind == SensorKind.POWER_THERMAL &&
+            observation.diagnostic == ProtectionDiagnostics.CHARGER_DISCONNECTED
+        ) {
+            return acceptDoorModeChargerTamper(observation, protectionState, location)
         }
 
         // Every real movement sample, whatever it goes on to do: the door watch needs to know
@@ -780,6 +799,51 @@ class IncidentEngine(
                 }
             }
             else -> IncidentUpdate.Ignored
+        }
+    }
+
+    /**
+     * A pulled charger under a door watch, treated as tamper with the guarding phone rather
+     * than as a supply signal.
+     *
+     * It hosts a door-typed CRITICAL incident on its own — a thief who only unplugs the phone
+     * must still be heard, so it opens even with no door movement and takes the slot from any
+     * incident that is not already a door episode. On an open door episode it corroborates and
+     * raises: a rise from WARNING is an escalation, and a pull while the episode is already
+     * critical is a new fact the owner has not heard (a hand on the phone) and takes the floor
+     * as a condition change rather than being coalesced into silence — the same shape as a mount
+     * displaced twice. It is never typed POWER: door mode speaks door words, and the incident
+     * must stay ENTRY_DOOR so a later door-closed verdict can resolve it.
+     */
+    private fun acceptDoorModeChargerTamper(
+        observation: SensorObservation,
+        protectionState: ProtectionState,
+        location: IncidentLocation?,
+    ): IncidentUpdate {
+        val evidence = observation.toEvidence()
+        val active = activeIncident
+        if (active == null || active.incident.type != IncidentType.ENTRY_DOOR) {
+            return openIncident(
+                Classification(IncidentType.ENTRY_DOOR, IncidentSeverity.CRITICAL),
+                listOf(evidence),
+                observation,
+                protectionState,
+                location,
+            )
+        }
+        val alreadyCritical = active.incident.severity == IncidentSeverity.CRITICAL
+        val updated = active.incident.copy(
+            severity = IncidentSeverity.CRITICAL,
+            evidence = appendEvidence(active.incident.evidence, evidence),
+            updatedAtMs = observation.wallClockMs,
+            protectionState = protectionState,
+            location = location ?: active.incident.location,
+        )
+        activeIncident = ActiveIncident(updated, observation.eventElapsedMs)
+        return if (alreadyCritical) {
+            IncidentUpdate.Updated(updated, ownerVisibleConditionChange = true)
+        } else {
+            IncidentUpdate.Escalated(updated)
         }
     }
 
