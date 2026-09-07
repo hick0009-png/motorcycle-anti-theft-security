@@ -1449,7 +1449,6 @@ class ProtectionCoordinatorTest {
         residualToleranceDeg = 8.0,
         algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
         sensorIdentity = sensorIdentity,
-        mountSignature = "test-mount",
         orientationSourcePolicy = "test-source-policy",
     )
 
@@ -1622,8 +1621,7 @@ class ProtectionCoordinatorTest {
             commissioningContext = {
                 EntryCommissioningPolicy.CommissioningContext(
                     sensorIdentity = "sensor-B",
-                    mountSignature = "test-mount",
-                    orientationSourcePolicy = "test-source-policy",
+                                orientationSourcePolicy = "test-source-policy",
                     algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
                     entryUseContinuous = true,
                     alertAngleDeg = 15,

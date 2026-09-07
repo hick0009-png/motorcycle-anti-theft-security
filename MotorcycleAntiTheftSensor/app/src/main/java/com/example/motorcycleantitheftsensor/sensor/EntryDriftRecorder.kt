@@ -24,16 +24,12 @@ import java.util.Locale
 data class EntryDriftStatus(
     val recording: Boolean,
     val sensorName: String,
-    val fileName: String,
     val rowCount: Int,
     val elapsedMs: Long,
-    val maxTotalDeg: Double,
-    val maxTwistDeg: Double,
     /**
-     * The drift, as against [maxTwistDeg], which is the largest angle the file saw.
-     *
-     * The two are the same number on a recording nobody interrupted, and on one that was
-     * interrupted only these mean anything. The card reads these; the file keeps both.
+     * The drift: the largest angle of the longest stretch the phone was left alone, and how
+     * long that stretch lasted. The rows on disk keep what the recording actually saw; these
+     * two are what the card reports and what a verdict may be drawn from.
      */
     val cleanMaxTwistDeg: Double = 0.0,
     val cleanMeasuredMs: Long = 0L,
@@ -121,7 +117,7 @@ class EntryDriftRecorder(
                 }
                 if (row == null) return
                 appendLine(target, EntryDriftSampler.formatRow(row))
-                publish(recording = true, sensor = sensor, file = target, sampler = recorder)
+                publish(recording = true, sensor = sensor, sampler = recorder)
             }
 
             // Recorded rather than ignored: a source that drops to unreliable explains a
@@ -149,7 +145,7 @@ class EntryDriftRecorder(
         }
 
         listener = eventListener
-        publish(recording = true, sensor = sensor, file = target, sampler = recorder)
+        publish(recording = true, sensor = sensor, sampler = recorder)
         return true
     }
 
@@ -197,15 +193,12 @@ class EntryDriftRecorder(
         }
     }
 
-    private fun publish(recording: Boolean, sensor: Sensor, file: File, sampler: EntryDriftSampler) {
+    private fun publish(recording: Boolean, sensor: Sensor, sampler: EntryDriftSampler) {
         statusState.value = EntryDriftStatus(
             recording = recording,
             sensorName = sensor.name,
-            fileName = file.name,
             rowCount = sampler.rowCount,
             elapsedMs = elapsedMs() - startedAtMs,
-            maxTotalDeg = sampler.maxTotalDeg,
-            maxTwistDeg = sampler.maxTwistDeg,
             cleanMaxTwistDeg = sampler.cleanMaxTwistDeg,
             cleanMeasuredMs = sampler.cleanMeasuredMs,
             disturbanceCount = sampler.disturbanceCount,

@@ -75,17 +75,19 @@ class EntryDriftSamplerTest {
     }
 
     @Test
-    fun aSpikeBetweenRowsStillReachesThePeak() {
-        // Thinning is for file size, not for the verdict. A jump that happened and went
-        // away again is exactly what a false alert at 03:00 would look like.
+    fun aSpikeBetweenRowsIsStillSeenByTheMeasurement() {
+        // Thinning is for file size, not for the verdict. A jump that happened and went away
+        // again is exactly what a false alert at 03:00 would look like, and no row was due
+        // while it was happening — but the measurement reads every sample, not every row.
         val sampler = EntryDriftSampler(rowIntervalMs = 10_000L)
         sampler.onSample(0L, yaw(0.0))
         sampler.onSample(2_000L, yaw(20.0))
         sampler.onSample(4_000L, yaw(0.5))
         sampler.onSample(10_000L, yaw(1.0))
 
-        assertEquals(20.0, sampler.maxTwistDeg, 1e-6)
-        assertEquals(20.0, sampler.maxTotalDeg, 1e-6)
+        // The peak survives the thinning: it is measured from every sample and promoted into
+        // the stretch when the interval is judged, which is the number the card reports.
+        assertEquals(20.0, sampler.cleanMaxTwistDeg, 1e-6)
     }
 
     @Test
@@ -158,8 +160,6 @@ class EntryDriftSamplerTest {
         assertTrue("the eight hours survive", sampler.cleanMeasuredMs > 8L * 3_600_000L - 20_000L)
         assertTrue("the movement is not drift", sampler.cleanMaxTwistDeg < 1.0)
         assertEquals(0.03, sampler.measurement("rotation-vector", 0L).degPerHour, 0.005)
-        // The file is evidence and keeps what happened, whatever the measurement makes of it.
-        assertEquals(90.0, sampler.maxTwistDeg, 0.5)
     }
 
     @Test

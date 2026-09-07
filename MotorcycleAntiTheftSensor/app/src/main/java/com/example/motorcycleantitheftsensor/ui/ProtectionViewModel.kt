@@ -369,7 +369,6 @@ class ProtectionViewModel(
             // The source this phone will actually arm on, not the one it usually has: a model
             // commissioned here is compared against this string at every arm.
             sensorIdentity = EntryCommissioningEnvironment.orientationIdentity(runtime.entryOrientationSource()),
-            mountSignature = EntryCommissioningEnvironment.mountSignature(),
             orientationSourcePolicy = EntryCommissioningEnvironment.orientationSourcePolicy(
                 runtime.entryOrientationSource(),
             ),

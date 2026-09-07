@@ -43,7 +43,6 @@ class EntryArmedSessionControllerTest {
         residualToleranceDeg = 16.0,
         algorithmVersion = 1,
         sensorIdentity = "rotation-vector",
-        mountSignature = "mount-a",
         orientationSourcePolicy = "default",
     )
 

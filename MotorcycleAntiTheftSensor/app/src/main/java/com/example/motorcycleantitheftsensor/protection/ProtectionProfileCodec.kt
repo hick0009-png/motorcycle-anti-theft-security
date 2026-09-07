@@ -396,7 +396,6 @@ class ProtectionProfileCodec(
         obj.put("residualToleranceDeg", model.residualToleranceDeg)
         obj.put("algorithmVersion", model.algorithmVersion)
         obj.put("sensorIdentity", model.sensorIdentity)
-        obj.put("mountSignature", model.mountSignature)
         obj.put("orientationSourcePolicy", model.orientationSourcePolicy)
         model.commissionedAtWallMs?.let { obj.put("commissionedAtWallMs", it) }
         model.mountUp?.let { up ->
@@ -428,9 +427,11 @@ class ProtectionProfileCodec(
         val algorithmVersion = obj.getInt("algorithmVersion")
         require(algorithmVersion >= 1) { "Entry commissioning algorithm version must be >= 1" }
         val sensorIdentity = obj.getString("sensorIdentity")
-        val mountSignature = obj.getString("mountSignature")
+        // "mountSignature" may still be present on a model written by an older build. It is
+        // read past rather than required: it never carried anything but a fixed string, and a
+        // model already on disk must keep loading without asking its owner to calibrate again.
         val orientationSourcePolicy = obj.getString("orientationSourcePolicy")
-        require(sensorIdentity.isNotBlank() && mountSignature.isNotBlank() && orientationSourcePolicy.isNotBlank()) {
+        require(sensorIdentity.isNotBlank() && orientationSourcePolicy.isNotBlank()) {
             "Entry hinge model identity fields must not be blank"
         }
         return EntryHingeModel(
@@ -441,7 +442,6 @@ class ProtectionProfileCodec(
             residualToleranceDeg = residualToleranceDeg,
             algorithmVersion = algorithmVersion,
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
             commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
             // Absent on every model commissioned before poses were recorded, which is what

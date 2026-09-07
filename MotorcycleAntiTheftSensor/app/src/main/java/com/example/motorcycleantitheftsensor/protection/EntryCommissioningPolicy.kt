@@ -23,7 +23,6 @@ data class EntryHingeModel(
     val residualToleranceDeg: Double,
     val algorithmVersion: Int,
     val sensorIdentity: String,
-    val mountSignature: String,
     val orientationSourcePolicy: String,
     /**
      * When this model was accepted, stamped by [ProtectionProfilePolicy.commissionEntry]
@@ -95,7 +94,6 @@ class EntryCommissioningPolicy(
     closeThresholdDeg: Double = 3.0,
     private val axisAgreementToleranceDeg: Double = 10.0,
     private val sensorIdentity: String,
-    private val mountSignature: String,
     private val orientationSourcePolicy: String,
     private val residualMarginDeg: Double = 2.0,
 ) {
@@ -120,7 +118,6 @@ class EntryCommissioningPolicy(
         val peakAngleDeg: Double = 0.0,
         val peakRel: EntryQuaternion? = null,
         val cycleOne: CycleRecord? = null,
-        val cycleTwo: CycleRecord? = null,
         val model: EntryHingeModel? = null,
         val rejectionReason: String? = null,
     )
@@ -227,7 +224,6 @@ class EntryCommissioningPolicy(
                 .coerceAtLeast(MIN_RESIDUAL_TOLERANCE_DEG),
             algorithmVersion = ALGORITHM_VERSION,
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
             // The still-check baseline is the phone at rest against a shut door, which is the
             // only pose worth remembering: it is the one the axis was measured from.
@@ -281,7 +277,6 @@ class EntryCommissioningPolicy(
 
     data class CommissioningContext(
         val sensorIdentity: String,
-        val mountSignature: String,
         val orientationSourcePolicy: String,
         val algorithmVersion: Int,
         val entryUseContinuous: Boolean,
@@ -294,8 +289,13 @@ class EntryCommissioningPolicy(
 
         /**
          * Stable, inspectable fingerprint covering every invalidating field: axis,
-         * allowed direction, residual tolerance, algorithm version, sensor identity,
-         * mount signature, and orientation-source policy.
+         * allowed direction, residual tolerance, algorithm version, sensor identity, and
+         * orientation-source policy.
+         *
+         * A mount signature used to be named here too. It was a fixed string, identical on
+         * every phone in every position, so it distinguished nothing and invalidated nothing;
+         * what it was meant to catch — a phone put back somewhere else — is caught by the
+         * commissioned mount pose instead, live, at the first sample of every armed session.
          */
         fun fingerprint(model: EntryHingeModel): String =
             "entry-hinge|v=${model.algorithmVersion}" +
@@ -303,7 +303,6 @@ class EntryCommissioningPolicy(
                 "|dir=${model.allowedDirection}" +
                 "|tol=${"%.3f".format(model.residualToleranceDeg)}" +
                 "|sensor=${model.sensorIdentity}" +
-                "|mount=${model.mountSignature}" +
                 "|src=${model.orientationSourcePolicy}"
 
         /**
@@ -316,7 +315,6 @@ class EntryCommissioningPolicy(
             current: CommissioningContext,
         ): Boolean =
             previous.sensorIdentity != current.sensorIdentity ||
-                previous.mountSignature != current.mountSignature ||
                 previous.orientationSourcePolicy != current.orientationSourcePolicy ||
                 previous.algorithmVersion != current.algorithmVersion ||
                 !current.entryUseContinuous

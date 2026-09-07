@@ -36,7 +36,6 @@ class EntryCommissioningPolicyTest {
         closeThresholdDeg = 3.0,
         axisAgreementToleranceDeg = 10.0,
         sensorIdentity = "rotation-vector",
-        mountSignature = "mount-a",
         orientationSourcePolicy = "default",
     )
 
@@ -151,7 +150,6 @@ class EntryCommissioningPolicyTest {
         assertNotNull(model.mountUp)
         assertTrue(model.residualToleranceDeg > 0.0)
         assertEquals("rotation-vector", model.sensorIdentity)
-        assertEquals("mount-a", model.mountSignature)
         assertEquals("default", model.orientationSourcePolicy)
         assertEquals(EntryCommissioningPolicy.ALGORITHM_VERSION, model.algorithmVersion)
     }
@@ -227,8 +225,7 @@ class EntryCommissioningPolicyTest {
             residualToleranceDeg = 8.0,
             algorithmVersion = 1,
             sensorIdentity = "rotation-vector",
-            mountSignature = "mount-a",
-            orientationSourcePolicy = "default",
+                orientationSourcePolicy = "default",
         )
         val baseFp = EntryCommissioningPolicy.fingerprint(base)
         assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(axisX = 0.1)))
@@ -236,7 +233,6 @@ class EntryCommissioningPolicyTest {
         assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(residualToleranceDeg = 9.0)))
         assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(algorithmVersion = 2)))
         assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(sensorIdentity = "other")))
-        assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(mountSignature = "mount-b")))
         assertNotEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy(orientationSourcePolicy = "fused")))
         assertEquals(baseFp, EntryCommissioningPolicy.fingerprint(base.copy()))
     }
@@ -245,8 +241,7 @@ class EntryCommissioningPolicyTest {
     fun invalidationMatrixMatchesSpec() {
         val base = EntryCommissioningPolicy.CommissioningContext(
             sensorIdentity = "rotation-vector",
-            mountSignature = "mount-a",
-            orientationSourcePolicy = "default",
+                orientationSourcePolicy = "default",
             algorithmVersion = 1,
             entryUseContinuous = true,
             alertAngleDeg = 15,
@@ -255,7 +250,6 @@ class EntryCommissioningPolicyTest {
         val p = EntryCommissioningPolicy.Companion
         // Invalidating changes:
         assertTrue(p.requiresRecommission(base, base.copy(sensorIdentity = "other")))
-        assertTrue(p.requiresRecommission(base, base.copy(mountSignature = "mount-b")))
         assertTrue(p.requiresRecommission(base, base.copy(orientationSourcePolicy = "fused")))
         assertTrue(p.requiresRecommission(base, base.copy(algorithmVersion = 2)))
         assertTrue(p.requiresRecommission(base, base.copy(entryUseContinuous = false)))
@@ -275,8 +269,7 @@ class EntryCommissioningPolicyTest {
             closeThresholdDeg = 3.0,
             axisAgreementToleranceDeg = 10.0,
             sensorIdentity = "rotation-vector",
-            mountSignature = "mount-a",
-            orientationSourcePolicy = "default",
+                orientationSourcePolicy = "default",
         )
         var sTight = tightPolicy.start()
         sTight = feedStillAndCycle(tightPolicy, sTight, startMs = 0L, peakDeg = 20.0) { deg ->
@@ -293,8 +286,7 @@ class EntryCommissioningPolicyTest {
             closeThresholdDeg = 4.0,
             axisAgreementToleranceDeg = 10.0,
             sensorIdentity = "rotation-vector",
-            mountSignature = "mount-a",
-            orientationSourcePolicy = "default",
+                orientationSourcePolicy = "default",
         )
         var sComp = compensatedPolicy.start()
         sComp = feedStillAndCycle(compensatedPolicy, sComp, startMs = 0L, peakDeg = 20.0) { deg ->
@@ -393,8 +385,7 @@ class EntryCommissioningPolicyTest {
             closeThresholdDeg = 20.0,
             axisAgreementToleranceDeg = 10.0,
             sensorIdentity = "rotation-vector",
-            mountSignature = "mount-a",
-            orientationSourcePolicy = "default",
+                orientationSourcePolicy = "default",
         )
         var s = invertedPolicy.start()
         var t = 0L

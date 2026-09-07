@@ -172,7 +172,6 @@ class ProtectionProfileCodecTest {
         residualToleranceDeg = 7.5,
         algorithmVersion = 1,
         sensorIdentity = "rotation-vector",
-        mountSignature = "mount-a",
         orientationSourcePolicy = "default",
     )
 
@@ -183,6 +182,26 @@ class ProtectionProfileCodecTest {
 
         assertEquals(ProfileSetupState.READY, commissioned.profiles.getValue(ProtectionProfile.ENTRY).setupState)
         assertEquals(commissioned, codec.decode(codec.encode(commissioned)))
+    }
+
+    /**
+     * A model written by an older build carries a "mountSignature" key. It only ever held one
+     * fixed string, so it is gone from the model — but a phone that calibrated under the old
+     * build has one on disk, and reading past it is the difference between that owner keeping
+     * their calibration and being sent back through the guided cycles for nothing.
+     */
+    @Test
+    fun aModelSavedWithTheOldMountSignatureStillLoads() {
+        val commissioned = policy.commissionEntry(policy.newStoreState(), hingeModel)
+        val legacy = codec.encode(commissioned)
+            .replace("\"sensorIdentity\":", "\"mountSignature\":\"default-mount\",\"sensorIdentity\":")
+
+        val decoded = codec.decode(legacy)
+
+        assertEquals(
+            commissioned.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel,
+            decoded.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel,
+        )
     }
 
     @Test

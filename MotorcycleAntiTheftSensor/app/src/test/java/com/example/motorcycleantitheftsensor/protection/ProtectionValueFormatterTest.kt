@@ -13,13 +13,6 @@ import org.junit.Test
 class ProtectionValueFormatterTest {
 
     @Test
-    fun doorAngleUsesDegreeSymbolWithoutSpace() {
-        assertEquals("15°", ProtectionValueFormatter.doorAngle(15))
-        assertEquals("5°", ProtectionValueFormatter.doorAngle(5))
-        assertEquals("90°", ProtectionValueFormatter.doorAngle(90))
-    }
-
-    @Test
     fun temperatureUsesSpaceBeforeCelsiusAndSuppressesTrailingZero() {
         assertEquals("35 °C", ProtectionValueFormatter.temperatureCelsius(35.0))
         assertEquals("36.5 °C", ProtectionValueFormatter.temperatureCelsius(36.5))

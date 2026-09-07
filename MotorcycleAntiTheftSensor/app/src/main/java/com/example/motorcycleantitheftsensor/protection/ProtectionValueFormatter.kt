@@ -18,8 +18,6 @@ object ProtectionValueFormatter {
         minimumFractionDigits = 0
     }
 
-    fun doorAngle(degrees: Int): String = "${degrees}°"
-
     fun temperatureCelsius(celsius: Double): String = "${format(celsius)} °C"
 
     fun duration(millis: Long): String =

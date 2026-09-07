@@ -38,7 +38,6 @@ class EntryDetectionPolicyTest {
         residualToleranceDeg = 5.0,
         algorithmVersion = 1,
         sensorIdentity = "rotation-vector",
-        mountSignature = "mount-a",
         orientationSourcePolicy = "default",
     )
 

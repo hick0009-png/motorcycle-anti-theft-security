@@ -1011,7 +1011,6 @@ class ProtectionCoordinator(
         val entrySettings = settings as? EntryProfileSettings
         return EntryCommissioningPolicy.CommissioningContext(
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
             algorithmVersion = algorithmVersion,
             entryUseContinuous = true,

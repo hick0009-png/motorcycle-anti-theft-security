@@ -51,13 +51,6 @@ class EntryDriftSampler(
 
     var rowCount: Int = 0
         private set
-    var maxTotalDeg: Double = 0.0
-        private set
-    var maxTwistDeg: Double = 0.0
-        private set
-    var maxSwingDeg: Double = 0.0
-        private set
-
     /** Baseline of the stretch being measured now, which is not the baseline of the file. */
     private var stretchBaseline: EntryQuaternion? = null
     private var stretchStartMs: Long = 0L
@@ -103,7 +96,6 @@ class EntryDriftSampler(
         // A sample from before the last row (a clock that went backwards, or a replayed
         // batch) is measured but never emitted out of order.
         if (timestampMs - previousRowAt < rowIntervalMs) {
-            track(frozen, quaternion)
             return null
         }
 
@@ -116,27 +108,7 @@ class EntryDriftSampler(
         )
         lastRowAtMs = timestampMs
         rowCount += 1
-        remember(row)
         return row
-    }
-
-    /** Keeps the peaks honest between emitted rows, so thinning cannot hide a spike. */
-    private fun track(baseline: EntryQuaternion, quaternion: EntryQuaternion) {
-        val relative = EntryOrientationMath.relativeRotation(baseline, quaternion)
-        remember(
-            EntryDriftRow(
-                elapsedMs = 0L,
-                totalDeg = EntryOrientationMath.totalRotationDeg(relative),
-                twistDeg = EntryOrientationMath.doorAngleDeltaDeg(relative, axis),
-                swingDeg = EntryOrientationMath.swingResidualDeg(relative, axis),
-            ),
-        )
-    }
-
-    private fun remember(row: EntryDriftRow) {
-        if (row.totalDeg > maxTotalDeg) maxTotalDeg = row.totalDeg
-        if (row.twistDeg > maxTwistDeg) maxTwistDeg = row.twistDeg
-        if (row.swingDeg > maxSwingDeg) maxSwingDeg = row.swingDeg
     }
 
     /**
