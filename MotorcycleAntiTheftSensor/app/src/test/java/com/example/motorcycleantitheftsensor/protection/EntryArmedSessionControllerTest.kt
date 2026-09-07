@@ -4,6 +4,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -364,6 +365,50 @@ class EntryArmedSessionControllerTest {
             t += 250L
         }
         assertTrue("an arming window must not raise a door verdict", during.isEmpty())
+    }
+
+    /**
+     * The field failure behind "the angle reads fine and nothing is ever announced". A door
+     * verdict is asked to corroborate its angle with movement, and the only signal that could
+     * answer was the accelerometer — which a door barely troubles, because a hinge rotates the
+     * phone without accelerating it. The device measured 1.04 g through a 38 degree opening: no
+     * shake, so every correct verdict was refused and the watch stayed silent all session.
+     * Rotation over a short window is the corroboration a door can actually supply.
+     */
+    @Test
+    fun aDoorSwingProvesItsOwnMovementWithoutAnyShake() {
+        val controller = armed()
+
+        assertNull("a still door has proved no movement", controller.lastDoorMotionElapsedMs())
+
+        // A swing well past the two-degree motion floor, with no accelerometer input at all.
+        controller.onSample(sample(1_000L, rotZ(18.0)), 1L)
+
+        assertEquals(1_000L, controller.lastDoorMotionElapsedMs())
+    }
+
+    /**
+     * And the thing corroboration exists to refuse still cannot satisfy it: drift at the worst
+     * rate this phone has measured of itself walks a few degrees an hour, which is thousandths
+     * of a degree inside the motion window, however many hours it is given.
+     */
+    @Test
+    fun aWholeNightOfDriftNeverCountsAsDoorMovement() {
+        val controller = armed()
+
+        val nightMs = 8L * 3_600_000L
+        val stepMs = 10_000L
+        var t = stepMs
+        while (t <= nightMs) {
+            val hours = t / 3_600_000.0
+            controller.onSample(sample(t, EntryOrientationMath.multiply(rotZ(11.9 * hours), rotX(2.1 * hours))), 1L)
+            t += stepMs
+        }
+
+        assertNull(
+            "drift must never be mistaken for a door that moved",
+            controller.lastDoorMotionElapsedMs(),
+        )
     }
 
     @Test

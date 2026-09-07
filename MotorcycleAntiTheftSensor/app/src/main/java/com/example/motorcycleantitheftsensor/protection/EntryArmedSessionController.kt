@@ -66,6 +66,35 @@ class EntryArmedSessionController {
     /** Whether an armed session that never received anything has already said so. */
     private var silentArmAnnounced: Boolean = false
 
+    /**
+     * Reference pose the motion check measures rotation away from, and when it was taken.
+     *
+     * Re-anchored whenever motion is found, and again whenever [DOOR_MOTION_WINDOW_MS] passes
+     * without it, so a slow drift can never accumulate across an idle night into a rotation that
+     * looks like a door.
+     */
+    private var motionRefQuaternion: EntryQuaternion? = null
+    private var motionRefAtMs: Long? = null
+
+    /**
+     * When the orientation stream last turned far enough, fast enough, to prove the door
+     * physically moved.
+     *
+     * The door watch is asked to corroborate its angle with movement, and the only signal that
+     * could answer was the accelerometer — which a door barely troubles: it rotates the phone
+     * about a hinge without accelerating it, so a smooth opening reads as little more than
+     * gravity and the shake never arrives. The watch then refused every one of its own correct
+     * verdicts and went silent on a door it was reading perfectly.
+     *
+     * Rotation over a short window answers the question the shake was asked: [DOOR_MOTION_MIN_DEG]
+     * within [DOOR_MOTION_WINDOW_MS]. Drift, the false alarm corroboration exists to stop, moves
+     * a few degrees an *hour* — thousandths of a degree inside that window — and sensor jitter on
+     * a still phone is smaller still, so neither can reach it, while any real opening clears it
+     * immediately.
+     */
+    @Volatile
+    private var lastDoorMotionElapsedMs: Long? = null
+
     @Volatile
     private var liveAngleDeg: Double? = null
 
@@ -98,6 +127,9 @@ class EntryArmedSessionController {
             this.lastActivityAtMs = null
             this.lastQuaternion = null
             this.silentArmAnnounced = false
+            this.motionRefQuaternion = null
+            this.motionRefAtMs = null
+            this.lastDoorMotionElapsedMs = null
         }
     }
 
@@ -115,6 +147,9 @@ class EntryArmedSessionController {
             lastActivityAtMs = null
             lastQuaternion = null
             silentArmAnnounced = false
+            motionRefQuaternion = null
+            motionRefAtMs = null
+            lastDoorMotionElapsedMs = null
         }
     }
 
@@ -140,6 +175,7 @@ class EntryArmedSessionController {
             lastActivityAtMs = sample.timestampMs
             lastQuaternion = sample.quaternion
             silentArmAnnounced = false
+            if (sample.fresh) trackDoorMotion(sample)
             if (currentGeneration != generation) {
                 // Listener re-registration: debounce windows restart from zero, and so does
                 // the closed-still window — the sample stream had a gap, so nothing before it
@@ -185,6 +221,42 @@ class EntryArmedSessionController {
             return listOfNotNull(verdict)
         }
     }
+
+    /**
+     * Records whether this sample proves the door physically moved; see [lastDoorMotionElapsedMs].
+     * Called with [lock] held, on every fresh sample.
+     */
+    private fun trackDoorMotion(sample: EntryOrientationSample) {
+        val ref = motionRefQuaternion
+        val refAtMs = motionRefAtMs
+        if (ref == null || refAtMs == null) {
+            motionRefQuaternion = sample.quaternion
+            motionRefAtMs = sample.timestampMs
+            return
+        }
+        val movedDeg = EntryOrientationMath.totalRotationDeg(
+            EntryOrientationMath.relativeRotation(ref, sample.quaternion),
+        )
+        if (movedDeg >= DOOR_MOTION_MIN_DEG) {
+            lastDoorMotionElapsedMs = sample.timestampMs
+            motionRefQuaternion = sample.quaternion
+            motionRefAtMs = sample.timestampMs
+            return
+        }
+        // Nothing that counts inside the window: re-anchor, so a slow creep can never add up
+        // across hours into a rotation that would read as a door.
+        if (sample.timestampMs - refAtMs >= DOOR_MOTION_WINDOW_MS) {
+            motionRefQuaternion = sample.quaternion
+            motionRefAtMs = sample.timestampMs
+        }
+    }
+
+    /**
+     * When the orientation stream last proved physical movement, on the sample clock; null when
+     * it has not since the session began. Read by the runtime to stamp a door verdict as
+     * self-corroborated.
+     */
+    fun lastDoorMotionElapsedMs(): Long? = lastDoorMotionElapsedMs
 
     /**
      * Freezes the current sample as the closed reference and rebuilds the detection policy and
@@ -376,5 +448,16 @@ class EntryArmedSessionController {
          * angle or a different door does.
          */
         const val MOUNT_POSE_TOLERANCE_DEG: Double = 30.0
+
+        /**
+         * Rotation within [DOOR_MOTION_WINDOW_MS] that proves the door physically moved.
+         *
+         * Two degrees in half a second is four degrees a second. The drift this stands against
+         * runs at a few degrees an *hour* — about a thousandth of a degree in the same window —
+         * and the jitter of a still phone's reported orientation is smaller again, so neither
+         * reaches it. Any real opening passes it in the first moments of the swing.
+         */
+        const val DOOR_MOTION_MIN_DEG: Double = 2.0
+        const val DOOR_MOTION_WINDOW_MS: Long = 500L
     }
 }

@@ -684,7 +684,12 @@ class IncidentEngine(
         // Only claims about a door are asked for a shake, and only when they would raise the
         // alarm themselves. A health episode says the source is gone, which is true whether or
         // not anything moved, and updates to an episode already believed are not new claims.
-        val corroborated = EntryCorroborationPolicy.mayOpen(
+        // A verdict whose own orientation stream turned fast enough to prove the door physically
+        // moved carries its corroboration with it. The shake it would otherwise be asked for can
+        // only come from the accelerometer, and a door on its hinge rotates the phone without
+        // accelerating it — so demanding one silenced every correct verdict on a door the watch
+        // was reading perfectly. Rotation rate answers the same question drift cannot fake.
+        val corroborated = observation.doorMotionCorroborated || EntryCorroborationPolicy.mayOpen(
             verdictElapsedMs = observation.eventElapsedMs,
             lastMovementElapsedMs = lastMovementElapsedMs,
             corroborationArmed = movementCorroborationArmed,

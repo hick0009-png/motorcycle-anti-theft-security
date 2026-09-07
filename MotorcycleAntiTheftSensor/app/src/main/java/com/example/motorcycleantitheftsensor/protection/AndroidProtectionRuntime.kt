@@ -1351,8 +1351,13 @@ class PlatformAndroidDetectorSet(
                     arming = armingProvider(),
                 )
                 entrySampleFlow.tryEmit(sample)
+                // The door watch answers its own corroboration question: a smooth opening never
+                // reaches the accelerometer, but it always turns the orientation stream.
+                val motionAtMs = entrySession.lastDoorMotionElapsedMs()
+                val selfCorroborated = motionAtMs != null &&
+                    kotlin.math.abs(sample.timestampMs - motionAtMs) <= EntryCorroborationPolicy.MOVEMENT_WINDOW_MS
                 verdicts.forEach { verdict ->
-                    record(entryVerdictObservation(verdict, sample.timestampMs))
+                    record(entryVerdictObservation(verdict, sample.timestampMs, selfCorroborated))
                 }
             }
 
@@ -1381,6 +1386,7 @@ class PlatformAndroidDetectorSet(
     private fun entryVerdictObservation(
         verdict: EntryDetectionVerdict,
         eventElapsedMs: Long,
+        doorMotionCorroborated: Boolean = false,
     ): SensorObservation {
         val (diagnostic, value) = when (verdict) {
             is EntryDetectionVerdict.DoorOpened -> ProtectionDiagnostics.ENTRY_DOOR_OPEN to verdict.angleDeg
@@ -1405,6 +1411,7 @@ class PlatformAndroidDetectorSet(
             baselineDelta = value,
             valid = true,
             diagnostic = diagnostic,
+            doorMotionCorroborated = doorMotionCorroborated,
         )
     }
 
