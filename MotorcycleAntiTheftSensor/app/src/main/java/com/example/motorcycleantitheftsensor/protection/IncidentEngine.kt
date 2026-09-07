@@ -754,6 +754,19 @@ class IncidentEngine(
             }
             ENTRY_DOOR_CLOSED, ENTRY_SOURCE_RECOVERED, ENTRY_MOUNT_RESTORED -> {
                 if (isEntryIncident) {
+                    // Land the terminal verdict in the incident's evidence before closing, the
+                    // way the power-recovery path below does. The message formatter speaks from
+                    // the last entry diagnostic on the incident, so a close that never records
+                    // its own diagnostic is rendered from whatever came before it — a stale
+                    // mount-moved or door-open — and the owner is told the phone was moved on
+                    // the very message that means the door finally shut.
+                    val resolved = active.incident.copy(
+                        evidence = appendEvidence(active.incident.evidence, evidence),
+                        updatedAtMs = observation.wallClockMs,
+                        protectionState = protectionState,
+                        location = location ?: active.incident.location,
+                    )
+                    activeIncident = ActiveIncident(resolved, observation.eventElapsedMs)
                     close(
                         nowMs = observation.wallClockMs,
                         reason = when (observation.diagnostic) {
