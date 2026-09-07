@@ -69,6 +69,14 @@ class EntryArmedSessionController {
     @Volatile
     private var liveAngleDeg: Double? = null
 
+    /**
+     * Live off-axis residual, the quantity the mount-moved gate judges. Exposed so the running
+     * watch can be asked what a real door swing actually measures on this mounting, which is
+     * how [MIN_RESIDUAL_TOLERANCE_DEG] is tuned from evidence rather than guessed.
+     */
+    @Volatile
+    private var liveSwingResidualDeg: Double? = null
+
     val isActive: Boolean
         get() = synchronized(lock) { model != null }
 
@@ -166,6 +174,7 @@ class EntryArmedSessionController {
             val axis = doubleArrayOf(activeModel.axisX, activeModel.axisY, activeModel.axisZ)
             val rel = EntryOrientationMath.relativeRotation(currentBaseline, sample.quaternion)
             liveAngleDeg = EntryOrientationMath.doorAngleDeltaDeg(rel, axis)
+            liveSwingResidualDeg = EntryOrientationMath.swingResidualDeg(rel, axis)
             val (verdict, newState) = detection.evaluate(
                 policyState ?: detection.initialState(),
                 sample,
@@ -292,7 +301,7 @@ class EntryArmedSessionController {
         val closeThresholdDeg = (settings?.closeThresholdDegrees ?: return false).toDouble()
         val angleDeg = EntryOrientationMath.doorAngleDeltaDeg(rel, axis)
         val swingDeg = EntryOrientationMath.swingResidualDeg(rel, axis)
-        return angleDeg <= closeThresholdDeg && swingDeg <= model.residualToleranceDeg
+        return angleDeg <= closeThresholdDeg && swingDeg <= model.effectiveResidualToleranceDeg
     }
 
     /**
@@ -346,6 +355,9 @@ class EntryArmedSessionController {
 
     /** Live relative door angle in degrees for the UI; null with no active session/baseline. */
     fun liveAngleDeg(): Double? = liveAngleDeg
+
+    /** Live off-axis residual in degrees; null with no active session/baseline. */
+    fun liveSwingResidualDeg(): Double? = liveSwingResidualDeg
 
     companion object {
         /**

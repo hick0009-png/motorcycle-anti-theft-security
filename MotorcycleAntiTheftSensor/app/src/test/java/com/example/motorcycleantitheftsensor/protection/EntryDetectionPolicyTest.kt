@@ -305,6 +305,39 @@ class EntryDetectionPolicyTest {
         assertNull(s1.doorEpisode)
     }
 
+    /**
+     * The field failure. The device commissioned at `tol=2.000`: two tidy guided cycles measured
+     * almost no off-axis residual, so the tolerance collapsed to the bare margin. A real door is
+     * not swung the way a calibration is performed, and every ordinary opening cleared two
+     * degrees — tripping the residual gate, which runs *before* the angle gate, so the watch
+     * answered "the mount moved" and could never once say "door opened", on a phone that was
+     * reading the door perfectly. Recalibrating could not fix it; the formula gave the same two
+     * degrees back. The enforced tolerance therefore has a floor.
+     */
+    @Test
+    fun aModelCommissionedTooTightStillReadsAnOrdinaryDoorOpening() {
+        val tight = model.copy(residualToleranceDeg = 2.0)
+        val p = EntryDetectionPolicy(EntryQuaternion.IDENTITY, tight, settings)
+        var state = p.initialState()
+        // A 20 degree swing carrying 6 degrees of off-axis slop: an ordinary opening on a real
+        // hinge, well past the commissioned 2 degrees and well inside the enforced floor.
+        val opening = EntryOrientationMath.multiply(rotZ(20.0), rotX(6.0))
+
+        var opened: EntryDetectionVerdict.DoorOpened? = null
+        var calledItAMountMove = false
+        var t = 1_000L
+        while (t <= 2_000L) {
+            val (v, s) = p.evaluate(state, sample(t, opening))
+            if (v is EntryDetectionVerdict.MountMoved) calledItAMountMove = true
+            if (v is EntryDetectionVerdict.DoorOpened) opened = v
+            state = s
+            t += 250L
+        }
+
+        assertFalse("an ordinary opening must not read as a displaced mount", calledItAMountMove)
+        assertNotNull("the door opening must be reported", opened)
+    }
+
     @Test
     fun closeRequiresBelowThreeDegreesStableFiveSeconds() {
         val p = policy()

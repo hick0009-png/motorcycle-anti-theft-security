@@ -52,6 +52,38 @@ data class EntryHingeModel(
 )
 
 /**
+ * The smallest off-axis residual an armed session will tolerate before calling a door
+ * movement a displaced mount.
+ *
+ * The commissioned tolerance is measured from two guided calibration cycles and is only as
+ * wide as those cycles were untidy. An owner who calibrates the way the guide asks — slowly,
+ * deliberately, one hand steadying the phone — produces two nearly perfect swings, and the
+ * tolerance collapses to the bare margin. The device in the field commissioned at 2.000°.
+ *
+ * A real door is not swung the way a calibration is performed. It is pushed, it rebounds on
+ * its hinge, the cradle has play, and the residual of an ordinary opening comfortably clears
+ * two degrees. The residual gate runs *before* the angle gate, so every one of those openings
+ * was answered with "the mount moved" and the session dropped into the displaced watch, where
+ * door angles are not evaluated at all — a door watch that could never once say "door opened",
+ * on a phone that was reading the door perfectly. Calibrating again could not fix it: the same
+ * formula produced the same two degrees.
+ *
+ * So the enforced tolerance has a floor, applied where the model is read rather than where it
+ * is written, which is what lets a model already commissioned too tight start working without
+ * asking the owner to calibrate again. It stays well under [EntryDetectionPolicy]'s own
+ * displaced-movement and mount-pose thresholds, so a phone genuinely handled is still caught.
+ */
+const val MIN_RESIDUAL_TOLERANCE_DEG: Double = 10.0
+
+/**
+ * The residual tolerance an armed session actually enforces: the commissioned figure, never
+ * narrower than [MIN_RESIDUAL_TOLERANCE_DEG]. Every gate that judges off-axis swing reads this
+ * rather than the raw model value.
+ */
+val EntryHingeModel.effectiveResidualToleranceDeg: Double
+    get() = residualToleranceDeg.coerceAtLeast(MIN_RESIDUAL_TOLERANCE_DEG)
+
+/**
  * Pure state machine for Entry Guard commissioning (spec section 5):
  * a five-second still check, then two guided open/close cycles that must agree on
  * hinge axis, opening direction, and closed-position return before a model is issued.
@@ -188,7 +220,11 @@ class EntryCommissioningPolicy(
             axisY = first.axisY + second.axisY,
             axisZ = first.axisZ + second.axisZ,
             allowedDirection = 1,
-            residualToleranceDeg = maxOf(first.swingResidualDeg, second.swingResidualDeg) + residualMarginDeg,
+            // Floored for the same reason the read side floors it: two tidy guided cycles
+            // measure almost no residual, and the bare margin is narrower than an ordinary
+            // door opening. See [MIN_RESIDUAL_TOLERANCE_DEG].
+            residualToleranceDeg = (maxOf(first.swingResidualDeg, second.swingResidualDeg) + residualMarginDeg)
+                .coerceAtLeast(MIN_RESIDUAL_TOLERANCE_DEG),
             algorithmVersion = ALGORITHM_VERSION,
             sensorIdentity = sensorIdentity,
             mountSignature = mountSignature,

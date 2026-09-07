@@ -125,7 +125,7 @@ class EntryDetectionPolicy(
 
         // Gates 2-3: hinge residual then allowed direction. Mount movement outranks any
         // door event, including an already-open episode.
-        if (swingDeg > model.residualToleranceDeg || wrongDirection) {
+        if (swingDeg > model.effectiveResidualToleranceDeg || wrongDirection) {
             return mountMoved(state)
         }
 
@@ -139,7 +139,7 @@ class EntryDetectionPolicy(
         angleDeg: Double,
         timestampMs: Long,
     ): Pair<EntryDetectionVerdict?, State> {
-        if (swingDeg > model.residualToleranceDeg || wrongDirection) {
+        if (swingDeg > model.effectiveResidualToleranceDeg || wrongDirection) {
             return mountMoved(
                 state.copy(sourceUnavailableSinceMs = null, recoveryHealthySinceMs = null),
             )
@@ -251,7 +251,7 @@ class EntryDetectionPolicy(
         // restore below would declare the mount good five seconds into every armed session
         // — which is the opposite of what was just discovered about it.
         val backOnAxis = !state.mountUnrecognized &&
-            swingDeg <= model.residualToleranceDeg &&
+            swingDeg <= model.effectiveResidualToleranceDeg &&
             !wrongDirection &&
             angleDeg <= settings.closeThresholdDegrees.toDouble()
         if (backOnAxis) return evaluateMountRestore(state, timestampMs)
