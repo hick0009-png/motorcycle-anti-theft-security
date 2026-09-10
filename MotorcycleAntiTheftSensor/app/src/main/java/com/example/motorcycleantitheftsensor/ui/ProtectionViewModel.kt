@@ -110,7 +110,6 @@ class ProtectionViewModel(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val settingsMutex = Mutex()
     private val eventsMutex = Mutex()
-    private val protectionMutex = Mutex()
     private val commandSequence = AtomicLong(0L)
     private val loadedEventsRevision = AtomicLong(Long.MIN_VALUE)
     private val activeProtectionOperations = AtomicLong(0L)
@@ -799,8 +798,6 @@ class ProtectionViewModel(
             )
         }
     }
-
-    private var activeProtectionJob: kotlinx.coroutines.Job? = null
 
     fun arm() = runProtectionCommand(GuidanceCode.COMMAND_ARM_REJECTED) {
         if (coordinator.snapshot.value.state == ProtectionState.ARMING) return@runProtectionCommand

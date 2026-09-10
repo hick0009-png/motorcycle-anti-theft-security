@@ -1516,9 +1516,6 @@ internal fun sensorSourceUnavailableTag(source: SensorSource): String =
 
 internal const val SENSOR_HOST_SUMMARY_TAG = "ui.settings.sensor.HOST_SUMMARY"
 
-/** The door-open threshold the measurement is judged against (EntryProfileSettings default). */
-private const val ENTRY_OPEN_THRESHOLD_DEG = 15
-
 internal const val SENSOR_ROLE_TALLY_TAG = "ui.settings.sensor.ROLE_TALLY"
 internal const val SENSOR_NO_PRIMARY_TAG = "ui.settings.sensor.NO_PRIMARY"
 
@@ -2276,47 +2273,6 @@ private fun SettingsOverviewCard(
                     color = BrandAction,
                 ),
             )
-        }
-    }
-}
-
-@Composable
-private fun SettingsCategoryPage(
-    page: SettingsPage,
-    contentPadding: PaddingValues,
-    modifier: Modifier,
-    returnToOverview: () -> Unit,
-) {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(contentPadding)
-            .testTag("ui.settings.LIST"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item(key = "settings-page-header-${page.name}") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = returnToOverview,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("กลับไปหน้าตั้งค่า")
-                }
-                Text(
-                    text = page.title,
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    text = page.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }

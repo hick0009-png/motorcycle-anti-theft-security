@@ -468,21 +468,6 @@ class IncidentEngine(
         return IncidentUpdate.Opened(incident, supersededIncident = superseded)
     }
 
-    private fun classificationFromAudioThreat(audioThreat: AudioThreatMetadata): Classification {
-        return when (audioThreat.category) {
-            AudioThreatCategory.IMPACT,
-            AudioThreatCategory.BREAKING,
-            AudioThreatCategory.POWER_TOOL,
-            AudioThreatCategory.ENGINE_START -> {
-                Classification(IncidentType.AUDIO, IncidentSeverity.CRITICAL)
-            }
-            AudioThreatCategory.METAL_TAMPER,
-            AudioThreatCategory.ENGINE_RUNNING -> {
-                Classification(IncidentType.AUDIO, IncidentSeverity.WARNING)
-            }
-        }
-    }
-
     private fun appendEvidence(
         existing: List<IncidentEvidence>,
         newEvidence: IncidentEvidence,

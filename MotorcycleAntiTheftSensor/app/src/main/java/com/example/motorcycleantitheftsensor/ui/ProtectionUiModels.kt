@@ -74,15 +74,6 @@ data class ProtectionSettingsSummary(
     val sensorDisplayPreset: com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay? = null,
 )
 
-data class SensorGroupUiModel(
-    val capability: com.example.motorcycleantitheftsensor.protection.SensorCapability,
-    val nameTh: String,
-    val sensitivity: Int,
-    val roleSummaryTh: String,
-    val isDegraded: Boolean,
-    val calibrationProgress: Float? = null,
-)
-
 /**
  * What this device can do with one sensor source, projected from the hardware
  * descriptor by [SensorAvailabilityPolicy]. [vendor] and [powerMa] are shown only as
@@ -141,15 +132,6 @@ fun SensorFusionConfiguration.roleTally(): SensorRoleTally {
         off = roles.count { it == SensorRole.OFF },
     )
 }
-
-data class SensorSourceUiModel(
-    val source: com.example.motorcycleantitheftsensor.protection.SensorSource,
-    val nameTh: String,
-    val role: com.example.motorcycleantitheftsensor.protection.SensorRole,
-    val isAvailable: Boolean,
-    val thresholdOverride: Double? = null,
-    val debounceOverrideMs: Long? = null,
-)
 
 data class ProtectionEventRow(
     val id: String,
