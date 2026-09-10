@@ -85,10 +85,17 @@ class ThaiPresentationSourceContractTest {
         "service/DirectBootBootstrapService.kt",
     )
 
-    /** Static shared copy also lives in resources; scan it for wording terms. */
+    /**
+     * Resources are scanned to prove wording stays out of them, not to find wording in
+     * them: strings.xml holds `app_name` and nothing else, because the manifest is the
+     * one reader that cannot go through the catalog.
+     */
     private val reachableResourceFiles = listOf(
         "../../../../res/values/strings.xml",
     )
+
+    /** The Thai block, U+0E00..U+0E7F, written as codepoints so the range stays readable. */
+    private val THAI_CODEPOINTS = 0x0E00..0x0E7F
 
     private fun sourceRoot(): File {
         val candidates = listOf(
@@ -131,6 +138,30 @@ class ThaiPresentationSourceContractTest {
         assertTrue("Expected a meaningful reachable set", reachableKotlinFiles.size >= 20)
         reachableSources()
         reachableResources()
+    }
+
+    /**
+     * The catalog is the only home for user-facing Thai, and this is the assertion that
+     * keeps it that way. `strings.xml` may hold `app_name` because the manifest resolves
+     * it, and nothing else: most of the app's wording is produced by formatters that
+     * never see a Context, so a resource copy could only ever be a second copy — which
+     * is what it was, thirteen sentences of it, before this was written down.
+     */
+    @Test
+    fun userFacingThaiLivesInTheCatalogAndNotInResources() {
+        for ((relative, content) in reachableResources()) {
+            val offenders = content.lines()
+                .withIndex()
+                .filter { (_, line) -> line.any { it.code in THAI_CODEPOINTS } }
+                .map { (index, line) -> "$relative:${index + 1} ${line.trim()}" }
+            assertTrue(
+                offenders.joinToString(
+                    separator = System.lineSeparator(),
+                    prefix = "Thai wording belongs in PresentationTextCatalog, not in resources:",
+                ),
+                offenders.isEmpty(),
+            )
+        }
     }
 
     @Test

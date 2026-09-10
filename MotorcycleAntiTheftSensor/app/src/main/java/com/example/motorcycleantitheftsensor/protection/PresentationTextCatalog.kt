@@ -675,9 +675,36 @@ object PresentationTextCatalog {
     }
 
     /**
-     * Events history screen terms (profile-aware Thai UX, Task 5). `strings.xml`
-     * mirrors these values for resource-based rendering; host tests pin them here
-     * so resource drift fails the build.
+     * Bottom navigation, the protection hero button, and the arming countdown.
+     *
+     * These read as three groups but share one property: they are the only Thai the
+     * owner sees before anything has happened yet, so they are the wording most likely
+     * to be edited by someone who has not read the rest of this catalog.
+     */
+    const val DESTINATION_PROTECTION_LABEL = "ปกป้อง"
+    const val DESTINATION_EVENTS_LABEL = "เหตุการณ์"
+    const val DESTINATION_SETTINGS_LABEL = "ตั้งค่า"
+    const val DESTINATION_PROTECTION_DESCRIPTION = "แท็บปกป้อง"
+    const val DESTINATION_EVENTS_DESCRIPTION = "แท็บเหตุการณ์"
+    const val DESTINATION_SETTINGS_DESCRIPTION = "แท็บตั้งค่า"
+
+    const val ACTION_ARM_PROTECTION = "เปิดระบบป้องกัน"
+    const val ACTION_DISARM_PROTECTION = "ปิดระบบป้องกัน"
+    const val ACTION_STOP_ALARM = "ปิดสัญญาณเตือน"
+
+    /**
+     * Held still through the countdown because the door watch freezes its closed
+     * reference from the pose it settles on as the countdown ends: a door moved during
+     * it skews the whole session, and this sentence is the only warning the owner gets.
+     */
+    const val ARMING_ENTRY_HOLD_STILL =
+        "ปิดประตูให้สนิทและอย่าเพิ่งขยับระหว่างนับถอยหลัง เพื่อให้ระบบจับตำแหน่งประตูปิดได้ถูกต้อง"
+
+    fun armingCountdown(seconds: Int): String = "กำลังเปิดระบบ อีก $seconds วินาที"
+    /**
+     * Events history screen terms (profile-aware Thai UX, Task 5). EventsScreen used
+     * to read half of these from `strings.xml` and half from here, which is how two
+     * copies of the same sentence came to sit one function call apart.
      */
     const val EVENTS_LOADING = "กำลังโหลดเหตุการณ์"
     const val EVENTS_EMPTY_TITLE = "ยังไม่มีเหตุการณ์"
@@ -711,8 +738,8 @@ object PresentationTextCatalog {
 
     /**
      * Notification presentation (profile-aware Thai UX, Task 6). The title and channel
-     * names are installation-neutral; resources mirror these values while host tests pin
-     * them so wording cannot drift back to legacy brand or raw state enums.
+     * names are installation-neutral, and are read straight from here: a service posting
+     * a notification has a Context, but nothing else on this path needs one.
      */
     const val NOTIFICATION_TITLE = "ระบบป้องกัน"
     const val FOREGROUND_CHANNEL_NAME = "สถานะการป้องกัน"

@@ -599,7 +599,7 @@ class SensorService : Service(), ServiceEnvironment {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
+            .setContentTitle(PresentationTextCatalog.NOTIFICATION_TITLE)
             .setContentText(notificationText(snapshot))
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pendingIntent)
@@ -630,7 +630,7 @@ class SensorService : Service(), ServiceEnvironment {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.notification_channel_protection),
+            PresentationTextCatalog.FOREGROUND_CHANNEL_NAME,
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             setShowBadge(false)

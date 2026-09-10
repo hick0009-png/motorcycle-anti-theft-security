@@ -30,12 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.motorcycleantitheftsensor.R
 import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -172,7 +170,7 @@ fun ProtectionScreen(
                     )
                     state.armingSecondsRemaining?.let { seconds ->
                         Text(
-                            text = stringResource(R.string.protection_arming_countdown, seconds),
+                            text = PresentationTextCatalog.armingCountdown(seconds),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -180,7 +178,7 @@ fun ProtectionScreen(
                         // as the countdown ends, so a door moved during it skews the whole session.
                         if (state.profile.selectedProfile == ProtectionProfile.ENTRY) {
                             Text(
-                                text = stringResource(R.string.protection_arming_entry_hold_still),
+                                text = PresentationTextCatalog.ARMING_ENTRY_HOLD_STILL,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
@@ -208,12 +206,12 @@ fun ProtectionScreen(
                     ) {
                         Text(
                             text = when (protection.state) {
-                                ProtectionState.ALERT_ACTIVE -> stringResource(R.string.action_stop_alarm)
+                                ProtectionState.ALERT_ACTIVE -> PresentationTextCatalog.ACTION_STOP_ALARM
                                 ProtectionState.ARMING,
                                 ProtectionState.ARMED_HEALTHY,
                                 ProtectionState.ARMED_DEGRADED,
-                                -> stringResource(R.string.action_disarm_protection)
-                                else -> stringResource(R.string.action_arm_protection)
+                                -> PresentationTextCatalog.ACTION_DISARM_PROTECTION
+                                else -> PresentationTextCatalog.ACTION_ARM_PROTECTION
                             },
                         )
                     }

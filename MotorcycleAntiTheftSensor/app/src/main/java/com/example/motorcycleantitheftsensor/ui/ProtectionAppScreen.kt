@@ -30,13 +30,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.theme.MotorcycleAntiTheftSensorTheme
 import com.example.motorcycleantitheftsensor.ui.events.EventsScreen
 import com.example.motorcycleantitheftsensor.ui.protection.ProtectionScreen
@@ -119,8 +119,8 @@ fun ProtectionAppScreen(
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
                             val selected = state.destination == item.destination
-                            val destinationLabel = stringResource(item.labelRes)
-                            val destinationContentDescription = stringResource(item.contentDescriptionRes)
+                            val destinationLabel = item.label
+                            val destinationContentDescription = item.contentDescription
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -212,26 +212,26 @@ fun ProtectionAppScreen(
 
 private enum class PrimaryDestination(
     val destination: ProtectionDestination,
-    val labelRes: Int,
-    val contentDescriptionRes: Int,
+    val label: String,
+    val contentDescription: String,
     val iconResource: Int,
 ) {
     PROTECTION(
         destination = ProtectionDestination.PROTECTION,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_content_description,
+        label = PresentationTextCatalog.DESTINATION_PROTECTION_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_PROTECTION_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_protection,
     ),
     EVENTS(
         destination = ProtectionDestination.EVENTS,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_events_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_events_content_description,
+        label = PresentationTextCatalog.DESTINATION_EVENTS_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_EVENTS_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_events,
     ),
     SETTINGS(
         destination = ProtectionDestination.SETTINGS,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_content_description,
+        label = PresentationTextCatalog.DESTINATION_SETTINGS_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_SETTINGS_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_settings,
     ),
 }
