@@ -25,8 +25,12 @@ import java.io.File
  * Scans ONLY the reachable production entry path rooted at `Navigation.kt ->
  * ProtectionAppScreen` plus the service/channel formatters. Test tags, enum
  * identifiers, protocol commands, resource names, and developer-only logs are not
- * user-facing; disconnected legacy screens (`DashboardScreen`, `ui/main/MainScreen`)
- * are deliberately NOT scanned and must never be edited just to satisfy this test.
+ * user-facing and are not scanned.
+ *
+ * [reachableKotlinFiles] is a whitelist rather than a directory walk, so a file
+ * joins the contract only when someone adds it by hand. Anything the owner cannot
+ * reach carries no user-facing language to police, and widening the scan to cover
+ * it would only invite editing unreachable code to turn a test green.
  */
 class ThaiPresentationSourceContractTest {
 
