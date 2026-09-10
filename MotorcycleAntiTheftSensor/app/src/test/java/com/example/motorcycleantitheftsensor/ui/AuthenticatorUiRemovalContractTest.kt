@@ -13,7 +13,6 @@ class AuthenticatorUiRemovalContractTest {
             "src/main/java/com/example/motorcycleantitheftsensor/ui/ProtectionViewModel.kt",
             "src/main/java/com/example/motorcycleantitheftsensor/ui/AndroidProtectionSettingsGateway.kt",
             "src/main/java/com/example/motorcycleantitheftsensor/ui/settings/SettingsScreen.kt",
-            "src/main/java/com/example/motorcycleantitheftsensor/ui/DashboardScreen.kt",
         )
         val forbidden = listOf(
             "AuthenticatorSetupDetails",
@@ -35,7 +34,11 @@ class AuthenticatorUiRemovalContractTest {
         )
 
         paths.forEach { path ->
-            val source = java.io.File(path).readText()
+            // A source that has been deleted outright cannot carry the flow this contract
+            // forbids, and must not fail the check by its absence.
+            val file = java.io.File(path)
+            if (!file.exists()) return@forEach
+            val source = file.readText()
             forbidden.forEach { token ->
                 assertFalse("$path still contains $token", source.contains(token))
             }

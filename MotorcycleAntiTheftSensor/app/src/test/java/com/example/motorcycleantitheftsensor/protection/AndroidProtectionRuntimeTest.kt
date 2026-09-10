@@ -395,6 +395,22 @@ class AndroidProtectionRuntimeTest {
     }
 
     @Test
+    fun powerConfirmationWakeLockCoversTheWindowWithMarginAndNeverLeaks() {
+        // A normal ten-second debounce is held for the window plus the grace margin.
+        assertEquals(12_000L, powerConfirmationWakeLockMs(delayMs = 10_000L))
+        // A near-immediate deadline still adds the full margin, so the hold is never zero.
+        assertEquals(
+            POWER_CONFIRMATION_WAKELOCK_MARGIN_MS + 1L,
+            powerConfirmationWakeLockMs(delayMs = 1L),
+        )
+        // A corrupt, oversized deadline is capped so the CPU can never be pinned awake.
+        assertEquals(
+            POWER_CONFIRMATION_WAKELOCK_MAX_MS,
+            powerConfirmationWakeLockMs(delayMs = 10L * 60L * 1000L),
+        )
+    }
+
+    @Test
     fun cachedPowerWitnessIsFreshOnlyInTheGenerationThatDeliveredIt() {
         assertTrue(
             powerWitnessIsFreshForGeneration(

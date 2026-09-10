@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.SystemClock
 import com.example.motorcycleantitheftsensor.security.ProtectionPermissionPolicy
 import com.example.motorcycleantitheftsensor.sensor.AudioPeakDetector
@@ -41,6 +42,35 @@ private val POWER_RECOVERED_DIAGNOSTIC = ProtectionDiagnostics.POWER_RECOVERED
 
 internal fun powerConfirmationDelayMs(deadlineMs: Long?, nowMs: Long): Long? =
     deadlineMs?.minus(nowMs)?.takeIf { it > 0L }
+
+/**
+ * How long to hold the confirmation wake lock when a power confirmation is [delayMs] away.
+ *
+ * The witness lamp is an on-change sensor, so once a suspicious reading is stable it produces
+ * no further callbacks and the arbiter is driven only by [schedulePowerConfirmation]'s posted
+ * runnable — which runs on `uptimeMillis` and is therefore suspended if the CPU deep-sleeps
+ * before the deadline. Holding a partial wake lock across the short debounce window keeps the
+ * CPU awake exactly while a loss is pending, so the ten-second confirmation fires on time even
+ * on an aggressive OEM power profile that would otherwise freeze the app between callbacks.
+ *
+ * A small [marginMs] covers the gap between the deadline and the runnable actually running; the
+ * result is capped at [maxMs] so a corrupt deadline can never hold the CPU awake indefinitely,
+ * and the acquire itself is given this value as a timeout so a missed release can never leak.
+ */
+internal fun powerConfirmationWakeLockMs(
+    delayMs: Long,
+    marginMs: Long = POWER_CONFIRMATION_WAKELOCK_MARGIN_MS,
+    maxMs: Long = POWER_CONFIRMATION_WAKELOCK_MAX_MS,
+): Long = (delayMs + marginMs).coerceIn(marginMs, maxMs)
+
+/** Grace added to the confirmation deadline so the posted runnable is sure to have run. */
+internal const val POWER_CONFIRMATION_WAKELOCK_MARGIN_MS = 2_000L
+
+/**
+ * Hard ceiling on the confirmation wake lock. The debounce window is ten seconds, so a healthy
+ * hold is ~twelve; anything longer is a bug in the deadline, and the CPU must not stay up for it.
+ */
+internal const val POWER_CONFIRMATION_WAKELOCK_MAX_MS = 15_000L
 
 internal fun powerWitnessIsFreshForGeneration(
     witnessLux: Double?,
@@ -671,6 +701,35 @@ class PlatformAndroidDetectorSet(
             evaluatePowerArbiter(powerWitnessContinuity.latest(), SystemClock.elapsedRealtime())
         }
     }
+
+    /**
+     * Held only while a power loss is waiting on its debounce deadline. See
+     * [powerConfirmationWakeLockMs]: the confirmation runnable runs on `uptimeMillis` and would
+     * be suspended if the CPU deep-slept through the window, so this keeps it awake for exactly
+     * that window and nothing longer. Non-reference-counted and always acquired with a timeout,
+     * so a missed release path can never leak it.
+     */
+    private val powerConfirmationWakeLock: PowerManager.WakeLock? by lazy {
+        runCatching {
+            (applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                ?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "MotorcycleAntiTheft::PowerConfirmation",
+                )
+                ?.apply { setReferenceCounted(false) }
+        }.getOrNull()
+    }
+
+    private fun acquirePowerConfirmationWakeLock(timeoutMs: Long) {
+        runCatching { powerConfirmationWakeLock?.acquire(timeoutMs) }
+    }
+
+    private fun releasePowerConfirmationWakeLock() {
+        runCatching {
+            val lock = powerConfirmationWakeLock ?: return
+            if (lock.isHeld) lock.release()
+        }
+    }
     /**
      * Asks the armed door session whether its source has gone quiet, because nothing else can.
      *
@@ -912,6 +971,7 @@ class PlatformAndroidDetectorSet(
             handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
             handlerOwner.handler.removeCallbacks(powerCommissioningRepeatRunnable)
             handlerOwner.handler.removeCallbacks(entrySourceWatchdogRunnable)
+            releasePowerConfirmationWakeLock()
             controller.stop()
             vibration.stopListening()
             val hasAcc = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
@@ -1048,6 +1108,7 @@ class PlatformAndroidDetectorSet(
         powerSession.end()
         clearArmedWitnessThresholds()
         handlerOwner.handler.removeCallbacks(powerConfirmationRunnable)
+        releasePowerConfirmationWakeLock()
         unregisterPowerLightSource()
     }
 
@@ -1248,7 +1309,16 @@ class PlatformAndroidDetectorSet(
         val delayMs = powerConfirmationDelayMs(
             deadlineMs = powerSession.nextConfirmationAtMs(),
             nowMs = SystemClock.elapsedRealtime(),
-        ) ?: return
+        )
+        if (delayMs == null) {
+            // Nothing is pending: the arbiter is healthy or the session is gone, and the CPU is
+            // free to sleep again.
+            releasePowerConfirmationWakeLock()
+            return
+        }
+        // A loss is on the clock. Keep the CPU awake across the debounce window so the posted
+        // runnable is guaranteed to fire, then re-evaluate.
+        acquirePowerConfirmationWakeLock(powerConfirmationWakeLockMs(delayMs))
         handlerOwner.handler.postDelayed(powerConfirmationRunnable, delayMs)
     }
 
