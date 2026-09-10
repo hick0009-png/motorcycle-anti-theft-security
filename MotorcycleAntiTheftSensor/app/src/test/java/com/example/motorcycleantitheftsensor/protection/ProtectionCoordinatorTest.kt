@@ -1832,6 +1832,107 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun remoteArmPassivePlacementNeedsBothChargerAndLitWitness() {
+        assertTrue(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = true))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = false, witnessLit = true))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = false))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = null))
+    }
+
+    @Test
+    fun telegramPowerArmUpgradesToFullWhenWitnessConfirmsLampWhileCharging() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = true }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        val result = coordinator.arm("tg-power", CommandOrigin.TELEGRAM)
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        // Starts limited: the guided lamp toggle cannot run over Telegram.
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+
+        // The phone reports the lamp lit while charging: passive proof placement still holds.
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        assertFalse(
+            "Passive proof must lift the limited degradation: ${coordinator.snapshot.value.degradationReasons}",
+            coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED),
+        )
+    }
+
+    @Test
+    fun telegramPowerArmStaysLimitedWhenWitnessDoesNotConfirmLamp() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = null }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("tg-power", CommandOrigin.TELEGRAM).outcome)
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        // A witness that cannot confirm the lamp is not proof; the session stays limited.
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+    }
+
+    @Test
+    fun localPowerArmIsNotPassivelyUpgraded() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = true }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        // A local arm skipped the challenge deliberately; the owner is present and can run it.
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("local-power", CommandOrigin.LOCAL).outcome)
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+    }
+
+    private fun recordCharging(coordinator: ProtectionCoordinator, state: ChargingState) {
+        coordinator.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                SensorHealthState.HEALTHY,
+                powerThermalDetail = PowerThermalHealthDetail(
+                    sourceAvailable = true,
+                    isRegistered = true,
+                    chargingState = state,
+                    batteryLevelPercent = 90,
+                    temperatureCelsius = 30.0f,
+                    lastUpdateWallClockMs = 2_000L,
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun latePowerSettingsEditCannotMutateFrozenArmedSnapshot() = runTest {
         val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
         val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
@@ -2226,4 +2327,7 @@ private class FakeRuntime(
         powerClearCalls += 1
     }
 
+    var witnessLit: Boolean? = null
+
+    override fun liveWitnessLit(): Boolean? = witnessLit
 }

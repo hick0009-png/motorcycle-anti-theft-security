@@ -21,6 +21,20 @@ value class RecoveryGenerationToken(val value: Long)
 /** Degradation reason recorded when the per-arm Power witness challenge was skipped. */
 internal const val POWER_CHALLENGE_DEGRADED = "Power witness placement not revalidated"
 
+/**
+ * Whether a Power arm that could not run the guided lamp toggle has nonetheless shown live
+ * proof the phone still sees the witness lamp: the charger is connected and the lamp reads
+ * lit right now. Arming from Telegram cannot ask the owner to toggle the lamp, so this
+ * passive reading stands in for the placement challenge — a witness that reads lit under
+ * power is the same evidence the toggle would have produced, gathered without the owner
+ * present. A dark or unknown witness, or a disconnected charger, is not proof and leaves the
+ * session limited exactly as a skipped challenge does.
+ */
+internal fun remoteArmPassivePlacementConfirmed(
+    chargerConnected: Boolean,
+    witnessLit: Boolean?,
+): Boolean = chargerConnected && witnessLit == true
+
 class ProtectionCoordinator(
     initialSnapshot: ProtectionSnapshot,
     private val runtime: ProtectionRuntime,
@@ -73,6 +87,13 @@ class ProtectionCoordinator(
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
     @Volatile private var baseDegradationReasons: Set<String> = initialSnapshot.degradationReasons
+
+    /**
+     * Armed-session id of a Telegram Power arm that started limited for a skipped lamp
+     * challenge and is still waiting on a passive placement upgrade; null when none is
+     * pending. [reconcilePowerPlacement] clears it once the upgrade lands or the session ends.
+     */
+    @Volatile private var powerPlacementUpgradeSessionId: String? = null
     private val unavailablePersistence = AtomicReference<Set<PersistenceSource>>(emptySet())
     private val runtimeDegradations = AtomicReference<Set<String>>(emptySet())
 
@@ -204,6 +225,8 @@ class ProtectionCoordinator(
         if (disarmPending.get()) return result(commandId, CommandOutcome.REJECTED, "Disarm in progress")
         var epoch = -1L
         var armingDegradations = emptySet<String>()
+        // Every arm re-decides passive-upgrade eligibility below; clear any prior session's.
+        powerPlacementUpgradeSessionId = null
         val frozenSnapshotRef = AtomicReference<ArmedProfileSnapshot?>(null)
         val immediateResult = commandMutex.withLock {
             if (!recoveryIsCurrent(origin, recoveryToken)) {
@@ -423,6 +446,16 @@ class ProtectionCoordinator(
                 }
 
                 val sessionId = UUID.randomUUID().toString()
+                // (ก+) A Telegram Power arm cannot run the guided lamp toggle, so it starts
+                // limited. Flag it for a passive placement upgrade: reconcilePowerPlacement
+                // lifts the degradation once the phone confirms it still sees the lamp lit.
+                if (
+                    selectedProfile == ProtectionProfile.POWER &&
+                    origin == CommandOrigin.TELEGRAM &&
+                    powerChallengePassed == false
+                ) {
+                    powerPlacementUpgradeSessionId = sessionId
+                }
                 val modelFingerprint = when {
                     entryHingeModel != null -> EntryCommissioningPolicy.fingerprint(entryHingeModel)
                     powerWitnessModel != null -> PowerWitnessCommissioningPolicy.fingerprint(powerWitnessModel)
@@ -1311,7 +1344,37 @@ class ProtectionCoordinator(
         }
     }
 
+    /**
+     * (ก+) Lifts the placement degradation off a Telegram Power arm once the phone shows live
+     * proof it still sees the witness lamp. Runs on the freshness tick, so the upgrade lands a
+     * few seconds after the arm-reference window has produced a conclusive witness reading.
+     *
+     * Deliberately not persisted: a process restart re-arms the session limited and this simply
+     * re-earns the upgrade on the next confirmed reading, so the trust never outlives evidence
+     * gathered in the current run.
+     */
+    private fun reconcilePowerPlacement() {
+        val eligibleId = powerPlacementUpgradeSessionId ?: return
+        val current = snapshot.value
+        if (current.armedProfileSnapshot?.armedSessionId != eligibleId) {
+            // The session ended or was replaced before the upgrade landed.
+            powerPlacementUpgradeSessionId = null
+            return
+        }
+        // Absent means the arm is still finishing (not yet applied) or already lifted; either
+        // way, wait rather than dropping eligibility on a transient.
+        if (POWER_CHALLENGE_DEGRADED !in baseDegradationReasons) return
+        val chargerConnected = current.chargingState == ChargingState.CHARGING ||
+            current.chargingState == ChargingState.FULL
+        if (!remoteArmPassivePlacementConfirmed(chargerConnected, runtime.liveWitnessLit())) return
+        // The passive challenge is satisfied: lift the degradation for this session. The
+        // freshness recompute that follows re-derives the armed state from the reduced set.
+        powerPlacementUpgradeSessionId = null
+        baseDegradationReasons = baseDegradationReasons - POWER_CHALLENGE_DEGRADED
+    }
+
     fun evaluateFreshness(nowMs: Long) {
+        reconcilePowerPlacement()
         updateSnapshot { current ->
             val evaluatedSensors = current.sensorHealth.mapValues { (kind, health) ->
                 health.copy(state = healthPolicy.sensorState(kind, health, nowMs))
