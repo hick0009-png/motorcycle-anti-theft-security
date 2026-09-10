@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.motorcycleantitheftsensor.protection.EntryDriftBudgetPolicy
 import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurement
-import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.service.SensorService
 

@@ -1,6 +1,5 @@
 package com.example.motorcycleantitheftsensor.telegram
 
-import android.content.Context
 import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.protection.BreadcrumbDetail
@@ -10,7 +9,6 @@ import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.PairingResult
 import com.example.motorcycleantitheftsensor.telephony.EncryptedSmsCodec
 import okhttp3.Call
-import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import org.json.JSONObject

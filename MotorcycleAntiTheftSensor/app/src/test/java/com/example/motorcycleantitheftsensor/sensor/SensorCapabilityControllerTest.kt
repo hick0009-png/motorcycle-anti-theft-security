@@ -5,7 +5,6 @@ import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolic
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorObservation
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
-import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSamplingProfile
 import com.example.motorcycleantitheftsensor.protection.SensorSource
 import org.junit.Assert.assertEquals

@@ -10,7 +10,6 @@ import com.example.motorcycleantitheftsensor.protection.PowerModeFacts
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
-import com.example.motorcycleantitheftsensor.protection.ProtectionHost
 import com.example.motorcycleantitheftsensor.protection.ProtectionModeContext
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy

@@ -41,7 +41,6 @@ import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.ui.protection.PROTECTION_LIST_TAG
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test

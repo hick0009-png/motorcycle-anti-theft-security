@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,7 +64,6 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -80,10 +78,8 @@ import com.example.motorcycleantitheftsensor.theme.StatusWarning
 import com.example.motorcycleantitheftsensor.theme.SurfaceMuted
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
-import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
-import com.example.motorcycleantitheftsensor.service.SensorService
 import com.example.motorcycleantitheftsensor.protection.SensorContribution
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
@@ -95,8 +91,6 @@ import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
 import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
-import com.example.motorcycleantitheftsensor.ui.SensorAvailabilityUiModel
-import com.example.motorcycleantitheftsensor.ui.SensorEditabilityUiModel
 import com.example.motorcycleantitheftsensor.ui.inventorySummary
 import com.example.motorcycleantitheftsensor.ui.roleTally
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState

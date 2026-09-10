@@ -12,9 +12,6 @@ import com.example.motorcycleantitheftsensor.sensor.MovementLocationTracking
 import com.example.motorcycleantitheftsensor.telegram.TelegramCallResult
 import com.example.motorcycleantitheftsensor.telegram.TelegramFailureCode
 import com.example.motorcycleantitheftsensor.telegram.TelegramLiveLocationTransport
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -2,7 +2,6 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 
 /** Keeps queue intake responsive while giving Disarm priority over an in-flight Arm reply. */

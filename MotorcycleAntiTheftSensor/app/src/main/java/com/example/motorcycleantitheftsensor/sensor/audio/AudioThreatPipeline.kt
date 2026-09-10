@@ -1,7 +1,6 @@
 package com.example.motorcycleantitheftsensor.sensor.audio
 
 import android.os.SystemClock
-import com.example.motorcycleantitheftsensor.protection.AUDIO_SAMPLE_RATE_HZ
 import com.example.motorcycleantitheftsensor.protection.AudioGateState
 import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
@@ -19,7 +18,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max

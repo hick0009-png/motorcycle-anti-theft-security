@@ -49,7 +49,6 @@ import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
 import com.example.motorcycleantitheftsensor.protection.ProfileSupportReason
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
-import com.example.motorcycleantitheftsensor.protection.SetupBlocker
 import com.example.motorcycleantitheftsensor.telegram.toGuidanceCode
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
@@ -57,16 +56,10 @@ import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
-import com.example.motorcycleantitheftsensor.ui.audioGateStateLabel
 import com.example.motorcycleantitheftsensor.ui.audioRuntimeStateLabel
-import com.example.motorcycleantitheftsensor.ui.audioThreatCategoryLabel
-import com.example.motorcycleantitheftsensor.ui.deliveryStateLabel
 import com.example.motorcycleantitheftsensor.ui.formatProtectionTimestamp
 import com.example.motorcycleantitheftsensor.ui.friendlyPermissionExplanation
-import com.example.motorcycleantitheftsensor.ui.incidentLifecycleLabel
 import com.example.motorcycleantitheftsensor.ui.microphoneHealthText
-import com.example.motorcycleantitheftsensor.ui.sensorHealthStateLabel
-import com.example.motorcycleantitheftsensor.ui.sensorKindLabel
 
 /**
  * Outcome-first Protection screen (profile-aware Thai UX, Task 4): the state hero and its

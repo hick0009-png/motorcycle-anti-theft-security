@@ -9,24 +9,12 @@
     <string name="destination_events_content_description">แท็บเหตุการณ์</string>
     <string name="destination_settings_content_description">แท็บตั้งค่า</string>
 
-    <!-- Profile switch dialog and permission review actions -->
-    <string name="action_review_permissions">ตรวจสอบสิทธิ์</string>
-    <string name="action_change_use">เปลี่ยนการใช้งาน</string>
-    <string name="action_keep_current_protection">ใช้รูปแบบเดิมต่อ</string>
-    <string name="action_stop_protection_and_change_use">หยุดการปกป้องแล้วเปลี่ยน</string>
-
     <!-- Protection screen outcome-first hero and sections (profile-aware Thai UX, Task 4) -->
     <string name="action_arm_protection">เปิดระบบป้องกัน</string>
     <string name="action_disarm_protection">ปิดระบบป้องกัน</string>
     <string name="action_stop_alarm">ปิดสัญญาณเตือน</string>
     <string name="protection_arming_countdown">กำลังเปิดระบบ อีก %1$d วินาที</string>
     <string name="protection_arming_entry_hold_still">ปิดประตูให้สนิทและอย่าเพิ่งขยับระหว่างนับถอยหลัง เพื่อให้ระบบจับตำแหน่งประตูปิดได้ถูกต้อง</string>
-    <string name="protection_blockers_title">สิ่งที่ยังขาดก่อนป้องกันได้</string>
-    <string name="reduced_coverage_title">การตรวจจับที่ลดลง</string>
-    <string name="degradation_reasons_title">เหตุผลที่ทำงานแบบจำกัด</string>
-    <string name="advanced_disclosure_show">แสดงการวินิจฉัยขั้นสูง</string>
-    <string name="advanced_disclosure_hide">ซ่อนการวินิจฉัยขั้นสูง</string>
-    <string name="runtime_health_title">สถานะระบบ</string>
 
     <!-- Events history screen (profile-aware Thai UX, Task 5; mirrors PresentationTextCatalog) -->
     <string name="events_loading_title">กำลังโหลดเหตุการณ์</string>
@@ -34,7 +22,6 @@
     <string name="events_empty_detail">เหตุการณ์จะแสดงที่นี่เมื่อระบบป้องกันบันทึกไว้</string>
     <string name="events_error_title">เกิดข้อผิดพลาดในการโหลดเหตุการณ์</string>
     <string name="events_retry_action">ลองใหม่</string>
-    <string name="events_history_header">ประวัติเหตุการณ์</string>
     <string name="events_clear_history_action">ล้างประวัติ</string>
     <string name="events_clear_confirm_title">ยืนยันการล้างประวัติ</string>
     <string name="events_clear_confirm_body">การดำเนินการนี้จะลบประวัติเหตุการณ์ในเครื่องอย่างถาวร</string>

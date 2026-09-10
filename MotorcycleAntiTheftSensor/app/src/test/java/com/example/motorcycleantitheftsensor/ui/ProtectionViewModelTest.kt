@@ -7,7 +7,6 @@ import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
 import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
 import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
 import com.example.motorcycleantitheftsensor.protection.ChargingState
-import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
 import com.example.motorcycleantitheftsensor.protection.PowerArmChallengeRegistry

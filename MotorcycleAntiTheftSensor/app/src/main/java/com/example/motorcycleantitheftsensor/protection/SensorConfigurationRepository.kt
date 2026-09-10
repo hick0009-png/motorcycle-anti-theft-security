@@ -1,7 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import android.content.SharedPreferences
-import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 
 interface SensorConfigurationRepository {
     fun loadConfiguration(): SensorFusionConfiguration

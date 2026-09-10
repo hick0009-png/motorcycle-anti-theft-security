@@ -2,12 +2,7 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.ChargingState
-import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
-import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
-import com.example.motorcycleantitheftsensor.protection.IncidentSummary
-import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
-import com.example.motorcycleantitheftsensor.protection.LocationFailureCode
 import com.example.motorcycleantitheftsensor.protection.LocationHealthDetail
 import com.example.motorcycleantitheftsensor.protection.LocationTrackingState
 import com.example.motorcycleantitheftsensor.protection.MicrophoneHealthDetail
@@ -18,12 +13,9 @@ import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.VibrationHealthDetail
-import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
-import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProtectionStateTelegramNotifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

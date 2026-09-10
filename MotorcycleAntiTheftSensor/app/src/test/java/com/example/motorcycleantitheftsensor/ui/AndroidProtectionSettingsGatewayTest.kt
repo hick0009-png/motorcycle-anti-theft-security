@@ -2,10 +2,6 @@ package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
