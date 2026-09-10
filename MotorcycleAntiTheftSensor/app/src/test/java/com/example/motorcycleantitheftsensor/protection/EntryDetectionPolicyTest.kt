@@ -38,7 +38,6 @@ class EntryDetectionPolicyTest {
         residualToleranceDeg = 5.0,
         algorithmVersion = 1,
         sensorIdentity = "rotation-vector",
-        mountSignature = "mount-a",
         orientationSourcePolicy = "default",
     )
 
@@ -50,7 +49,56 @@ class EntryDetectionPolicyTest {
         settings = settings,
     )
 
+    private val SOURCE_LOSS_REANNOUNCE = EntryDetectionPolicy.SOURCE_LOSS_REANNOUNCE_MS
+
+    /**
+     * Drives seven seconds of healthy shut-door samples through a source-loss episode.
+     * @return whether a recovery was announced, and the resulting state.
+     */
+    private fun driveRecovery(
+        policy: EntryDetectionPolicy,
+        from: EntryDetectionPolicy.State,
+        startMs: Long,
+    ): Pair<Boolean, EntryDetectionPolicy.State> {
+        var state = from
+        var recovered = false
+        var t = startMs
+        while (t <= startMs + 7_000L) {
+            val (verdict, next) = policy.evaluate(state, sample(t, rotZ(0.0)))
+            if (verdict is EntryDetectionVerdict.SourceRecovered) recovered = true
+            state = next
+            t += 1_000L
+        }
+        return recovered to state
+    }
+
     /** Drives an open past confirmation and returns the final state. */
+    /**
+     * Holds [pose] until the geometry gates have read violated long enough to be believed.
+     *
+     * The displacement gate is confirmed over time like every other transition here — a door in
+     * motion throws a brief off-axis spike, and a single sample of one used to be enough to call
+     * an ordinary opening a displaced mount. A proof about a real displacement therefore has to
+     * hold the pose, which is what a really displaced phone does anyway.
+     */
+    private fun driveDisplaced(
+        policy: EntryDetectionPolicy,
+        from: EntryDetectionPolicy.State,
+        pose: EntryQuaternion,
+        startMs: Long = 1_000L,
+    ): Pair<EntryDetectionVerdict?, EntryDetectionPolicy.State> {
+        var state = from
+        var verdict: EntryDetectionVerdict? = null
+        var t = startMs
+        while (t <= startMs + EntryDetectionPolicy.MOUNT_MOVED_CONFIRM_MS) {
+            val (v, s) = policy.evaluate(state, sample(t, pose))
+            verdict = verdict ?: v
+            state = s
+            t += 250L
+        }
+        return verdict to state
+    }
+
     private fun driveOpen(policy: EntryDetectionPolicy, startMs: Long = 1_000L): Pair<EntryDetectionPolicy.State, EntryDetectionVerdict?> {
         var state = policy.initialState()
         var verdict: EntryDetectionVerdict? = null
@@ -81,15 +129,136 @@ class EntryDetectionPolicyTest {
         // 20-degree hinge twist plus a 30-degree off-axis swing: twist alone would pass
         // the 15-degree threshold, but the residual gate must fire first.
         val combined = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
-        val (verdict, state) = p.evaluate(p.initialState(), sample(1_000L, combined))
+        val (verdict, state) = driveDisplaced(p, p.initialState(), combined)
         assertTrue(verdict is EntryDetectionVerdict.MountMoved)
+        assertNull(state.doorEpisode)
+    }
+
+    /**
+     * A phone that has been displaced stays displaced. Re-announcing that on every sample
+     * turned one incident into fifteen full alerts in thirty seconds on the test device —
+     * each a Telegram message and an SMS — and the guard meant to stop it sat one statement
+     * below the gate that fires it, where only a sample that no longer tripped the gate could
+     * reach it.
+     */
+    @Test
+    fun aDisplacedMountIsAnnouncedOnceAndThenStaysQuiet() {
+        val p = policy()
+        val combined = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+
+        val (first, afterFirst) = driveDisplaced(p, p.initialState(), combined)
+        assertTrue(first is EntryDetectionVerdict.MountMoved)
+        assertTrue(afterFirst.mountMoved)
+
+        // Still displaced, still tripping the residual gate, and now with nothing to add.
+        var state = afterFirst
+        repeat(10) { tick ->
+            val (verdict, next) = p.evaluate(state, sample(2_000L + tick * 200L, combined))
+            assertNull(verdict)
+            assertTrue(next.mountMoved)
+            state = next
+        }
+
+        // And one sample back inside tolerance is not enough to resume the watch: the way
+        // back is sustained compatible evidence, proved below.
+        val (afterSettling, settled) = p.evaluate(state, sample(9_000L, rotZ(0.0)))
+        assertNull(afterSettling)
+        assertTrue(settled.mountMoved)
+    }
+
+    /**
+     * The displacement used to be the end of the armed session: every later sample returned
+     * nothing, so a phone knocked at dusk left the door unwatched until morning. One shove
+     * bought a burglar the whole night, and the moment right after somebody touches the
+     * alarm is the worst possible moment for it to go blind.
+     */
+    @Test
+    fun aDisplacedMountThatComesBackResumesTheWatch() {
+        val p = policy()
+        val combined = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+        val (moved, displaced) = driveDisplaced(p, p.initialState(), combined)
+        assertTrue(moved is EntryDetectionVerdict.MountMoved)
+
+        // Back inside tolerance, on-axis and shut. Compatible for the required five seconds.
+        var state = displaced
+        var restored: EntryDetectionVerdict? = null
+        var t = 10_000L
+        while (t <= 15_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, rotZ(0.0)))
+            restored = verdict ?: restored
+            state = next
+            t += 1_000L
+        }
+        assertTrue(restored is EntryDetectionVerdict.MountRestored)
+        assertFalse(state.mountMoved)
+
+        // And the watch really is watching again, not merely un-flagged.
+        var opened: EntryDetectionVerdict? = null
+        var openT = 16_000L
+        while (openT <= 17_000L) {
+            val (verdict, next) = p.evaluate(state, sample(openT, rotZ(18.0)))
+            opened = verdict ?: opened
+            state = next
+            openT += 250L
+        }
+        assertTrue(opened is EntryDetectionVerdict.DoorOpened)
+    }
+
+    /**
+     * The other half of not being terminal: a phone that stays displaced is still worth
+     * watching, because the commissioned axis is what was lost — not the ability to tell
+     * that somebody is handling the phone right now.
+     */
+    @Test
+    fun aDisplacedPhoneMovedAgainIsAnnouncedAgain() {
+        val p = policy()
+        val displacedPose = EntryOrientationMath.multiply(rotZ(20.0), rotX(30.0))
+        val (moved, afterMove) = driveDisplaced(p, p.initialState(), displacedPose)
+        assertTrue(moved is EntryDetectionVerdict.MountMoved)
+
+        // Left alone where it landed: it settles, and settling is never news.
+        var state = afterMove
+        var t = 2_000L
+        while (t <= 9_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, displacedPose))
+            assertNull(verdict)
+            state = next
+            t += 1_000L
+        }
+
+        // Then somebody turns it another fifteen degrees off the pose it settled at.
+        val movedAgain = EntryOrientationMath.multiply(rotZ(20.0), rotX(45.0))
+        val (second, _) = p.evaluate(state, sample(10_000L, movedAgain))
+        assertTrue(second is EntryDetectionVerdict.MountMoved)
+    }
+
+    @Test
+    fun aRestoredMountResolvesTheEpisodeTheDisplacementInterrupted() {
+        val p = policy()
+        val (openState, _) = driveOpen(p)
+        val combined = EntryOrientationMath.multiply(rotZ(10.0), rotX(30.0))
+        val (movedVerdict, movedState) = driveDisplaced(p, openState, combined, startMs = 5_000L)
+        assertTrue(movedVerdict is EntryDetectionVerdict.MountMoved)
+        assertTrue(movedState.doorEpisode!!.interrupted)
+
+        var state = movedState
+        var resolved: EntryDetectionVerdict? = null
+        var t = 10_000L
+        while (t <= 15_000L) {
+            val (verdict, next) = p.evaluate(state, sample(t, rotZ(0.0)))
+            resolved = verdict ?: resolved
+            state = next
+            t += 1_000L
+        }
+        assertTrue(resolved is EntryDetectionVerdict.DoorClosedConfirmed)
+        assertFalse(state.mountMoved)
         assertNull(state.doorEpisode)
     }
 
     @Test
     fun oppositeDirectionMotionReportsMountMoved() {
         val p = policy()
-        val (verdict, state) = p.evaluate(p.initialState(), sample(1_000L, rotZ(-20.0)))
+        val (verdict, state) = driveDisplaced(p, p.initialState(), rotZ(-20.0))
         assertTrue(verdict is EntryDetectionVerdict.MountMoved)
         assertNull(state.doorEpisode)
     }
@@ -122,6 +291,123 @@ class EntryDetectionPolicyTest {
         }
         assertNotNull(opened)
         assertEquals(16.0, opened!!.angleDeg, 0.5)
+    }
+
+    /**
+     * Bug #6. A door edged just past the alert angle must hold the full 750ms, but a swing flung
+     * wide is confirmed on a short floor instead — otherwise a door thrown open and shut again
+     * inside 750ms left no alert at all. The floor is never zero: a lone wide sample is a spike,
+     * not a swing, and must not alarm on its own.
+     */
+    @Test
+    fun aWideSwingConfirmsFasterThanTheFullDwell() {
+        val p = policy()
+        var state = p.initialState()
+
+        // A lone wide sample is not yet a swing.
+        val (v0, s0) = p.evaluate(state, sample(1_000L, rotZ(50.0)))
+        assertNull(v0 as? EntryDetectionVerdict.DoorOpened)
+        state = s0
+
+        // 200ms later — far short of the 750ms dwell a narrow opening would need — it confirms.
+        val (v1, _) = p.evaluate(state, sample(1_200L, rotZ(50.0)))
+        assertTrue(v1 is EntryDetectionVerdict.DoorOpened)
+        assertEquals(50.0, (v1 as EntryDetectionVerdict.DoorOpened).angleDeg, 0.5)
+    }
+
+    @Test
+    fun aLoneWideSpikeThatVanishesNextSampleNeverAlarms() {
+        val p = policy()
+        var state = p.initialState()
+
+        val (v0, s0) = p.evaluate(state, sample(1_000L, rotZ(50.0)))
+        assertNull(v0 as? EntryDetectionVerdict.DoorOpened)
+        state = s0
+
+        // Back shut before the floor elapses: the streak resets, no episode is ever opened.
+        val (v1, s1) = p.evaluate(state, sample(1_020L, EntryQuaternion.IDENTITY))
+        assertNull(v1 as? EntryDetectionVerdict.DoorOpened)
+        assertNull(s1.doorEpisode)
+    }
+
+    /**
+     * The field failure. The device commissioned at `tol=2.000`: two tidy guided cycles measured
+     * almost no off-axis residual, so the tolerance collapsed to the bare margin. A real door is
+     * not swung the way a calibration is performed, and every ordinary opening cleared two
+     * degrees — tripping the residual gate, which runs *before* the angle gate, so the watch
+     * answered "the mount moved" and could never once say "door opened", on a phone that was
+     * reading the door perfectly. Recalibrating could not fix it; the formula gave the same two
+     * degrees back. The enforced tolerance therefore has a floor.
+     */
+    @Test
+    fun aModelCommissionedTooTightStillReadsAnOrdinaryDoorOpening() {
+        val tight = model.copy(residualToleranceDeg = 2.0)
+        val p = EntryDetectionPolicy(EntryQuaternion.IDENTITY, tight, settings)
+        var state = p.initialState()
+        // A 20 degree swing carrying 6 degrees of off-axis slop: an ordinary opening on a real
+        // hinge, well past the commissioned 2 degrees and well inside the enforced floor.
+        val opening = EntryOrientationMath.multiply(rotZ(20.0), rotX(6.0))
+
+        var opened: EntryDetectionVerdict.DoorOpened? = null
+        var calledItAMountMove = false
+        var t = 1_000L
+        while (t <= 2_000L) {
+            val (v, s) = p.evaluate(state, sample(t, opening))
+            if (v is EntryDetectionVerdict.MountMoved) calledItAMountMove = true
+            if (v is EntryDetectionVerdict.DoorOpened) opened = v
+            state = s
+            t += 250L
+        }
+
+        assertFalse("an ordinary opening must not read as a displaced mount", calledItAMountMove)
+        assertNotNull("the door opening must be reported", opened)
+    }
+
+    /**
+     * The field failure that survived the tolerance floor. An open door measured 1.7 degrees of
+     * off-axis residual against a ten degree tolerance — comfortably inside it — yet the swing
+     * itself threw a brief spike past the gate, and because that gate was decided by a single
+     * sample the watch called an ordinary opening a displaced mount and announced it restored a
+     * moment later. Every other transition here is confirmed over time; so is this one now.
+     */
+    @Test
+    fun aTransientResidualSpikeWhileTheDoorSwingsIsNotADisplacedMount() {
+        val p = policy()
+        var state = p.initialState()
+        var calledItAMountMove = false
+
+        // Opening, with one sample mid-swing thrown well off axis and everything else clean.
+        val clean = rotZ(20.0)
+        val spike = EntryOrientationMath.multiply(rotZ(20.0), rotX(25.0))
+        var t = 1_000L
+        for (q in listOf(clean, spike, clean, clean, clean)) {
+            val (v, s) = p.evaluate(state, sample(t, q))
+            if (v is EntryDetectionVerdict.MountMoved) calledItAMountMove = true
+            state = s
+            t += 250L
+        }
+
+        assertFalse("a blip while the door swings must not be a displaced mount", calledItAMountMove)
+    }
+
+    /** But a mount that really has moved holds the violation, and is still reported. */
+    @Test
+    fun aSustainedOffAxisReadingIsStillReportedAsADisplacedMount() {
+        val p = policy()
+        var state = p.initialState()
+        var moved: EntryDetectionVerdict.MountMoved? = null
+
+        val displaced = EntryOrientationMath.multiply(rotZ(20.0), rotX(25.0))
+        var t = 1_000L
+        while (t <= 3_000L) {
+            val (v, s) = p.evaluate(state, sample(t, displaced))
+            if (v is EntryDetectionVerdict.MountMoved) moved = v
+            state = s
+            t += 250L
+        }
+
+        assertNotNull("a mount that stays off axis must still be reported", moved)
+        assertTrue(state.mountMoved)
     }
 
     @Test
@@ -210,10 +496,53 @@ class EntryDetectionPolicyTest {
         val (openState, _) = driveOpen(p)
         // Off-axis movement while a door episode is open: mount-moved wins and interrupts.
         val combined = EntryOrientationMath.multiply(rotZ(10.0), rotX(30.0))
-        val (v, movedState) = p.evaluate(openState, sample(5_000L, combined))
+        val (v, movedState) = driveDisplaced(p, openState, combined, startMs = 5_000L)
         assertTrue(v is EntryDetectionVerdict.MountMoved)
         assertTrue(movedState.doorEpisode!!.interrupted)
         assertTrue(movedState.mountMoved)
+    }
+
+    /**
+     * The overnight repeat-alert shape. A phone that freezes background apps loses the sensor
+     * for twenty seconds every few minutes, and every one of those cycles used to be a whole
+     * incident with its own Telegram message and SMS, all saying the sentence the owner read
+     * the first time.
+     */
+    @Test
+    fun aSourceThatKeepsDroppingOutIsAnnouncedOnceNotOnEveryGap() {
+        val p = policy()
+        var state = p.initialState()
+        val announcements = mutableListOf<Long>()
+
+        // Five loss/recovery cycles two minutes apart — all inside the floor — and a sixth
+        // just past it, which is a fresh piece of news and says so.
+        val lossTimes = listOf(1_000L, 121_000L, 241_000L, 361_000L, 481_000L, 611_000L)
+        for (lossAt in lossTimes) {
+            val (lost, afterLoss) = p.evaluate(state, sample(lossAt, rotZ(0.0), fresh = false))
+            if (lost is EntryDetectionVerdict.SourceUnavailable) announcements += lossAt
+            state = driveRecovery(p, afterLoss, lossAt + 20_000L).second
+        }
+
+        assertEquals(listOf(1_000L, 611_000L), announcements)
+        assertTrue(lossTimes.last() - lossTimes.first() >= SOURCE_LOSS_REANNOUNCE)
+    }
+
+    @Test
+    fun aSuppressedLossDoesNotAnnounceItsOwnRecovery() {
+        val p = policy()
+        var state = p.initialState()
+
+        val (first, afterFirst) = p.evaluate(state, sample(1_000L, rotZ(0.0), fresh = false))
+        assertTrue(first is EntryDetectionVerdict.SourceUnavailable)
+        state = afterFirst
+        state = driveRecovery(p, state, 20_000L).also { assertTrue(it.first) }.second
+
+        // Second gap inside the floor: silent going down, and silent coming back up.
+        val (second, afterSecond) = p.evaluate(state, sample(120_000L, rotZ(0.0), fresh = false))
+        assertNull(second)
+        state = afterSecond
+        val (recoveredAgain, _) = driveRecovery(p, state, 140_000L)
+        assertFalse(recoveredAgain)
     }
 
     @Test

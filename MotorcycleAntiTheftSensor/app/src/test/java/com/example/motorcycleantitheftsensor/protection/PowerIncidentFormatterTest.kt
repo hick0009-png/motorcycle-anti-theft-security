@@ -59,20 +59,70 @@ class PowerIncidentFormatterTest {
     }
 
     @Test
+    fun chargingBackWhileWitnessStaysDarkNamesBothFactsAndClaimsNoRecovery() {
+        val message = formatter.format(powerIncident("power_partial_witness_dark"))
+
+        assertTrue(message.contains("สายชาร์จกลับมาแล้ว"))
+        assertTrue(message.contains("ไฟยืนยันยังไม่มา"))
+        assertFalse(message.contains("กลับมาคงที่แล้ว"))
+        assertFalse(message.contains("ยืนยันไฟเลี้ยงขาด"))
+    }
+
+    @Test
+    fun witnessBackWhileChargingStaysLostNamesBothFactsAndClaimsNoRecovery() {
+        val message = formatter.format(powerIncident("power_partial_charging_lost"))
+
+        assertTrue(message.contains("ไฟยืนยันกลับมาแล้ว"))
+        assertTrue(message.contains("สายชาร์จยังไม่กลับมา"))
+        assertFalse(message.contains("กลับมาคงที่แล้ว"))
+        assertFalse(message.contains("ยืนยันไฟเลี้ยงขาด"))
+    }
+
+    @Test
+    fun partialRecoveryCopyAlsoReachesTheSmsFallback() {
+        val sms = formatter.formatSms(powerIncident("power_partial_witness_dark"))
+
+        assertTrue(sms.contains("สายชาร์จกลับมาแล้ว"))
+        assertTrue(sms.contains("ไฟยืนยันยังไม่มา"))
+    }
+
+    @Test
     fun recoveryRendersStableSettlementCopy() {
         val message = formatter.format(powerIncident("power_recovered"))
         assertEquals("ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว", message)
     }
 
     @Test
-    fun closedPowerIncidentWithoutDiagnosticStillRendersSettlement() {
+    fun powerIncidentClosedByItsOwnRecoveryVerdictRendersSettlement() {
+        // The recovery verdict lands power_recovered as evidence and closes with the terminal
+        // reason; even if the evidence were later evicted, the reason alone entitles settlement.
         val incident = powerIncident("power_confirmed_loss").copy(
             lifecycle = IncidentLifecycle.CLOSED,
             closedAtMs = 1_000L,
+            closeReason = IncidentCloseReason.POWER_SUPPLY_STABLE,
             evidence = emptyList(),
         )
-        val message = formatter.format(incident)
+        val message = formatter.format(IncidentUpdate.Closed(incident))
         assertEquals("ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว", message)
+    }
+
+    /**
+     * Bug #4: a power episode closed because the owner disarmed — not because the supply came
+     * back — must not announce recovery. The field failure sent "ไฟเลี้ยง…กลับมาคงที่แล้ว"
+     * off a charger reading that was never a recovery, from the settlement fallback that once
+     * fired for any closed power incident. The close reason, not the last evidence, decides.
+     */
+    @Test
+    fun powerIncidentClosedByDisarmSaysTheWatchEndedNotThatPowerReturned() {
+        val incident = powerIncident("power_confirmed_loss").copy(
+            lifecycle = IncidentLifecycle.CLOSED,
+            closedAtMs = 1_000L,
+            closeReason = IncidentCloseReason.OWNER_DISARMED,
+            evidence = emptyList(),
+        )
+        val message = formatter.format(IncidentUpdate.Closed(incident))
+        assertEquals("การเฝ้าระวังไฟเลี้ยงที่จุดนี้สิ้นสุดแล้ว", message)
+        assertFalse(message.contains("กลับมาคงที่แล้ว"))
     }
 
     @Test

@@ -6,6 +6,7 @@ import android.util.Log
 import com.example.motorcycleantitheftsensor.data.EncryptedPrefsManager
 import com.example.motorcycleantitheftsensor.telegram.TelegramBotClient
 import com.example.motorcycleantitheftsensor.telephony.SmsFallbackManager
+import com.example.motorcycleantitheftsensor.telephony.SmsSendOutcome
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,22 @@ import com.example.motorcycleantitheftsensor.sensor.LocationObservationProvider
 import com.example.motorcycleantitheftsensor.sensor.audio.AudioThreatCandidateBuffer
 
 object ProtectionRuntimeGraph {
+
+    /**
+     * The angle this owner set for the door watch, which is what drift has to be measured
+     * against: a watch set to thirty degrees tolerates twice the drift of one set to fifteen.
+     * Falls back to the commissioning default when the profile has never been resolved.
+     */
+    private fun entryAlertAngleDeg(profileRepository: ProtectionProfileRepository): Int =
+        runCatching {
+            val settings = ProtectionProfilePolicy()
+                .resolve(profileRepository.load(), ProtectionProfile.ENTRY)
+                .specificSettings as? EntryProfileSettings
+            settings?.angleThresholdDegrees
+        }.getOrNull() ?: DEFAULT_ENTRY_ALERT_ANGLE_DEG
+
+    private const val DEFAULT_ENTRY_ALERT_ANGLE_DEG = 15
+
     @Volatile
     private var instance: Graph? = null
 
@@ -36,6 +53,17 @@ object ProtectionRuntimeGraph {
         val coordinator: ProtectionCoordinator,
         val incidents: IncidentRepository,
         val delivery: IncidentDeliveryCoordinator,
+        /**
+         * Sends incidents that were recorded but never reached the owner, once something says
+         * the path may work again. Held here rather than built by the caller: it reads the same
+         * repository and sends through the same coordinator as a first attempt does.
+         */
+        val incidentRedeliverer: IncidentRedeliverer,
+        /**
+         * Where the graph's own Telegram traffic reports itself. Attached by the service when
+         * the black box opens and detached when it closes, because the graph outlives both.
+         */
+        val breadcrumbRelay: BreadcrumbRelay,
         val runtime: ProtectionRuntime,
         val snapshotStore: ProtectionSnapshotStore,
         val statePersistence: ProtectionStatePersistenceArbiter,
@@ -44,6 +72,36 @@ object ProtectionRuntimeGraph {
         val sensorRepository: SensorConfigurationRepository? = null,
         val profileRepository: ProtectionProfileRepository? = null,
         val powerArmChallenge: PowerArmChallengeRegistry = PowerArmChallengeRegistry(),
+        /** Hardware inventory of this device, for the screens that must state it. */
+        val sensorCatalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog? = null,
+        /**
+         * What this phone measured about its own orientation drift. Shared rather than
+         * rebuilt: the graph opens the encrypted preferences, and a second opener of the same
+         * file by name would be reading someone else's ciphertext.
+         */
+        val driftMeasurementStore: EntryDriftMeasurementStore? = null,
+        /**
+         * Counts sensor samples for the black box's minute rows. Shared rather than rebuilt:
+         * it is filled by the one controller that owns the sensor registrations and emptied
+         * by the recorder in the service, and a second instance would be filled by nobody.
+         */
+        val blackBoxSensorTap: BlackBoxSensorTap? = null,
+        /** Where the black box's day files are written, and the only handle allowed to copy them. */
+        val blackBoxWriter: BlackBoxWriter? = null,
+        /** Answers `/where` without taking fixes away from whatever is already tracking. */
+        val onDemandLocationFinder: com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder? = null,
+        /**
+         * Reads the values a status answer needs that are only true at the moment it is
+         * asked. Built here because it is the only place holding the armed session, the
+         * parking anchor and the encrypted preferences at once.
+         */
+        val liveStatusReader: com.example.motorcycleantitheftsensor.telegram.LiveStatusReader? = null,
+        /**
+         * This boot, hashed, from the same string the day file's header carries. Taken from
+         * the header rather than derived again so the two can never disagree about which boot
+         * they are describing.
+         */
+        val blackBoxBootIdHash: Int = 0,
     )
 
     private fun buildGraph(context: Context): Graph {
@@ -114,9 +172,15 @@ object ProtectionRuntimeGraph {
                 }
             },
         )
+        val breadcrumbRelay = BreadcrumbRelay()
         val telegram = TelegramBotClient(
             prefsManager = preferences,
             onTelegramContact = { atMs -> coordinator.recordTelegramContact(atMs) },
+            // This is the client incidents go out on. Without a sink here the black box saw
+            // only the heartbeat's traffic and could not say whether an alert was ever tried.
+            breadcrumb = { event, details ->
+                breadcrumbRelay.note(BreadcrumbDomain.TELEGRAM, event, details)
+            },
         )
         val progressTelegram = com.example.motorcycleantitheftsensor.telegram.TelegramIncidentProgressTransport(
             httpClient = com.example.motorcycleantitheftsensor.network.TlsPinningClient.client,
@@ -125,21 +189,50 @@ object ProtectionRuntimeGraph {
         )
         val sms = SmsFallbackManager(context, preferences)
         val labelResolver = com.example.motorcycleantitheftsensor.location.AndroidLocationLabelResolver(context)
-        val locationProvider = LocationObservationProvider(context)
+        // Built here rather than inside the provider so the on-demand lookup can share it.
+        // Sharing the client is not sharing a registration: each `register` call returns
+        // its own, which is what keeps a `/where` from disturbing an armed tracker.
+        val locationClient = com.example.motorcycleantitheftsensor.sensor.AndroidLocationUpdatesClient(
+            context.applicationContext,
+        )
+        val locationProvider = LocationObservationProvider(locationClient)
         val delivery = IncidentDeliveryCoordinator(
             repository = repository,
             formatter = IncidentMessageFormatter { coordinator.snapshot.value },
             telegram = IncidentTransport(telegram::sendTelegramAlert),
-            sms = IncidentTransport { _ ->
+            sms = IncidentTransport { message ->
                 val destination = preferences.getSmsDestination()
-                if (destination.isNullOrBlank() || preferences.getSmsAesKey().isNullOrBlank()) {
+                if (destination.isNullOrBlank()) {
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.SMS,
+                        BreadcrumbEvent.DENIED,
+                        listOf(BreadcrumbDetail.NOT_CONFIGURED),
+                    )
                     false
                 } else {
-                    sms.sendEncryptedSmsAlert(destination, "SECURITY_INCIDENT")
+                    val outcome = sms.send(destination, message)
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.SMS,
+                        outcome.breadcrumbEvent(),
+                        outcome.breadcrumbDetails(),
+                    )
+                    outcome == SmsSendOutcome.SENT
                 }
             },
             labelResolver = labelResolver,
             progressTelegram = progressTelegram,
+        )
+        val incidentRedeliverer = IncidentRedeliverer(
+            history = { withContext(Dispatchers.IO) { repository.listNewestFirst() } },
+            delivery = delivery,
+            configuration = {
+                withContext(Dispatchers.IO) {
+                    DeliveryConfiguration(
+                        smsConfigured = !preferences.getSmsDestination().isNullOrBlank(),
+                    )
+                }
+            },
+            nowMs = System::currentTimeMillis,
         )
         val processor = SensorObservationProcessor(
             staleAfterMs = 5_000L,
@@ -166,25 +259,52 @@ object ProtectionRuntimeGraph {
         val deliveryPolicy = IncidentUpdateDeliveryPolicy()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val incidentMutex = Mutex()
+        // Persists a copy the engine produced, which always says PENDING with no attempts
+        // whatever became of the message. Anything already on file about that delivery is kept.
+        suspend fun persistPreservingDeliveryRecord(incident: SecurityIncident) {
+            withContext(Dispatchers.IO) {
+                repository.upsert(incident.withDeliveryRecordOf(repository.findById(incident.id)))
+            }
+        }
         suspend fun process(update: IncidentUpdate) {
+            (update as? IncidentUpdate.Opened)?.supersededIncident?.let { superseded ->
+                // Already settled and already notified at its own opening: persist the
+                // closure so history has no orphan, but never notify a second time.
+                persistPreservingDeliveryRecord(superseded)
+                coordinator.recordIncident(superseded)
+            }
             val incident = update.incidentOrNull() ?: return
             when (deliveryPolicy.action(update)) {
                 DeliveryAction.NONE -> Unit
                 DeliveryAction.PERSIST_ONLY -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                 }
 
+                DeliveryAction.SUPPRESS_REPEAT -> {
+                    persistPreservingDeliveryRecord(incident)
+                    coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
+                    coordinator.recordIncident(incident)
+                    // A silence the app chose. Recorded so that a reader asking why an
+                    // ongoing incident went quiet is not left to guess between a rule and
+                    // a fault — the two look identical from outside and are not the same.
+                    breadcrumbRelay.note(
+                        BreadcrumbDomain.TELEGRAM,
+                        BreadcrumbEvent.DENIED,
+                        listOf(BreadcrumbDetail.RATE_LIMITED),
+                    )
+                }
+
                 DeliveryAction.PERSIST_AND_EDIT -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                     delivery.updateProgress(incident)
                 }
 
                 DeliveryAction.SEND_CONTINUATION -> {
-                    withContext(Dispatchers.IO) { repository.upsert(incident) }
+                    persistPreservingDeliveryRecord(incident)
                     coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                     coordinator.recordIncident(incident)
                     delivery.updateProgress(incident)
@@ -195,12 +315,35 @@ object ProtectionRuntimeGraph {
                 DeliveryAction.SEND_CLOSE_SUMMARY,
                 -> {
                     coordinator.recordIncident(incident)
+                    // The key is generated on demand, so a destination is the only thing the
+                    // owner still has to supply.
+                    val smsConfigured = withContext(Dispatchers.IO) {
+                        !preferences.getSmsDestination().isNullOrBlank()
+                    }
                     val delivered = withContext(Dispatchers.IO) {
                         delivery.deliver(
                             update = update,
-                            configuration = DeliveryConfiguration(
-                                smsConfigured = !preferences.getSmsDestination().isNullOrBlank() &&
-                                    !preferences.getSmsAesKey().isNullOrBlank(),
+                            configuration = DeliveryConfiguration(smsConfigured = smsConfigured),
+                        )
+                    }
+                    val smsWasTried = delivered.deliveryAttempts.any { attempt ->
+                        attempt.channel == DeliveryChannel.SMS
+                    }
+                    if (delivered.deliveryState == DeliveryState.FAILED && !smsWasTried) {
+                        // Nothing reached the owner and the fallback was never even called, so
+                        // nothing downstream can report why. Read off the record rather than by
+                        // asking the rule again: this says what happened, not what should have.
+                        // A silent night explained by an absent or a withheld fallback is
+                        // exactly what a reader of this file comes looking for.
+                        breadcrumbRelay.note(
+                            BreadcrumbDomain.SMS,
+                            BreadcrumbEvent.DENIED,
+                            listOf(
+                                if (smsConfigured) {
+                                    BreadcrumbDetail.BELOW_THRESHOLD
+                                } else {
+                                    BreadcrumbDetail.NOT_CONFIGURED
+                                },
                             ),
                         )
                     }
@@ -219,7 +362,7 @@ object ProtectionRuntimeGraph {
         val incidentCloseDispatcher = IncidentCloseDispatcher(
             scope = scope,
             persistLocal = { incident ->
-                withContext(Dispatchers.IO) { repository.upsert(incident) }
+                persistPreservingDeliveryRecord(incident)
                 coordinator.recordPersistenceRecovered(PersistenceSource.INCIDENT_HISTORY)
                 coordinator.recordIncident(incident)
             },
@@ -243,6 +386,13 @@ object ProtectionRuntimeGraph {
         fun scheduleQuietWatchdog() {
             synchronized(watchdogLock) {
                 quietWatchdogJob?.cancel()
+                quietWatchdogJob = null
+                // A power episode is never closed by silence, so a watchdog over one
+                // would wake every quiet window only to decline. Leave it unscheduled;
+                // the next non-power update schedules it again.
+                if (incidentEngine.activeIncidentType == IncidentType.POWER) {
+                    return
+                }
                 quietWatchdogJob = scope.launch {
                     while (isActive) {
                         delay(INCIDENT_QUIET_WINDOW_MS)
@@ -289,6 +439,9 @@ object ProtectionRuntimeGraph {
                                 observation = batch.primary,
                                 protectionState = coordinator.snapshot.value.state,
                                 location = batch.location,
+                                movementCorroborationArmed = coordinator.movementCorroborationArmed(),
+                                soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
+                                doorAngleWatch = coordinator.doorAngleWatchArmed(),
                             )
                         } else {
                             IncidentUpdate.Ignored
@@ -301,6 +454,9 @@ object ProtectionRuntimeGraph {
                                     observation = evidence,
                                     protectionState = coordinator.snapshot.value.state,
                                     location = batch.location,
+                                    movementCorroborationArmed = coordinator.movementCorroborationArmed(),
+                                    soundAndMovementDoorWatch = coordinator.soundAndMovementDoorWatchArmed(),
+                                    doorAngleWatch = coordinator.doorAngleWatchArmed(),
                                 )
                                 evidenceUpdate.incidentOrNull()?.let { latest -> update.withIncident(latest) } ?: update
                             }
@@ -359,6 +515,13 @@ object ProtectionRuntimeGraph {
                             if (!coordinator.acceptsIncident(sessionEpoch) || armedSessionId.isNullOrBlank()) return@withLock null
                             val obs = SensorObservation(
                                 kind = SensorKind.LOCATION,
+                                // This fix reaches the engine without passing the detector
+                                // set, so it is stamped from the same table the armed use
+                                // gave the runtime. Falling back to primary keeps the
+                                // pre-declaration behaviour of a movement alert that opens
+                                // on its own rather than muting it.
+                                role = coordinator.currentSignalRole(SensorKind.LOCATION)
+                                    ?: SensorRole.PRIMARY,
                                 eventElapsedMs = fix.elapsedRealtimeMs,
                                 wallClockMs = fix.wallClockMs,
                                 normalizedValue = 1.0,
@@ -408,6 +571,16 @@ object ProtectionRuntimeGraph {
         val sensorNormalizer = com.example.motorcycleantitheftsensor.sensor.SensorObservationNormalizer()
         val sensorCalibrationManager = com.example.motorcycleantitheftsensor.sensor.SensorCalibrationManager()
         val sensorPolicy = SensorConfigurationPolicy()
+        val blackBoxSensorTap = BlackBoxSensorTap()
+        // Built here rather than in the service because two things need the same instance:
+        // the recorder that appends to it, and the export that has to copy it under the very
+        // lock the recorder appends with.
+        val blackBoxFileHeader = blackBoxHeader(context, sensorCatalog)
+        val blackBoxWriter = BlackBoxWriter(
+            directory = File(context.filesDir, BlackBoxWriter.DIRECTORY),
+            header = blackBoxFileHeader,
+            wallClockMs = System::currentTimeMillis,
+        )
         val sensorController = com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController(
             sensorManager = sensorManager,
             catalog = sensorCatalog,
@@ -415,6 +588,11 @@ object ProtectionRuntimeGraph {
             normalizer = sensorNormalizer,
             policy = sensorPolicy,
             handlerOwner = sensorHandlerOwner,
+            // Values are copied out inside the tap; the array this hands over is the
+            // platform's own and is rewritten by the next event.
+            sampleTap = { sample ->
+                blackBoxSensorTap.onSample(sample.source, sample.values, sample.accuracy)
+            },
         )
         val sharedPrefs = try {
             androidx.security.crypto.EncryptedSharedPreferences.create(
@@ -436,6 +614,10 @@ object ProtectionRuntimeGraph {
             legacyRepository = sensorRepository,
         )
 
+        // What this particular phone measured about its own orientation drift. Read at the
+        // moment a use is offered, which is why it lives outside any session.
+        val driftMeasurementStore = SharedPreferencesEntryDriftMeasurementStore(sharedPrefs)
+
         val runtime = AndroidProtectionRuntime(
             readinessProvider = AndroidRuntimeReadiness(context) {
                 RemoteControlReadiness(
@@ -453,6 +635,7 @@ object ProtectionRuntimeGraph {
                     handlerOwner = sensorHandlerOwner,
                     controller = sensorController,
                     resumedPowerSemantic = restoredPowerRuntime?.semantic,
+                    armingProvider = { coordinator.snapshot.value.state == ProtectionState.ARMING },
                 )
             },
             observationProcessor = processor,
@@ -477,7 +660,7 @@ object ProtectionRuntimeGraph {
                 sensorFusionConfiguration = initialConfig,
             ),
             runtime = runtime,
-            armingDelay = ArmingDelay { delay(10_000L) },
+            armingDelay = ArmingDelay { delay(ARMING_WINDOW_MS) },
             clock = wallClock,
             incidentCloser = { reason ->
                 synchronized(watchdogLock) {
@@ -503,7 +686,10 @@ object ProtectionRuntimeGraph {
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
             entryCommissioningContextProvider = {
-                EntryCommissioningEnvironment.currentContext(entryUseContinuous = true)
+                EntryCommissioningEnvironment.currentContext(
+                    entryUseContinuous = true,
+                    source = runtime.entryOrientationSource(),
+                )
             },
             powerCommissioningContextProvider = {
                 PowerWitnessCommissioningPolicy.CommissioningContext(
@@ -511,6 +697,28 @@ object ProtectionRuntimeGraph {
                     hoodSignature = PowerWitnessCommissioningPolicy.DEFAULT_HOOD_SIGNATURE,
                     algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
                     powerUseContinuous = true,
+                )
+            },
+            deviceSupport = { profile ->
+                ProfileDeviceSupportPolicy.support(
+                    profile,
+                    com.example.motorcycleantitheftsensor.sensor.SensorAvailabilityPolicy
+                        .availability(sensorCatalog.descriptors()),
+                    // The door watch is offered on the strength of what this phone measured
+                    // about itself, against the angle this owner actually set. A phone that
+                    // measured nothing is unaffected.
+                    entryDrift = EntryDriftBudgetPolicy.verdict(
+                        measurement = driftMeasurementStore.load(),
+                        alertAngleDeg = entryAlertAngleDeg(profileRepository),
+                        currentSource = runtime.entryOrientationSource(),
+                    ),
+                )
+            },
+            entryDriftVerdict = {
+                EntryDriftBudgetPolicy.verdict(
+                    measurement = driftMeasurementStore.load(),
+                    alertAngleDeg = entryAlertAngleDeg(profileRepository),
+                    currentSource = runtime.entryOrientationSource(),
                 )
             },
             powerIntegrityChallenge = { graphPowerArmChallenge.isSatisfied(wallClock.nowMs()) },
@@ -546,7 +754,14 @@ object ProtectionRuntimeGraph {
                 val prev = previousNotifiedState
                 previousNotifiedState = current
 
-                val messages = stateNotifier.messagesFor(prev, current, snapshot.degradationReasons)
+                val messages = stateNotifier.messagesFor(
+                    previous = prev,
+                    current = current,
+                    degradationReasons = snapshot.degradationReasons,
+                    // Read from the same snapshot that carries the state, so the alert
+                    // cannot name a mode the transition did not happen under.
+                    context = snapshot.modeContext,
+                )
                 if (messages.isNotEmpty()) {
                     scope.launch(Dispatchers.IO) {
                         for (msg in messages) {
@@ -562,6 +777,8 @@ object ProtectionRuntimeGraph {
             coordinator = coordinator,
             incidents = repository,
             delivery = delivery,
+            incidentRedeliverer = incidentRedeliverer,
+            breadcrumbRelay = breadcrumbRelay,
             runtime = runtime,
             snapshotStore = snapshotStore,
             statePersistence = statePersistence,
@@ -570,6 +787,99 @@ object ProtectionRuntimeGraph {
             sensorRepository = sensorRepository,
             profileRepository = profileRepository,
             powerArmChallenge = graphPowerArmChallenge,
+            sensorCatalog = sensorCatalog,
+            driftMeasurementStore = driftMeasurementStore,
+            blackBoxSensorTap = blackBoxSensorTap,
+            blackBoxWriter = blackBoxWriter,
+            blackBoxBootIdHash = blackBoxFileHeader.bootId.hashCode(),
+            liveStatusReader = { profile ->
+                // Never a measurement, only a reading of state that already exists. An
+                // owner whose vehicle has just been taken sends this command over and over,
+                // and the battery left in the phone is the entire budget for finding it, so
+                // no branch here may wake the radio or register a listener.
+                val nowElapsedMs = SystemClock.elapsedRealtime()
+                val movement = if (profile == ProtectionProfile.VEHICLE) {
+                    runCatching { movementTrackingStore.load() }.getOrNull()
+                } else {
+                    null
+                }
+                val anchor = movement?.anchor
+                val fix = anchor?.let { locationProvider.currentUsableFix(nowElapsedMs) }
+                com.example.motorcycleantitheftsensor.telegram.LiveStatusReadings(
+                    doorAngleDeg = runtime.liveDoorAngleDeg(),
+                    doorGate = runtime.liveDoorGate(),
+                    witnessLit = runtime.liveWitnessLit(),
+                    confirmationCountdownMs = runtime.liveConfirmationCountdownMs(nowElapsedMs),
+                    metersFromParking = if (anchor != null && fix != null) {
+                        MovementDisplacementPolicy.calculateHaversineDistance(
+                            anchor.fix.latitude,
+                            anchor.fix.longitude,
+                            fix.latitude,
+                            fix.longitude,
+                        )
+                    } else {
+                        null
+                    },
+                    // The threshold that would actually be applied to this pair of fixes,
+                    // computed the way MovementDisplacementPolicy computes it. Printing the
+                    // base constant instead would quote 100 metres while a pair of coarse
+                    // fixes was really being judged at 180, which is the kind of number that
+                    // teaches an owner their app is guessing.
+                    parkingThresholdMeters = if (anchor != null && fix != null) {
+                        MovementDisplacementPolicy.displacementThresholdMeters(
+                            anchor.fix.accuracyMeters,
+                            fix.accuracyMeters,
+                        )
+                    } else {
+                        null
+                    },
+                    pursuitActive = movement?.let { it.session != null },
+                    smsFallbackMasked = PresentationTextCatalog.maskedSmsDestination(
+                        preferences.getSmsDestination(),
+                    ),
+                )
+            },
+            onDemandLocationFinder = com.example.motorcycleantitheftsensor.location.OnDemandLocationFinder(
+                tracking = locationProvider,
+                client = locationClient,
+                elapsedMs = SystemClock::elapsedRealtime,
+            ),
+        )
+    }
+
+    /**
+     * The cover page of every day file.
+     *
+     * Raw numbers with no statement of which sensor produced them, at what resolution, cannot
+     * be interpreted afterwards by anyone, us included. The boot is identified rather than the
+     * process: two runs separated by a kill share a boot id, and that is what separates "the
+     * app was killed" from "the phone rebooted".
+     */
+    private fun blackBoxHeader(
+        context: Context,
+        catalog: com.example.motorcycleantitheftsensor.sensor.SensorCatalog,
+    ): BlackBoxHeader {
+        val wallMs = System.currentTimeMillis()
+        val elapsed = SystemClock.elapsedRealtime()
+        val version = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "unknown"
+        val sensors = runCatching {
+            catalog.descriptors()
+                .filterValues { descriptor -> descriptor.isAvailable }
+                .entries
+                .joinToString(";") { (source, descriptor) ->
+                    "${source.name}:${descriptor.name}:${descriptor.vendor}:${descriptor.resolution}"
+                }
+        }.getOrNull().orEmpty()
+        return BlackBoxHeader(
+            device = "${android.os.Build.MANUFACTURER}/${android.os.Build.MODEL}",
+            androidSdk = android.os.Build.VERSION.SDK_INT,
+            appVersion = version,
+            bootId = ((wallMs - elapsed) / 1_000L).toString(),
+            wallAnchorMs = wallMs,
+            elapsedAtAnchorMs = elapsed,
+            sensors = sensors,
         )
     }
 
@@ -583,7 +893,7 @@ object ProtectionRuntimeGraph {
 
     private fun IncidentUpdate.withIncident(incident: SecurityIncident): IncidentUpdate = when (this) {
         IncidentUpdate.Ignored -> this
-        is IncidentUpdate.Opened -> IncidentUpdate.Opened(incident)
+        is IncidentUpdate.Opened -> IncidentUpdate.Opened(incident, supersededIncident)
         is IncidentUpdate.Updated -> IncidentUpdate.Updated(incident)
         is IncidentUpdate.Escalated -> IncidentUpdate.Escalated(incident)
         is IncidentUpdate.Closed -> IncidentUpdate.Closed(incident)
@@ -620,5 +930,7 @@ private fun powerSemanticForDiagnostic(
     ProtectionDiagnostics.POWER_CHARGING_HEALTH -> PowerCompositeArbiter.SemanticState.CHARGING_LOST
     ProtectionDiagnostics.POWER_WITNESS_DARK -> PowerCompositeArbiter.SemanticState.WITNESS_LOST
     ProtectionDiagnostics.POWER_CONFIRMED_LOSS -> PowerCompositeArbiter.SemanticState.DUAL_LOST
+    ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK -> PowerCompositeArbiter.SemanticState.WITNESS_LOST
+    ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST -> PowerCompositeArbiter.SemanticState.CHARGING_LOST
     else -> null
 }

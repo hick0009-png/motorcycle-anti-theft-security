@@ -14,6 +14,25 @@ import org.junit.Test
  */
 class EntryOrientationMathTest {
 
+    @Test
+    fun deviceUpVectorReadsTheTiltAndIgnoresTheDoubleCoverSign() {
+        val flat = EntryOrientationMath.deviceUpVector(EntryQuaternion.IDENTITY)
+        assertEquals(0.0, flat.x, 1e-9)
+        assertEquals(0.0, flat.y, 1e-9)
+        assertEquals(1.0, flat.z, 1e-9)
+
+        // Tipped a quarter turn about X: up now points along the device's own +Y.
+        val half = Math.toRadians(90.0) / 2.0
+        val onEdge = EntryQuaternion(kotlin.math.cos(half), kotlin.math.sin(half), 0.0, 0.0)
+        val tilted = EntryOrientationMath.deviceUpVector(onEdge)
+        assertEquals(90.0, EntryOrientationMath.angleBetweenDeg(flat, tilted), 1e-6)
+
+        val negated = EntryQuaternion(-onEdge.w, -onEdge.x, -onEdge.y, -onEdge.z)
+        val fromNegated = EntryOrientationMath.deviceUpVector(negated)
+        assertEquals(0.0, EntryOrientationMath.angleBetweenDeg(tilted, fromNegated), 1e-9)
+    }
+
+
     private val epsilon = 1e-6
 
     private fun quatFromAxisAngleDeg(

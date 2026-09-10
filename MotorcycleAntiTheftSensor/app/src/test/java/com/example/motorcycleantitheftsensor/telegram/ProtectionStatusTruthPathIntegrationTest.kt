@@ -2,12 +2,7 @@ package com.example.motorcycleantitheftsensor.telegram
 
 import com.example.motorcycleantitheftsensor.protection.AudioRuntimeState
 import com.example.motorcycleantitheftsensor.protection.ChargingState
-import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
-import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
-import com.example.motorcycleantitheftsensor.protection.IncidentSummary
-import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
-import com.example.motorcycleantitheftsensor.protection.LocationFailureCode
 import com.example.motorcycleantitheftsensor.protection.LocationHealthDetail
 import com.example.motorcycleantitheftsensor.protection.LocationTrackingState
 import com.example.motorcycleantitheftsensor.protection.MicrophoneHealthDetail
@@ -18,12 +13,9 @@ import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.VibrationHealthDetail
-import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
-import com.example.motorcycleantitheftsensor.protection.GuidanceCode
 import com.example.motorcycleantitheftsensor.protection.ProtectionStateTelegramNotifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -99,7 +91,7 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("🔎 เซนเซอร์กำลังตรวจจับ: 5/5"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 5/5"))
         assertTrue(output.contains("✅ การสั่น: ทำงาน"))
         assertTrue(output.contains("✅ แสง: ทำงาน | 55 lux"))
         assertTrue(output.contains("✅ ไมโครโฟน: กำลังฟัง | ตัวจำแนกเสียงพร้อม"))
@@ -146,8 +138,8 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะระบบ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
-        assertTrue(output.contains("🔎 เซนเซอร์: กำลังเริ่มการทำงาน | พร้อมใช้งาน 5/5"))
+        assertTrue(output.contains("กำลังเริ่มการเฝ้า"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: กำลังเริ่ม | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("⏳ GPS: กำลังติดตาม | รอพิกัดแรก"))
         assertFalse(output.contains("ข้อมูลเก่า"))
     }
@@ -194,7 +186,7 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("🔎 เซนเซอร์กำลังตรวจจับ: 4/5"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 4/5"))
         assertTrue(output.contains("⚠️ GPS: พิกัดล่าสุด 45 วินาทีที่แล้ว | ข้อมูลเก่า"))
         assertTrue(output.contains("วิธีแก้: ตรวจว่าเปิดตำแหน่งและวางโทรศัพท์ในจุดรับสัญญาณได้"))
     }
@@ -274,8 +266,8 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะระบบ: ปลดการป้องกันแล้ว"))
-        assertTrue(output.contains("🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน 5/5"))
+        assertTrue(output.contains("ยังไม่ได้เปิดการเฝ้า"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: หยุดตามคำสั่ง /disarm | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("✅ ระบบทำงานครบ ไม่พบปัญหา"))
     }
 
@@ -289,7 +281,7 @@ class ProtectionStatusTruthPathIntegrationTest {
 
         val output = formatter.format(snapshot, nowMs, nowMs)
         assertTrue(output.contains("❌ Service: ออฟไลน์"))
-        assertTrue(output.contains("วิธีแก้: เปิดแอปบนมือถือรถเพื่อเริ่มบริการป้องกัน"))
+        assertTrue(output.contains("วิธีแก้: เปิดแอปในอุปกรณ์เพื่อเริ่มบริการป้องกัน"))
     }
 
     @Test
@@ -376,8 +368,8 @@ class ProtectionStatusTruthPathIntegrationTest {
         // Evaluate with realistic disparate clocks
         val output = formatter.format(snapshot, nowWallClockMs, nowElapsedRealtimeMs)
 
-        assertTrue("Output should indicate 5/5 active sensors", output.contains("🔎 เซนเซอร์กำลังตรวจจับ: 5/5"))
-        assertTrue("Output should format 30 seconds arm duration", output.contains("ทำงานมาแล้ว: 30 วินาที"))
+        assertTrue("Output should indicate 5/5 active sensors", output.contains("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 5/5"))
+        assertTrue("Output should format 30 seconds arm duration", output.contains("เฝ้ามาแล้ว 30 วินาที"))
         assertTrue("Output should report healthy state", output.contains("✅ ระบบทำงานครบ ไม่พบปัญหา"))
         assertFalse("Output should not report clock anomaly", output.contains("เวลาในระบบผิดปกติ"))
         assertFalse("Output should not report stale", output.contains("ข้อมูลเก่า"))
@@ -421,7 +413,7 @@ class ProtectionStatusTruthPathIntegrationTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue("Output should indicate sensitivity 8/10", output.contains("[ 🏃 การเคลื่อนไหว ]\nความไวการตรวจจับ: 8/10"))
+        assertTrue("Output should indicate sensitivity 8/10", output.contains("ความไวการตรวจจับ: 8/10"))
     }
 
     @Test

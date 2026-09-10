@@ -1,13 +1,10 @@
 package com.example.motorcycleantitheftsensor.protection
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import kotlin.math.abs
 
 class IncidentEngineTest {
 
@@ -27,8 +24,12 @@ class IncidentEngineTest {
         normalizedValue: Double = 1.0,
         diagnostic: String? = null,
         audioThreat: AudioThreatMetadata? = null,
+        // These proofs were written when a missing role counted as a host. Saying so
+        // explicitly keeps every one of them meaning what it meant.
+        role: SensorRole? = SensorRole.PRIMARY,
     ): SensorObservation = SensorObservation(
         kind = kind,
+        role = role,
         eventElapsedMs = elapsedMs,
         wallClockMs = 1_700_000_000_000L + elapsedMs,
         normalizedValue = normalizedValue,
@@ -116,6 +117,67 @@ class IncidentEngineTest {
         assertEquals(IncidentSeverity.WARNING, incident.severity)
         assertEquals(IncidentType.VIBRATION, incident.type)
         assertEquals(2, incident.evidence.size)
+    }
+
+    // -------------------------------------------------------------------------
+    // Door-angle level: the orientation verdict is the only host. The same sensor
+    // is read by two pipelines — the dedicated Entry listener (which stamps an entry
+    // diagnostic) and the general detector set (which forwards raw, PRIMARY-stamped
+    // movement) — so a raw tick reaching an opening decision here must corroborate,
+    // never open a vehicle-shaped incident beside the real door watch.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun doorAngleWatchTreatsRawMovementAsCorroborationNotAnIncident() {
+        val rawMovement = accepted(SensorKind.VIBRATION, elapsedMs = 1000L, normalizedValue = 20.0)
+        val update = engine.accept(
+            rawMovement,
+            ProtectionState.ARMED_HEALTHY,
+            doorAngleWatch = true,
+        )
+        assertEquals(IncidentUpdate.Ignored, update)
+    }
+
+    @Test
+    fun withoutDoorAngleWatchRawMovementStillOpensVibrationIncident() {
+        // The demotion is confined to the angle level; every other use still hosts on movement.
+        val rawMovement = accepted(SensorKind.VIBRATION, elapsedMs = 1000L, normalizedValue = 20.0)
+        val update = engine.accept(rawMovement, ProtectionState.ARMED_HEALTHY)
+        assertTrue(update is IncidentUpdate.Opened)
+        assertEquals(IncidentType.VIBRATION, (update as IncidentUpdate.Opened).incident.type)
+    }
+
+    @Test
+    fun doorAngleWatchStillLetsTheOrientationVerdictOpenADoorIncident() {
+        val verdict = accepted(
+            SensorKind.VIBRATION,
+            elapsedMs = 1000L,
+            normalizedValue = 24.0,
+            diagnostic = ProtectionDiagnostics.ENTRY_DOOR_OPEN,
+        )
+        val update = engine.accept(verdict, ProtectionState.ARMED_HEALTHY, doorAngleWatch = true)
+        assertTrue(update is IncidentUpdate.Opened)
+        assertEquals(IncidentType.ENTRY_DOOR, (update as IncidentUpdate.Opened).incident.type)
+    }
+
+    @Test
+    fun doorAngleWatchStillLetsRawMovementJoinAnOpenDoorIncident() {
+        val verdict = accepted(
+            SensorKind.VIBRATION,
+            elapsedMs = 1000L,
+            normalizedValue = 24.0,
+            diagnostic = ProtectionDiagnostics.ENTRY_DOOR_OPEN,
+        )
+        engine.accept(verdict, ProtectionState.ARMED_HEALTHY, doorAngleWatch = true)
+
+        val rawImpact = accepted(SensorKind.VIBRATION, elapsedMs = 2000L, normalizedValue = 9.0)
+        val update = engine.accept(rawImpact, ProtectionState.ARMED_HEALTHY, doorAngleWatch = true)
+
+        assertTrue(update is IncidentUpdate.Updated)
+        val incident = (update as IncidentUpdate.Updated).incident
+        // Corroboration joins as evidence but never re-types the door incident to a vehicle one.
+        assertEquals(IncidentType.ENTRY_DOOR, incident.type)
+        assertTrue(incident.evidence.any { it.kind == SensorKind.VIBRATION && it.diagnostic == null })
     }
 
     @Test

@@ -2,10 +2,6 @@ package com.example.motorcycleantitheftsensor.ui
 
 import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -183,7 +179,6 @@ private class FakeAndroidProtectionSettingsOperations(
 
     override fun getSmsDestination(): String? = null
 
-    override fun getSmsAesKey(): String? = null
 
     override fun setSensitivity(level: Int) = Unit
 
@@ -194,7 +189,7 @@ private class FakeAndroidProtectionSettingsOperations(
 
     override fun saveSmsDestination(destination: String) = Unit
 
-    override fun saveSmsAesKey(aesKey: String) = Unit
+    override fun ensureSmsAesKey() = Unit
 
     override suspend fun verifyBotToken(token: String): com.example.motorcycleantitheftsensor.telegram.TelegramBotVerificationResult {
         events += "verify:$token"

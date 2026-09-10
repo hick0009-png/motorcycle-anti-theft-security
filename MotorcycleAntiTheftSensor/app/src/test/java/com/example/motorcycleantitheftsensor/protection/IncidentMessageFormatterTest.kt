@@ -140,7 +140,7 @@ class IncidentMessageFormatterTest {
     }
 
     @Test
-    fun formatSmsNeverIncludesMapsUrlCoordinatesOrLabel() {
+    fun formatSmsCarriesCoordinatesButNeitherMapsUrlNorGeocodedLabel() {
         val incident = criticalIncident().copy(
             type = IncidentType.TAMPER,
             evidence = listOf(
@@ -166,11 +166,56 @@ class IncidentMessageFormatterTest {
         )
 
         val message = formatter.formatSms(incident)
+        // Coordinates are the point of an offline alert; the reverse-geocoded label and the
+        // maps URL are not, because resolving one needs the network this channel replaces.
+        assertTrue(message.contains("📍 พิกัด: 13.75630,100.50180 (~8m)"))
         assertFalse(message.contains("maps.google.com"))
-        assertFalse(message.contains("13.7563"))
-        assertFalse(message.contains("100.5018"))
-        assertFalse(message.contains("ตำแหน่ง"))
-        assertFalse(message.contains("พิกัด"))
+        assertFalse(message.contains("ตำแหน่ง:"))
+    }
+
+    @Test
+    fun formatSmsCarriesCoordinatesThroughTheTypedEntryAndPowerCopy() {
+        val entry = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(
+                IncidentEvidence(
+                    kind = SensorKind.VIBRATION,
+                    eventElapsedMs = 0L,
+                    wallClockMs = 0L,
+                    normalizedValue = 25.0,
+                    baselineDelta = 2.5,
+                    diagnostic = ProtectionDiagnostics.ENTRY_DOOR_OPEN,
+                ),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+            location = IncidentLocation(13.7563, 100.5018, 8f, 1000L),
+        )
+
+        val message = formatter.formatSms(entry)
+        assertTrue(message.startsWith("ประตูเปิด 25° จากตำแหน่งปิด"))
+        assertTrue(message.contains("📍 พิกัด: 13.75630,100.50180 (~8m)"))
+    }
+
+    @Test
+    fun formatSmsWithoutAFixSaysNothingAboutWhereTheVehicleIs() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            lifecycle = IncidentLifecycle.OPEN,
+            location = null,
+        )
+
+        assertFalse(formatter.formatSms(incident).contains("พิกัด"))
+    }
+
+    @Test
+    fun formatSmsDropsCoordinatesOnceTheIncidentIsClosed() {
+        val closed = criticalIncident().copy(
+            type = IncidentType.TAMPER,
+            lifecycle = IncidentLifecycle.CLOSED,
+            location = IncidentLocation(13.7563, 100.5018, 8f, 1000L),
+        )
+
+        assertFalse(formatter.formatSms(closed).contains("พิกัด"))
     }
 
     @Test
@@ -375,6 +420,129 @@ class IncidentMessageFormatterTest {
 
         val message = formatter.format(IncidentUpdate.Closed(incident))
         assertEquals("หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย", message)
+    }
+
+    /**
+     * Bug #4 (entry sibling): a door episode closed because the owner disarmed — not because
+     * the door shut — must not read the last live door-open sample back as if it were the
+     * outcome. The close reason, not the stale evidence, decides.
+     */
+    @Test
+    fun entryIncidentClosedByDisarmSaysTheWatchEndedNotThatTheDoorIsStillOpen() {
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_door_open", angleDeg = 41.0)),
+            lifecycle = IncidentLifecycle.CLOSED,
+            closeReason = IncidentCloseReason.OWNER_DISARMED,
+        )
+
+        val message = formatter.format(IncidentUpdate.Closed(incident))
+        assertEquals("การเฝ้าระวังที่ประตูปิดลงแล้ว", message)
+        assertFalse(message.contains("ประตูเปิด"))
+    }
+
+    // -------------------------------------------------------------------------
+    // Mode-aware vocabulary: nothing sent while Entry Guard is armed may say "รถ".
+    // The word is chosen from the armed profile, not the sensor/incident type, so a
+    // door-mode event classified as VIBRATION still speaks about a door. This is the
+    // closed-vocabulary guard for the leak the owner saw in door mode — it turns the
+    // rule from something to remember into something the build enforces.
+    // -------------------------------------------------------------------------
+
+    private fun formatterForProfile(profile: ProtectionProfile) = IncidentMessageFormatter {
+        ProtectionSnapshot.offline(0L).copy(
+            batteryLevelPercent = 82,
+            batteryTemperatureCelsius = 31.5f,
+            armedProfileSnapshot = armedProfile(profile),
+        )
+    }
+
+    private fun armedProfile(profile: ProtectionProfile) = ArmedProfileSnapshot(
+        armedSessionId = "session-1",
+        profile = profile,
+        resolvedPresetVersion = 1,
+        effectiveConfiguration = SensorConfigurationPolicy().forPreset(SensorPreset.BALANCED, 0L),
+        configurationFingerprint = "fp-1",
+        commissionedModelFingerprint = null,
+        armedCalibrationSnapshot = VehicleArmedCalibrationSnapshot(generation = 1L),
+    )
+
+    @Test
+    fun noEntryModeMessageEverSaysVehicleWord() {
+        val entryFormatter = formatterForProfile(ProtectionProfile.ENTRY)
+
+        // A door-mode event does not always arrive typed ENTRY_DOOR: a hinge swing that the
+        // fusion layer classifies as generic movement reaches the untyped branch that once
+        // hard-coded "รถ". Cover the typed door path, the generic-fallback path, and the
+        // type-agnostic progress/continuation copy that runs every minute an event stays open.
+        val movementEvidence = IncidentEvidence(
+            kind = SensorKind.VIBRATION,
+            eventElapsedMs = 0L,
+            wallClockMs = 0L,
+            normalizedValue = 12.3,
+            baselineDelta = 2.5,
+            diagnostic = "accelerometer",
+        )
+        val entryDoorIncident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_door_open", angleDeg = 23.7)),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+        val genericDuringEntry = criticalIncident().copy(
+            type = IncidentType.VIBRATION,
+            evidence = listOf(movementEvidence),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val messages = listOf(
+            entryFormatter.formatTelegram(IncidentUpdate.Opened(entryDoorIncident)),
+            entryFormatter.formatTelegram(IncidentUpdate.Opened(genericDuringEntry)),
+            entryFormatter.formatSms(IncidentUpdate.Opened(genericDuringEntry), genericDuringEntry.location),
+            entryFormatter.formatDelayed(IncidentUpdate.Opened(genericDuringEntry), null, 3_600_000L),
+            entryFormatter.formatProgress(genericDuringEntry),
+            entryFormatter.formatContinuation(genericDuringEntry),
+            entryFormatter.formatContinuation(entryDoorIncident),
+        )
+
+        messages.forEach { message ->
+            assertFalse("Entry mode must never say the vehicle word: $message", message.contains("รถ"))
+        }
+    }
+
+    @Test
+    fun entryContinuationTellsOwnerToCheckTheDoor() {
+        val entryFormatter = formatterForProfile(ProtectionProfile.ENTRY)
+        val incident = criticalIncident().copy(
+            type = IncidentType.ENTRY_DOOR,
+            evidence = listOf(entryEvidence("entry_door_open", angleDeg = 20.0)),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = entryFormatter.formatContinuation(incident)
+        assertTrue(message.contains("ตรวจสอบประตูและตำแหน่งล่าสุดทันที"))
+    }
+
+    @Test
+    fun vehicleModeStillSaysVehicleWord() {
+        val vehicleFormatter = formatterForProfile(ProtectionProfile.VEHICLE)
+        val incident = criticalIncident().copy(
+            type = IncidentType.VIBRATION,
+            evidence = listOf(
+                IncidentEvidence(
+                    kind = SensorKind.VIBRATION,
+                    eventElapsedMs = 0L,
+                    wallClockMs = 0L,
+                    normalizedValue = 12.3,
+                    baselineDelta = 2.5,
+                    diagnostic = "accelerometer",
+                ),
+            ),
+            lifecycle = IncidentLifecycle.OPEN,
+        )
+
+        val message = vehicleFormatter.formatTelegram(IncidentUpdate.Opened(incident))
+        assertTrue(message.contains("รถถูกขยับหรือมุมเอียงเปลี่ยนไป"))
+        assertTrue(vehicleFormatter.formatContinuation(incident).contains("ตรวจสอบรถและตำแหน่งล่าสุดทันที"))
     }
 
     private fun criticalIncident() = SecurityIncident(

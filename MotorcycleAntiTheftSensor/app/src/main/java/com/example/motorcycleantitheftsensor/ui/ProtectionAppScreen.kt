@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -23,7 +22,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -32,13 +30,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.theme.MotorcycleAntiTheftSensorTheme
 import com.example.motorcycleantitheftsensor.ui.events.EventsScreen
 import com.example.motorcycleantitheftsensor.ui.protection.ProtectionScreen
 import com.example.motorcycleantitheftsensor.ui.settings.SettingsScreen
@@ -47,6 +46,8 @@ data class ProtectionAppActions(
     val selectDestination: (ProtectionDestination) -> Unit,
     val entrySetAngle: (Int) -> Unit = {},
     val entryStartCommissioning: (Int) -> Unit = {},
+    val entryStartCommissioningWithOptions: (Int, Double, Double) -> Unit = { angle, _, _ -> entryStartCommissioning(angle) },
+    val entryTareZero: () -> Unit = {},
     val entryCancelCommissioning: () -> Unit = {},
     val powerStartCommissioning: () -> Unit = {},
     val powerCancelCommissioning: () -> Unit = {},
@@ -58,7 +59,7 @@ data class ProtectionAppActions(
     val changeSensitivity: (Int) -> Unit,
     val requestPermissions: () -> Unit,
     val replaceBotToken: (String) -> Unit,
-    val configureSmsFallback: (String, String) -> Unit,
+    val configureSmsFallback: (String) -> Unit,
     val retry: () -> Unit,
     val retrySettings: () -> Unit,
     val resetPairing: () -> Unit,
@@ -70,6 +71,10 @@ data class ProtectionAppActions(
     val confirmProfileSwitch: () -> Unit = {},
     val cancelProfileSwitch: () -> Unit = {},
     val restoreRecommendedProfile: () -> Unit = {},
+    /** Diagnostic: starts or stops the overnight orientation-drift recording. */
+    val setDriftRecording: (Boolean) -> Unit = {},
+    /** Throws away the stored drift measurement so this phone can measure itself again. */
+    val clearDriftMeasurement: () -> Unit = {},
 )
 
 @Composable
@@ -90,7 +95,9 @@ fun ProtectionAppScreen(
         }
     }
 
-    MaterialTheme(colorScheme = MotoGuardNavyColorScheme) {
+    // The app's theme, applied here too so this screen renders the same palette when it is
+    // hosted on its own — previews and instrumented tests call it without MainActivity.
+    MotorcycleAntiTheftSensorTheme {
         Scaffold(
             modifier = modifier.safeDrawingPadding(),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -107,13 +114,13 @@ fun ProtectionAppScreen(
                     modifier = Modifier
                         .height(80.dp)
                         .testTag(PRIMARY_NAVIGATION_TAG),
-                    color = CanvasWhite,
+                    color = MaterialTheme.colorScheme.surface,
                 ) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         PrimaryDestination.entries.forEach { item ->
                             val selected = state.destination == item.destination
-                            val destinationLabel = stringResource(item.labelRes)
-                            val destinationContentDescription = stringResource(item.contentDescriptionRes)
+                            val destinationLabel = item.label
+                            val destinationContentDescription = item.contentDescription
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -137,7 +144,7 @@ fun ProtectionAppScreen(
                                 ),
                             ) {
                                 Surface(
-                                    color = if (selected) Navy else Color.Transparent,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                                     shape = RoundedCornerShape(16.dp),
                                 ) {
                                     Box(
@@ -149,7 +156,11 @@ fun ProtectionAppScreen(
                                         Icon(
                                             painter = painterResource(item.iconResource),
                                             contentDescription = null,
-                                            tint = if (selected) Color.White else Navy,
+                                            tint = if (selected) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            },
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .testTag(
@@ -161,7 +172,11 @@ fun ProtectionAppScreen(
                                 Text(
                                     text = destinationLabel,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = if (selected) Navy else MutedInk,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     modifier = Modifier.testTag(
                                         "primary_destination_label_${item.name}",
                                     ),
@@ -195,78 +210,28 @@ fun ProtectionAppScreen(
     }
 }
 
-private val Navy = Color(0xFF16324F)
-private val HeaderNavy = Color(0xFF245B85)
-private val Canvas = Color(0xFFF8FAFC)
-private val CanvasWhite = Color.White
-private val SoftNavySurface = Color(0xFFE6EFF8)
-private val MutedInk = Color(0xFF667085)
-private val Ink = Color(0xFF1C2530)
-private val Outline = Color(0xFFC8D3DF)
-private val HealthyGreen = Color(0xFF168A63)
-
-// Thai-first Moto Guard palette: navy communicates protection, white keeps dense controls legible.
-private val MotoGuardNavyColorScheme = lightColorScheme(
-    primary = Navy,
-    onPrimary = Color.White,
-    primaryContainer = SoftNavySurface,
-    onPrimaryContainer = Navy,
-    inversePrimary = HeaderNavy,
-    secondary = HeaderNavy,
-    onSecondary = Color.White,
-    secondaryContainer = SoftNavySurface,
-    onSecondaryContainer = Navy,
-    tertiary = HealthyGreen,
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFE6F5EF),
-    onTertiaryContainer = HealthyGreen,
-    background = Canvas,
-    onBackground = Ink,
-    surface = CanvasWhite,
-    onSurface = Ink,
-    surfaceVariant = SoftNavySurface,
-    onSurfaceVariant = MutedInk,
-    surfaceTint = Color.Transparent,
-    inverseSurface = Navy,
-    inverseOnSurface = Color.White,
-    error = Color(0xFFA81818),
-    onError = Color.White,
-    errorContainer = Color(0xFFFCE8E6),
-    onErrorContainer = Color(0xFFA81818),
-    outline = Outline,
-    outlineVariant = SoftNavySurface,
-    scrim = Color.Black,
-    surfaceBright = CanvasWhite,
-    surfaceContainer = CanvasWhite,
-    surfaceContainerHigh = Canvas,
-    surfaceContainerHighest = SoftNavySurface,
-    surfaceContainerLow = CanvasWhite,
-    surfaceContainerLowest = CanvasWhite,
-    surfaceDim = Canvas,
-)
-
 private enum class PrimaryDestination(
     val destination: ProtectionDestination,
-    val labelRes: Int,
-    val contentDescriptionRes: Int,
+    val label: String,
+    val contentDescription: String,
     val iconResource: Int,
 ) {
     PROTECTION(
         destination = ProtectionDestination.PROTECTION,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_protection_content_description,
+        label = PresentationTextCatalog.DESTINATION_PROTECTION_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_PROTECTION_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_protection,
     ),
     EVENTS(
         destination = ProtectionDestination.EVENTS,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_events_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_events_content_description,
+        label = PresentationTextCatalog.DESTINATION_EVENTS_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_EVENTS_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_events,
     ),
     SETTINGS(
         destination = ProtectionDestination.SETTINGS,
-        labelRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_label,
-        contentDescriptionRes = com.example.motorcycleantitheftsensor.R.string.destination_settings_content_description,
+        label = PresentationTextCatalog.DESTINATION_SETTINGS_LABEL,
+        contentDescription = PresentationTextCatalog.DESTINATION_SETTINGS_DESCRIPTION,
         iconResource = com.example.motorcycleantitheftsensor.R.drawable.ic_moto_guard_settings,
     ),
 }

@@ -188,7 +188,37 @@ data class ProtectionCommandResult(
     val outcome: CommandOutcome,
     val resultingState: ProtectionState,
     val reason: String,
+    /**
+     * Set when it was the device-support gate that refused, and never otherwise.
+     *
+     * [reason] is an English sentence for a log. What the owner has to be told depends on
+     * which sensor is missing, or how fast this phone measured itself drifting, and no
+     * substring match on that sentence can tell those apart — the screen used to fall
+     * through to "คำสั่งไม่สำเร็จ" and the real reason died here.
+     */
+    val unsupported: ProfileDeviceSupport.Unsupported? = null,
 )
+
+/**
+ * Why the system is asking for setup, for the one card that has to explain it.
+ *
+ * SETUP_REQUIRED is reached from six places and the screen showed the same sentence for all
+ * of them: "ตั้งค่า Bot และจับคู่เจ้าของให้ครบ". An owner whose door watch is simply not
+ * calibrated yet was sent to the Telegram settings, where there was nothing wrong.
+ */
+enum class SetupBlocker {
+    /** The selected use has not finished its own calibration. */
+    PROFILE_SETUP_REQUIRED,
+
+    /** A commissioned model no longer matches the phone it was commissioned on. */
+    RECOMMISSION_REQUIRED,
+
+    /** This device cannot carry the selected use at all. */
+    PROFILE_UNSUPPORTED,
+
+    /** Nothing is configured to lead detection, so nothing would open an incident. */
+    NO_PRIMARY_SENSOR,
+}
 
 data class ProtectionSnapshot(
     val state: ProtectionState,
@@ -212,6 +242,16 @@ data class ProtectionSnapshot(
     val sensorFusionConfiguration: SensorFusionConfiguration? = null,
     val sensorGenerationId: Long = 0L,
     val armedProfileSnapshot: ArmedProfileSnapshot? = null,
+    /** Why setup is required, when it is. Null outside SETUP_REQUIRED. */
+    val setupBlocker: SetupBlocker? = null,
+    /**
+     * Which use is being watched, present whether or not anything is armed.
+     *
+     * Null means one thing only: nobody has filled it in — a customer from before modes
+     * existed, or a caller that constructs a snapshot without a profile repository.
+     * Readers must fall back to speaking for no mode at all rather than assuming one.
+     */
+    val modeContext: ProtectionModeContext? = null,
 ) {
     companion object {
         fun offline(nowMs: Long): ProtectionSnapshot = ProtectionSnapshot(

@@ -33,6 +33,8 @@ class PowerRuntimeRestorationTest {
             "power_charging_health" to PowerCompositeArbiter.SemanticState.CHARGING_LOST,
             "power_witness_dark" to PowerCompositeArbiter.SemanticState.WITNESS_LOST,
             "power_confirmed_loss" to PowerCompositeArbiter.SemanticState.DUAL_LOST,
+            "power_partial_witness_dark" to PowerCompositeArbiter.SemanticState.WITNESS_LOST,
+            "power_partial_charging_lost" to PowerCompositeArbiter.SemanticState.CHARGING_LOST,
         )
 
         expected.forEach { (diagnostic, semantic) ->

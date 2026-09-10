@@ -4,11 +4,134 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProtectionProfilePolicyTest {
 
     private val policy = ProtectionProfilePolicy(nowMs = { 1_000L })
+
+    @Test
+    fun powerProfileLocksEverySourceExceptTheWitnessLamp() {
+        val locked = ProtectionProfilePolicy.lockedSources(ProtectionProfile.POWER)
+
+        assertEquals(SensorSource.entries.size - 1, locked.size)
+        assertFalse(SensorSource.AMBIENT_LIGHT in locked)
+        assertTrue(SensorSource.ACCELEROMETER in locked)
+        assertTrue(SensorSource.GAME_ROTATION_VECTOR in locked)
+        assertTrue(SensorSource.PROXIMITY in locked)
+    }
+
+    @Test
+    fun fullyCustomisableProfilesLockNothing() {
+        assertEquals(emptySet<SensorSource>(), ProtectionProfilePolicy.lockedSources(ProtectionProfile.VEHICLE))
+        assertEquals(emptySet<SensorSource>(), ProtectionProfilePolicy.lockedSources(ProtectionProfile.ENTRY))
+        assertEquals(
+            emptySet<SensorCapability>(),
+            ProtectionProfilePolicy.lockedCapabilities(ProtectionProfile.VEHICLE),
+        )
+        assertTrue(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.VEHICLE))
+        assertTrue(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.ENTRY))
+    }
+
+    @Test
+    fun powerLocksEveryCapabilityWhoseSourcesAreAllLocked() {
+        val locked = ProtectionProfilePolicy.lockedCapabilities(ProtectionProfile.POWER)
+
+        assertEquals(
+            setOf(
+                SensorCapability.MOVEMENT,
+                SensorCapability.ROTATION,
+                SensorCapability.MAGNETIC,
+                SensorCapability.PROXIMITY,
+            ),
+            locked,
+        )
+        // LIGHT keeps an editable source, so its group control must stay live.
+        assertFalse(SensorCapability.LIGHT in locked)
+        assertFalse(ProtectionProfilePolicy.presetSelectable(ProtectionProfile.POWER))
+    }
+
+    @Test
+    fun publishedLockedSourcesMatchWhatResolveActuallyPinsOff() {
+        // The settings screen reads lockedSources(); resolve() enforces it. If the
+        // recommendation table ever changes, this is where the two would drift apart.
+        ProtectionProfile.entries.forEach { profile ->
+            val recommendedOff = ProtectionProfilePolicy.lockedSources(profile)
+            val state = policy.newStoreState()
+            val stored = state.profiles.getValue(profile)
+            val raised = SensorSource.entries.associateWith {
+                SensorSourceProfileOverrides(role = SensorRole.PRIMARY)
+            }
+            val withOverrides = state.copy(
+                profiles = state.profiles + (
+                    profile to stored.copy(
+                        sensorOverrides = SensorFusionProfileOverrides(sources = raised),
+                    )
+                    ),
+            )
+            val resolved = policy.resolve(withOverrides, profile).sensorConfiguration
+
+            recommendedOff.forEach { source ->
+                assertEquals(
+                    "$profile must pin $source OFF even when an override raises it",
+                    SensorRole.OFF,
+                    resolved.source(source).role,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun publishedRecommendationMatchesTheConfigurationEachProfileResolvesTo() {
+        // The settings screen stars a button from recommendedRoles(); the runtime receives
+        // recommended().sensorConfiguration. If these ever drift, the star points at a role
+        // the profile has stopped asking for and nothing else would notice.
+        ProtectionProfile.entries.forEach { profile ->
+            val published = ProtectionProfilePolicy.recommendedRoles(profile)
+            val resolved = policy.recommended(profile).sensorConfiguration
+
+            assertEquals(
+                "$profile must publish a role for every source",
+                SensorSource.entries.toSet(),
+                published.keys,
+            )
+            SensorSource.entries.forEach { source ->
+                assertEquals(
+                    "$profile recommends a different role for $source than it resolves to",
+                    resolved.source(source).role,
+                    published.getValue(source),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun eachProfileRecommendsAtLeastOnePrimarySource() {
+        // A recommendation the owner can restore to must still be armable; restoring into
+        // a configuration with no primary would leave the screen warning about its own
+        // suggestion.
+        ProtectionProfile.entries.forEach { profile ->
+            assertTrue(
+                "$profile recommends no primary source",
+                ProtectionProfilePolicy.recommendedRoles(profile)
+                    .containsValue(SensorRole.PRIMARY),
+            )
+        }
+    }
+
+    @Test
+    fun theTwoMovementProfilesRecommendDifferentLeadSensors() {
+        // The visible point of the star: a door swings before it shakes, a vehicle shakes
+        // before it turns. If these ever match, the profiles are the same profile.
+        val vehicle = ProtectionProfilePolicy.recommendedRoles(ProtectionProfile.VEHICLE)
+        val entry = ProtectionProfilePolicy.recommendedRoles(ProtectionProfile.ENTRY)
+
+        assertEquals(SensorRole.PRIMARY, vehicle.getValue(SensorSource.ACCELEROMETER))
+        assertEquals(SensorRole.SUPPORTING, vehicle.getValue(SensorSource.GYROSCOPE))
+        assertEquals(SensorRole.PRIMARY, entry.getValue(SensorSource.GYROSCOPE))
+        assertEquals(SensorRole.SUPPORTING, entry.getValue(SensorSource.ACCELEROMETER))
+    }
 
     @Test
     fun newStoreHasEveryProfileWithoutImplicitCustomerSelection() {
@@ -202,4 +325,88 @@ class ProtectionProfilePolicyTest {
             policy.updateProfile(initial, vehicle)
         }
     }
+
+    /**
+     * Fix A: the POWER preset turns every non-light source OFF because Power Guard
+     * watches one lamp and one charging signal. A stored per-source override must not
+     * be able to put movement sensors back on: a live accelerometer opens rival
+     * incidents when the owner physically touches the cable.
+     */
+    @Test
+    fun powerProfileKeepsNonLightSourcesOffDespiteStoredOverrides() {
+        val initial = policy.newStoreState()
+        val power = initial.profiles.getValue(ProtectionProfile.POWER)
+        val tampered = policy.updateProfile(
+            initial,
+            power.copy(
+                sensorOverrides = power.sensorOverrides.copy(
+                    sources = mapOf(
+                        SensorSource.ACCELEROMETER to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                        SensorSource.SIGNIFICANT_MOTION to SensorSourceProfileOverrides(
+                            role = SensorRole.SUPPORTING,
+                        ),
+                        SensorSource.GYROSCOPE to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resolved = policy.resolve(tampered, ProtectionProfile.POWER).sensorConfiguration
+
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.ACCELEROMETER).role)
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.SIGNIFICANT_MOTION).role)
+        assertEquals(SensorRole.OFF, resolved.source(SensorSource.GYROSCOPE).role)
+        assertEquals(SensorRole.PRIMARY, resolved.source(SensorSource.AMBIENT_LIGHT).role)
+    }
+
+    @Test
+    fun nonPowerProfilesStillHonourStoredSourceRoleOverrides() {
+        val initial = policy.newStoreState()
+        val entry = initial.profiles.getValue(ProtectionProfile.ENTRY)
+        val customised = policy.updateProfile(
+            initial,
+            entry.copy(
+                sensorOverrides = entry.sensorOverrides.copy(
+                    sources = mapOf(
+                        SensorSource.ACCELEROMETER to SensorSourceProfileOverrides(
+                            role = SensorRole.PRIMARY,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resolved = policy.resolve(customised, ProtectionProfile.ENTRY).sensorConfiguration
+
+        assertEquals(SensorRole.PRIMARY, resolved.source(SensorSource.ACCELEROMETER).role)
+    }
+
+
+    /**
+     * Selecting a profile must switch off every sensor it does not use, including the
+     * ones the fusion configuration cannot express: the microphone and location are not
+     * SensorSources, so a profile has to declare them separately or they keep running.
+     */
+    @Test
+    fun powerProfileUsesNeitherMicrophoneNorLocation() {
+        assertEquals(
+            setOf(SensorKind.LIGHT, SensorKind.POWER_THERMAL),
+            ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+        )
+    }
+
+    @Test
+    fun vehicleAndEntryProfilesStillUseTheAuxiliarySensors() {
+        listOf(ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY).forEach { profile ->
+            val used = ProtectionProfilePolicy.usedSensorKinds(profile)
+            assertTrue("$profile must keep the microphone", SensorKind.MICROPHONE in used)
+            assertTrue("$profile must keep location", SensorKind.LOCATION in used)
+            assertTrue("$profile must keep movement", SensorKind.VIBRATION in used)
+        }
+    }
+
 }

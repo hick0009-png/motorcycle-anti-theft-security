@@ -8,52 +8,89 @@ import javax.crypto.spec.GCMParameterSpec
 
 /**
  * SEC-04: EncryptedSmsCodec
- * Encrypts SMS payload (GPS coordinates + timestamp + alert type) using AES-256-GCM + Base64.
- * Prevents cleartext SMS interception. The Telegram Bot server decodes incoming forwarded SMS.
+ * Encrypts the SMS fallback payload (incident copy + coordinates + timestamp) using
+ * AES-256-GCM + Base64, so an intercepted alert reveals nothing.
+ *
+ * Two on-the-wire schemes exist, told apart by the prefix:
+ *
+ *  - [PREFIX_V3] carries a payload sealed under a **random 256-bit device key**. This is
+ *    the only scheme this codec will produce. The key never leaves the device: the sensor
+ *    phone encrypts, and the same phone decrypts when the owner forwards the ciphertext
+ *    back through `/decode`, so there is nothing for a human to type or remember.
+ *  - [PREFIX_V2] is the legacy scheme, whose key was `SHA-256(passphrase)` over a
+ *    passphrase the owner typed. That is a single unsalted hash iteration, so a short
+ *    passphrase fell to offline brute force from one intercepted message. It is kept
+ *    **decrypt-only** so alerts already sitting in the owner's inbox stay readable.
  */
 object EncryptedSmsCodec {
 
-    private const val PREFIX = "[ENC_ALARM_V2]"
+    private const val PREFIX_V2 = "[ENC_ALARM_V2]"
+    private const val PREFIX_V3 = "[ENC_ALARM_V3]"
     private const val ALGORITHM = "AES/GCM/NoPadding"
     private const val NONCE_SIZE_BYTES = 12
     private const val TAG_SIZE_BITS = 128
+    private const val KEY_SIZE_BYTES = 32
+
+    /** A fresh random 256-bit key, Base64 encoded for storage in encrypted preferences. */
+    fun generateKeyBase64(): String =
+        Base64Codec.encode(ByteArray(KEY_SIZE_BYTES).also(SecureRandom()::nextBytes))
+
+    /** True when [keyBase64] decodes to exactly the 32 raw bytes an AES-256 key needs. */
+    fun isValidKeyBase64(keyBase64: String): Boolean = rawKeyOrNull(keyBase64) != null
 
     /**
-     * Encrypts plain payload into an SMS-friendly string prefixed with [ENC_ALARM].
+     * Seals [plainText] under the random device key [keyBase64] and returns an
+     * SMS-friendly string prefixed with [PREFIX_V3].
+     *
+     * Requires a key from [generateKeyBase64]; a passphrase is rejected rather than
+     * quietly stretched into a weak key.
      */
-    fun encryptSmsPayload(plainText: String, secretKeyPass: String): String {
-        val keySpec = deriveKey(secretKeyPass)
+    fun encryptSmsPayload(plainText: String, keyBase64: String): String {
+        val rawKey = requireNotNull(rawKeyOrNull(keyBase64)) {
+            "SMS key must be a Base64 256-bit key from generateKeyBase64()"
+        }
+        val keySpec = SecretKeySpec(rawKey, "AES")
         val nonce = ByteArray(NONCE_SIZE_BYTES).also(SecureRandom()::nextBytes)
         val cipher = Cipher.getInstance(ALGORITHM)
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, GCMParameterSpec(TAG_SIZE_BITS, nonce))
         val encryptedBytes = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        val combined = nonce + encryptedBytes
-        val base64Text = Base64Codec.encode(combined)
-        return "$PREFIX$base64Text"
+        return "$PREFIX_V3${Base64Codec.encode(nonce + encryptedBytes)}"
     }
 
     /**
-     * Decrypts an incoming SMS payload starting with [ENC_ALARM].
+     * Opens an incoming payload of either scheme, picking the key derivation from the
+     * prefix. Returns null when the prefix is unknown, the Base64 is malformed, or the
+     * GCM tag does not authenticate under [key].
      */
-    fun decryptSmsPayload(smsContent: String, secretKeyPass: String): String? {
-        if (!smsContent.startsWith(PREFIX)) return null
-        val base64Data = smsContent.substring(PREFIX.length).trim()
+    fun decryptSmsPayload(smsContent: String, key: String): String? {
+        val keySpec = when {
+            smsContent.startsWith(PREFIX_V3) -> rawKeyOrNull(key)?.let { SecretKeySpec(it, "AES") }
+            smsContent.startsWith(PREFIX_V2) -> legacyKeySpec(key)
+            else -> null
+        } ?: return null
+        val prefixLength = if (smsContent.startsWith(PREFIX_V3)) PREFIX_V3.length else PREFIX_V2.length
+        val base64Data = smsContent.substring(prefixLength).trim()
         return try {
             val combined = Base64Codec.decode(base64Data)
             if (combined.size <= NONCE_SIZE_BYTES) return null
             val nonce = combined.copyOfRange(0, NONCE_SIZE_BYTES)
             val encryptedBytes = combined.copyOfRange(NONCE_SIZE_BYTES, combined.size)
-            val keySpec = deriveKey(secretKeyPass)
             val cipher = Cipher.getInstance(ALGORITHM)
             cipher.init(Cipher.DECRYPT_MODE, keySpec, GCMParameterSpec(TAG_SIZE_BITS, nonce))
-            val decryptedBytes = cipher.doFinal(encryptedBytes)
-            String(decryptedBytes, Charsets.UTF_8)
-        } catch (e: Exception) {
+            String(cipher.doFinal(encryptedBytes), Charsets.UTF_8)
+        } catch (_: Exception) {
             null
         }
     }
 
-    private fun deriveKey(password: String): SecretKeySpec = SecretKeySpec(
+    private fun rawKeyOrNull(keyBase64: String): ByteArray? = try {
+        Base64Codec.decode(keyBase64.trim()).takeIf { it.size == KEY_SIZE_BYTES }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Legacy derivation, retained only to open messages sent before the key was randomised. */
+    private fun legacyKeySpec(password: String): SecretKeySpec = SecretKeySpec(
         MessageDigest.getInstance("SHA-256").digest(password.toByteArray(Charsets.UTF_8)),
         "AES"
     )

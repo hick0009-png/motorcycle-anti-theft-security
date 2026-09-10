@@ -1114,6 +1114,63 @@ class ProtectionCoordinatorTest {
     }
 
     @Test
+    fun aProfileThisDeviceCannotDetectWithIsRefusedAtSelection() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(profilePolicy.newStoreState())
+        val coordinator = coordinator(
+            FakeRuntime(readiness = ReadinessReport(emptySet(), emptySet()), health = healthyVibration()),
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+            deviceSupport = { profile ->
+                if (profile == ProtectionProfile.ENTRY) {
+                    ProfileDeviceSupport.Unsupported(
+                        missing = setOf(SensorSource.GYROSCOPE),
+                        reason = ProfileSupportReason.NO_ANGLE_SENSOR,
+                    )
+                } else {
+                    ProfileDeviceSupport.Supported
+                }
+            },
+        )
+
+        val rejected = coordinator.selectProfile("select-entry", ProtectionProfile.ENTRY)
+
+        assertEquals(CommandOutcome.REJECTED, rejected.outcome)
+        assertNull(profileRepository.load().selectedProfile)
+
+        val accepted = coordinator.selectProfile("select-vehicle", ProtectionProfile.VEHICLE)
+        assertEquals(CommandOutcome.APPLIED, accepted.outcome)
+    }
+
+    @Test
+    fun armRefusesAProfileTheDeviceCanNoLongerDetectWith() = runTest {
+        // The regression this closes: without the gate the entry watch armed, reported
+        // "protecting", registered no listener and stayed silent forever.
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY)
+        val profileRepository = InMemoryProtectionProfileRepository(selectedState)
+        val coordinator = coordinator(
+            FakeRuntime(readiness = ReadinessReport(emptySet(), emptySet()), health = healthyVibration()),
+            ArmingDelay { },
+            profileRepository = profileRepository,
+            profilePolicy = profilePolicy,
+            deviceSupport = {
+                ProfileDeviceSupport.Unsupported(
+                    missing = setOf(SensorSource.GYROSCOPE),
+                    reason = ProfileSupportReason.NO_ANGLE_SENSOR,
+                )
+            },
+        )
+
+        val result = coordinator.arm("arm-unsupported", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.REJECTED, result.outcome)
+        assertEquals(ProtectionState.SETUP_REQUIRED, coordinator.snapshot.value.state)
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
     fun armFreezesSelectedProfileConfigurationBeforeDetectorStart() = runTest {
         val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
         val selectedState = profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.VEHICLE)
@@ -1140,6 +1197,21 @@ class ProtectionCoordinatorTest {
         assertEquals(expectedConfig, armed.effectiveConfiguration)
         assertEquals(expectedConfig, runtime.startedConfiguration)
         assertEquals(armed.armedSessionId, runtime.startedSessionId)
+        assertEquals(
+            ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.VEHICLE),
+            runtime.startedSensorKinds,
+        )
+        // Without this table the runtime cannot stamp the signals the configuration
+        // cannot name, and an unstamped signal is refused the right to open an incident:
+        // the vehicle watch's movement alert would go quiet with nothing to see.
+        assertEquals(
+            ProtectionProfilePolicy.signalRoles(ProtectionProfile.VEHICLE),
+            runtime.startedSignalRoles,
+        )
+        assertEquals(
+            SensorRole.PRIMARY,
+            coordinator.currentSignalRole(SensorKind.LOCATION),
+        )
 
         // Editing the stored profile after Arm must not change the frozen snapshot.
         profileRepository.save(
@@ -1377,7 +1449,6 @@ class ProtectionCoordinatorTest {
         residualToleranceDeg = 8.0,
         algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
         sensorIdentity = sensorIdentity,
-        mountSignature = "test-mount",
         orientationSourcePolicy = "test-source-policy",
     )
 
@@ -1407,10 +1478,19 @@ class ProtectionCoordinatorTest {
 
     @Test
     fun entryArmBlockedIntoSetupRequiredWithoutCommissioning() = runTest {
+        // The angle level promises an angle. Arming it with no commissioned model would
+        // register nothing and report "protecting", which is the failure this refuses.
         val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
-        val profileRepository = InMemoryProtectionProfileRepository(
-            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+        val base = profilePolicy.newStoreState()
+        val angleLevel = base.copy(
+            selectedProfile = ProtectionProfile.ENTRY,
+            profiles = base.profiles + (
+                ProtectionProfile.ENTRY to base.profiles.getValue(ProtectionProfile.ENTRY).copy(
+                    specificOverrides = EntryProfileOverrides(level = EntryWatchLevel.DOOR_ANGLE),
+                )
+                ),
         )
+        val profileRepository = InMemoryProtectionProfileRepository(angleLevel)
         val runtime = FakeRuntime(
             readiness = ReadinessReport(emptySet(), emptySet()),
             health = healthyVibration(),
@@ -1423,6 +1503,49 @@ class ProtectionCoordinatorTest {
         assertEquals(ProtectionState.SETUP_REQUIRED, result.resultingState)
         assertFalse(runtime.started)
         assertNull(coordinator.snapshot.value.armedProfileSnapshot)
+    }
+
+    @Test
+    fun entryArmsOnSoundAndMovementWithNothingCommissioned() = runTest {
+        // The level that measures no angle must not be refused for the absence of an angle
+        // model it will never read. A door watch that cannot arm on the first night is a
+        // door watch nobody has on the first night.
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = InMemoryProtectionProfileRepository(
+            profilePolicy.newStoreState().copy(selectedProfile = ProtectionProfile.ENTRY),
+        )
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        )
+        val coordinator = entryCoordinator(runtime, profileRepository, profilePolicy)
+
+        val result = coordinator.arm("entry-sound-and-movement", CommandOrigin.LOCAL)
+
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        assertTrue(runtime.started)
+        // No commissioned model was frozen, because none was needed.
+        assertNull(coordinator.snapshot.value.armedProfileSnapshot?.commissionedModelFingerprint)
+    }
+
+    @Test
+    fun soundAndMovementBothHostTheDoorWatchThatHasNoAngle() {
+        // Neither alone: a lorry reaches the microphone and a gate next door reaches the
+        // accelerometer. Their coincidence is the only thing about this door.
+        val roles = ProtectionProfilePolicy.signalRoles(
+            ProtectionProfile.ENTRY,
+            EntryWatchLevel.SOUND_AND_MOVEMENT,
+        )
+        assertEquals(SensorRole.PRIMARY, roles[SensorKind.VIBRATION])
+        assertEquals(SensorRole.PRIMARY, roles[SensorKind.MICROPHONE])
+
+        val angleRoles = ProtectionProfilePolicy.signalRoles(
+            ProtectionProfile.ENTRY,
+            EntryWatchLevel.DOOR_ANGLE,
+        )
+        // Unchanged where an angle is being measured: the orientation verdict hosts there.
+        assertEquals(SensorRole.SUPPORTING, angleRoles[SensorKind.VIBRATION])
+        assertEquals(SensorRole.SUPPORTING, angleRoles[SensorKind.MICROPHONE])
     }
 
     @Test
@@ -1452,7 +1575,9 @@ class ProtectionCoordinatorTest {
         assertEquals(7L, calibration.generation)
         assertEquals(1, runtime.entryBeginCalls)
         assertEquals(frozen.armedSessionId, runtime.lastBeganSessionId)
-        assertEquals(model, runtime.lastBeganModel)
+        // Commissioning stamps the date the model was accepted, so what the session runs on
+        // is the stored model, not the bare geometry the test handed the repository.
+        assertEquals(model.copy(commissionedAtWallMs = 1_000L), runtime.lastBeganModel)
     }
 
     @Test
@@ -1496,8 +1621,7 @@ class ProtectionCoordinatorTest {
             commissioningContext = {
                 EntryCommissioningPolicy.CommissioningContext(
                     sensorIdentity = "sensor-B",
-                    mountSignature = "test-mount",
-                    orientationSourcePolicy = "test-source-policy",
+                                orientationSourcePolicy = "test-source-policy",
                     algorithmVersion = EntryCommissioningPolicy.ALGORITHM_VERSION,
                     entryUseContinuous = true,
                     alertAngleDeg = 15,
@@ -1675,7 +1799,7 @@ class ProtectionCoordinatorTest {
         assertTrue(calibration.witnessPlacementValidated)
         assertEquals(1, runtime.powerBeginCalls)
         assertEquals(frozen.armedSessionId, runtime.lastBeganPowerSessionId)
-        assertEquals(model, runtime.lastBeganPowerModel)
+        assertEquals(model.copy(commissionedAtWallMs = 1_000L), runtime.lastBeganPowerModel)
     }
 
     @Test
@@ -1705,6 +1829,107 @@ class ProtectionCoordinatorTest {
         val calibration = coordinator.snapshot.value.armedProfileSnapshot
             ?.armedCalibrationSnapshot as PowerArmedCalibrationSnapshot
         assertTrue(calibration.witnessPlacementValidated)
+    }
+
+    @Test
+    fun remoteArmPassivePlacementNeedsBothChargerAndLitWitness() {
+        assertTrue(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = true))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = false, witnessLit = true))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = false))
+        assertFalse(remoteArmPassivePlacementConfirmed(chargerConnected = true, witnessLit = null))
+    }
+
+    @Test
+    fun telegramPowerArmUpgradesToFullWhenWitnessConfirmsLampWhileCharging() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = true }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        val result = coordinator.arm("tg-power", CommandOrigin.TELEGRAM)
+        assertEquals(CommandOutcome.APPLIED, result.outcome)
+        // Starts limited: the guided lamp toggle cannot run over Telegram.
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+
+        // The phone reports the lamp lit while charging: passive proof placement still holds.
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        assertFalse(
+            "Passive proof must lift the limited degradation: ${coordinator.snapshot.value.degradationReasons}",
+            coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED),
+        )
+    }
+
+    @Test
+    fun telegramPowerArmStaysLimitedWhenWitnessDoesNotConfirmLamp() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = null }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("tg-power", CommandOrigin.TELEGRAM).outcome)
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        // A witness that cannot confirm the lamp is not proof; the session stays limited.
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+    }
+
+    @Test
+    fun localPowerArmIsNotPassivelyUpgraded() = runTest {
+        val profilePolicy = ProtectionProfilePolicy(nowMs = { 1_000L })
+        val profileRepository = commissionedPowerRepository(profilePolicy, powerWitnessModel())
+        val runtime = FakeRuntime(
+            readiness = ReadinessReport(emptySet(), emptySet()),
+            health = healthyVibration(),
+        ).apply { witnessLit = true }
+        val coordinator = powerCoordinator(
+            runtime,
+            profileRepository,
+            profilePolicy,
+            integrityChallenge = { false },
+        )
+
+        // A local arm skipped the challenge deliberately; the owner is present and can run it.
+        assertEquals(CommandOutcome.APPLIED, coordinator.arm("local-power", CommandOrigin.LOCAL).outcome)
+        recordCharging(coordinator, ChargingState.CHARGING)
+        coordinator.evaluateFreshness(2_000L)
+
+        assertTrue(coordinator.snapshot.value.degradationReasons.contains(POWER_CHALLENGE_DEGRADED))
+    }
+
+    private fun recordCharging(coordinator: ProtectionCoordinator, state: ChargingState) {
+        coordinator.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                SensorHealthState.HEALTHY,
+                powerThermalDetail = PowerThermalHealthDetail(
+                    sourceAvailable = true,
+                    isRegistered = true,
+                    chargingState = state,
+                    batteryLevelPercent = 90,
+                    temperatureCelsius = 30.0f,
+                    lastUpdateWallClockMs = 2_000L,
+                ),
+            ),
+        )
     }
 
     @Test
@@ -1874,6 +2099,46 @@ class ProtectionCoordinatorTest {
             assertTrue(verdicts.isEmpty())
         }
     }
+
+    /**
+     * D2: Power Guard runs on the light sensor and the charging signal by design, so a
+     * silent microphone or location there is not a fault. Counting them made the armed
+     * state permanently "limited" and buried the degradations that do matter.
+     */
+    @Test
+    fun sensorsTheArmedProfileDoesNotUseNeverDegradeTheArmedState() {
+        val health = mapOf(
+            SensorKind.LIGHT to SensorHealth(SensorHealthState.HEALTHY),
+            SensorKind.POWER_THERMAL to SensorHealth(SensorHealthState.HEALTHY),
+            SensorKind.VIBRATION to SensorHealth(SensorHealthState.UNAVAILABLE),
+            SensorKind.MICROPHONE to SensorHealth(SensorHealthState.UNAVAILABLE),
+            SensorKind.LOCATION to SensorHealth(SensorHealthState.FAILED),
+        )
+
+        assertEquals(
+            emptySet<String>(),
+            unhealthySensorReasons(
+                health = health,
+                usedSensorKinds = ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+            ),
+        )
+    }
+
+    @Test
+    fun aSensorTheArmedProfileUsesStillDegradesTheArmedState() {
+        val health = mapOf(
+            SensorKind.LIGHT to SensorHealth(SensorHealthState.FAILED),
+            SensorKind.POWER_THERMAL to SensorHealth(SensorHealthState.HEALTHY),
+        )
+
+        assertEquals(
+            setOf("LIGHT not healthy"),
+            unhealthySensorReasons(
+                health = health,
+                usedSensorKinds = ProtectionProfilePolicy.usedSensorKinds(ProtectionProfile.POWER),
+            ),
+        )
+    }
 }
 
 private class InMemoryProtectionProfileRepository(
@@ -1916,6 +2181,7 @@ private fun coordinator(
     powerCommissioningContextProvider: (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     powerIntegrityChallenge: (() -> Boolean)? = null,
     recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
+    deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = { ProfileDeviceSupport.Supported },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = ProtectionSnapshot.offline(nowMs = 0L).copy(
         state = ProtectionState.DISARMED_ONLINE,
@@ -1936,6 +2202,7 @@ private fun coordinator(
     powerCommissioningContextProvider = powerCommissioningContextProvider,
     powerIntegrityChallenge = powerIntegrityChallenge,
     recoveredPowerIntegrityChallenge = recoveredPowerIntegrityChallenge,
+    deviceSupport = deviceSupport,
 )
 
 private fun healthyVibration(): Map<SensorKind, SensorHealth> = mapOf(
@@ -1986,6 +2253,8 @@ private class FakeRuntime(
     var startedSessionId: String? = null
         private set
     var startedConfiguration: SensorFusionConfiguration? = null
+    var startedSensorKinds: Set<SensorKind>? = null
+    var startedSignalRoles: Map<SensorKind, SensorRole> = emptyMap()
         private set
     val appliedConfigurations = mutableListOf<SensorFusionConfiguration>()
 
@@ -1999,9 +2268,13 @@ private class FakeRuntime(
     override fun startDetectors(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
+        usedSensorKinds: Set<SensorKind>,
+        signalRoles: Map<SensorKind, SensorRole>,
     ): DetectorStartResult {
         startedSessionId = armedSessionId
         startedConfiguration = configuration
+        startedSensorKinds = usedSensorKinds
+        startedSignalRoles = signalRoles
         return startDetectors(armedSessionId)
     }
 
@@ -2053,4 +2326,8 @@ private class FakeRuntime(
     override fun clearPowerSession() {
         powerClearCalls += 1
     }
+
+    var witnessLit: Boolean? = null
+
+    override fun liveWitnessLit(): Boolean? = witnessLit
 }

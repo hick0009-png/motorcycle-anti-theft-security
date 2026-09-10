@@ -1,5 +1,7 @@
 package com.example.motorcycleantitheftsensor.telegram
 
+import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -32,7 +34,13 @@ class RemoteCommandTest {
         // Unknown arguments for parameterless commands
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/start extra"))
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/help extra"))
-        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/status extra"))
+        // /status now takes a mode, so an argument it cannot read is a mode it does not
+        // know rather than a command it does not know: the reply can then name the words
+        // that work, which is the difference between a typo and a dead end.
+        assertEquals(
+            RemoteCommand.StatusForMode(profile = null, argument = "extra"),
+            RemoteCommand.parse("/status extra"),
+        )
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/arm extra"))
 
         // Missing or invalid arguments
@@ -62,6 +70,64 @@ class RemoteCommandTest {
 
         // Disarm with extra arguments even with bot name must be Unknown
         assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/disarm@MyGuardBot 123456"))
-        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/status@MyGuardBot extra"))
+        assertEquals(
+            RemoteCommand.StatusForMode(profile = null, argument = "extra"),
+            RemoteCommand.parse("/status@MyGuardBot extra"),
+        )
+    }
+
+    @Test
+    fun whereIsAcceptedUnderEitherSpellingAndOnlyWithoutArguments() {
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/where"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/locate"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("/where@MyGuardBot"))
+        assertEquals(RemoteCommand.Where, RemoteCommand.parse("  /WHERE  "))
+
+        // Anything trailing is a typo rather than a request, and a typo must not move the radio.
+        assertEquals(RemoteCommand.Unknown, RemoteCommand.parse("/where now"))
+    }
+
+    /**
+     * The words an owner types, in Thai and in English. The enum constant is deliberately
+     * not one of them: `VEHICLE` is not a word this product ever shows anyone.
+     */
+    @Test
+    fun statusAcceptsEachModeByTheWordsAnOwnerWouldType() {
+        val cases = mapOf(
+            "รถ" to ProtectionProfile.VEHICLE,
+            "ยานพาหนะ" to ProtectionProfile.VEHICLE,
+            "car" to ProtectionProfile.VEHICLE,
+            "Vehicle" to ProtectionProfile.VEHICLE,
+            "ประตู" to ProtectionProfile.ENTRY,
+            "ทางเข้า" to ProtectionProfile.ENTRY,
+            "ประตูและทางเข้า" to ProtectionProfile.ENTRY,
+            "DOOR" to ProtectionProfile.ENTRY,
+            "ไฟเลี้ยง" to ProtectionProfile.POWER,
+            "ไฟเลี้ยงจุดติดตั้ง" to ProtectionProfile.POWER,
+            "power" to ProtectionProfile.POWER,
+        )
+        for ((word, expected) in cases) {
+            assertEquals(
+                RemoteCommand.StatusForMode(expected, word),
+                RemoteCommand.parse("/status $word"),
+            )
+        }
+        // Trailing space survives the split and must not stop the match.
+        assertEquals(
+            ProtectionProfile.VEHICLE,
+            PresentationTextCatalog.profileFromOwnerWord("Vehicle  "),
+        )
+    }
+
+    /** Every word /help offers has to be a word the parser takes. */
+    @Test
+    fun everyWordOfferedByHelpIsAWordTheParserAccepts() {
+        for (profile in ProtectionProfile.entries) {
+            val offered = PresentationTextCatalog.modeWord(profile)
+            assertEquals(
+                RemoteCommand.StatusForMode(profile, offered),
+                RemoteCommand.parse("/status $offered"),
+            )
+        }
     }
 }

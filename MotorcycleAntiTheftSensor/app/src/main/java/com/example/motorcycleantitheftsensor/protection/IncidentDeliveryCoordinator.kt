@@ -23,6 +23,34 @@ data class DeliveryConfiguration(
     val smsConfigured: Boolean,
 )
 
+/**
+ * Which incidents are worth the last channel the owner has.
+ *
+ * The rule was severity CRITICAL alone, and on this app that quietly excluded the event the
+ * door watch exists for: a door opening while armed is raised as WARNING, with CRITICAL kept
+ * for the mount being moved. So the one alert the owner set the mode up to receive was also
+ * the one alert with no fallback — on the night the network was gone, exactly nothing would
+ * have been sent even with a destination saved.
+ *
+ * A door that opened is now worth an SMS. The rest of WARNING is not: an unavailable
+ * orientation source is a health notice about the watch rather than a report of somebody at
+ * the door, and spending the fallback on those is how the allowance is gone before the night
+ * it matters. SMS is only ever reached after Telegram has already failed, and the manager's
+ * own minimum interval still caps the cost.
+ */
+object IncidentFallbackPolicy {
+
+    fun deservesSmsFallback(incident: SecurityIncident): Boolean =
+        incident.severity == IncidentSeverity.CRITICAL || incident.isDoorOpening()
+
+    private fun SecurityIncident.isDoorOpening(): Boolean =
+        type == IncidentType.ENTRY_DOOR &&
+            evidence.any { item ->
+                item.diagnostic == ProtectionDiagnostics.ENTRY_DOOR_OPEN ||
+                    item.diagnostic == ProtectionDiagnostics.ENTRY_DOOR_STILL_OPEN
+            }
+}
+
 class IncidentDeliveryCoordinator(
     private val repository: IncidentRepository,
     private val formatter: IncidentMessageFormatter,
@@ -54,6 +82,7 @@ class IncidentDeliveryCoordinator(
     suspend fun deliver(
         update: IncidentUpdate,
         configuration: DeliveryConfiguration,
+        delayedByMs: Long? = null,
     ): SecurityIncident {
         val incident = update.incidentOrNull() ?: error("Cannot deliver Ignored IncidentUpdate")
         val key = "${incident.id}:${update.eventKindName}:${incident.updatedAtMs}"
@@ -80,12 +109,17 @@ class IncidentDeliveryCoordinator(
 
         val deferred = myDeferred!!
         try {
-            val result = executeDelivery(update, incident, configuration)
+            val result = executeDelivery(update, incident, configuration, delayedByMs)
             deliveryMutex.withLock {
-                deliveredResults[key] = result
-                if (deliveredResults.size > 500) {
-                    val firstKey = deliveredResults.keys.first()
-                    deliveredResults.remove(firstKey)
+                // Only a delivery that actually went out is worth remembering. Memoizing a
+                // failure makes every later attempt at the same event a no-op that hands back
+                // the failure it was sent to repair — which is what a retry is.
+                if (result.deliveryState == DeliveryState.SENT) {
+                    deliveredResults[key] = result
+                    if (deliveredResults.size > 500) {
+                        val firstKey = deliveredResults.keys.first()
+                        deliveredResults.remove(firstKey)
+                    }
                 }
                 inFlightDeliveries.remove(key)
             }
@@ -104,6 +138,21 @@ class IncidentDeliveryCoordinator(
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
     ): SecurityIncident = deliver(incident.toDefaultUpdate(), configuration)
+
+    /**
+     * Another attempt at an incident that was recorded but never reached anybody, carrying how
+     * long it has been waiting so the message can say so. A door that opened at midnight must
+     * not read as a door opening now because the network only came back at eight.
+     */
+    suspend fun redeliver(
+        incident: SecurityIncident,
+        configuration: DeliveryConfiguration,
+        nowMs: Long,
+    ): SecurityIncident = deliver(
+        update = incident.toDefaultUpdate(),
+        configuration = configuration,
+        delayedByMs = (nowMs - incident.updatedAtMs).coerceAtLeast(0L),
+    )
 
     suspend fun updateProgress(incident: SecurityIncident): Boolean {
         val transport = progressTelegram ?: return false
@@ -126,6 +175,7 @@ class IncidentDeliveryCoordinator(
         update: IncidentUpdate,
         incident: SecurityIncident,
         configuration: DeliveryConfiguration,
+        delayedByMs: Long?,
     ): SecurityIncident {
         val pending = incident.copy(deliveryState = DeliveryState.PENDING)
         try {
@@ -138,7 +188,11 @@ class IncidentDeliveryCoordinator(
         val presentation = pending.location?.let { loc ->
             resolvePresentation(loc)
         }
-        val telegramMessage = formatter.formatTelegram(update, presentation)
+        val telegramMessage = if (delayedByMs == null) {
+            formatter.formatTelegram(update, presentation)
+        } else {
+            formatter.formatDelayed(update, presentation, delayedByMs)
+        }
         val telegramSent = try {
             if (update is IncidentUpdate.Opened && progressTelegram != null) {
                 progressTelegram.open(incident.id, telegramMessage)
@@ -149,17 +203,22 @@ class IncidentDeliveryCoordinator(
             if (error is CancellationException) throw error
             false
         }
+        // Marked so the sweep can count its own attempts apart from the ones the event made
+        // live: a door held open while offline fails a dozen times in half a minute, and a
+        // budget that counted those would be spent before the network ever came back.
+        val attemptDetail = if (delayedByMs == null) null else DeliveryAttempt.REDELIVERY
         val telegramAttempt = DeliveryAttempt(
             channel = DeliveryChannel.TELEGRAM,
             state = if (telegramSent) DeliveryState.SENT else DeliveryState.FAILED,
             attemptedAtMs = incident.updatedAtMs,
+            detail = attemptDetail,
         )
 
         val smsEligible = !telegramSent &&
-            pending.severity == IncidentSeverity.CRITICAL &&
+            IncidentFallbackPolicy.deservesSmsFallback(pending) &&
             configuration.smsConfigured
         val smsSent = if (smsEligible) {
-            val smsMessage = formatter.formatSms(update)
+            val smsMessage = formatter.formatSms(update, pending.location)
             try {
                 sms.send(smsMessage)
             } catch (error: Exception) {
@@ -174,6 +233,7 @@ class IncidentDeliveryCoordinator(
                 channel = DeliveryChannel.SMS,
                 state = if (smsSent) DeliveryState.SENT else DeliveryState.FAILED,
                 attemptedAtMs = incident.updatedAtMs,
+                detail = attemptDetail,
             )
         } else {
             pending.deliveryAttempts + telegramAttempt

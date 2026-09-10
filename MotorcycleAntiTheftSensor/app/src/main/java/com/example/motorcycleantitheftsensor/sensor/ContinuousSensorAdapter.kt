@@ -12,7 +12,6 @@ class ContinuousSensorAdapter(
     override val source: SensorSource,
     private val sensorManager: SensorManager?,
     private val handler: Handler?,
-    private val requestedSamplingPeriodUs: Int = SensorManager.SENSOR_DELAY_NORMAL,
 ) : SensorSourceAdapter, SensorEventListener {
 
     @Volatile

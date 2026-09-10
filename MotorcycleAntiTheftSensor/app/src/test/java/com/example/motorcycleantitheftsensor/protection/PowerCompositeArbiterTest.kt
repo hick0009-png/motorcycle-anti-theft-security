@@ -206,6 +206,70 @@ class PowerCompositeArbiterTest {
     }
 
     @Test
+    fun chargingBackWhileWitnessStaysDarkReportsPartialRecoveryNotClosure() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(false, false, t))
+            state = next
+        }
+        // The cable is live again, but the monitored point is still dark.
+        val (partial, partialState) = a.evaluate(state, sample(true, false, 11_000L))
+        assertTrue(partial is PowerArbiterVerdict.PartialRecovery)
+        state = partialState
+
+        var changed: PowerArbiterVerdict.ConditionChanged? = null
+        for (t in 12_000L..21_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(state, sample(true, false, t))
+            state = next
+            assertTrue(verdict !is PowerArbiterVerdict.RecoveredClosed)
+            if (verdict is PowerArbiterVerdict.ConditionChanged) changed = verdict
+        }
+
+        assertEquals(PowerCompositeArbiter.SemanticState.DUAL_LOST, changed!!.from)
+        assertEquals(PowerCompositeArbiter.SemanticState.WITNESS_LOST, changed.to)
+        assertEquals("POWER-1", changed.episodeId)
+        assertEquals("POWER-1", state.episodeId)
+    }
+
+    @Test
+    fun guardBandPartialRecoveryStillReachesTheOwnerAsAConditionChange() {
+        val a = arbiter()
+        var state = a.initialState()
+        for (t in 0L..10_000L step 1_000L) {
+            val (_, next) = a.evaluate(state, sample(false, false, t))
+            state = next
+        }
+        // An evidence gap clears the witness conclusion while the cable stays out.
+        val (_, gapped) = a.evaluate(
+            state,
+            PowerSignalSample(false, null, fresh = false, timestampMs = 11_000L),
+        )
+        state = gapped
+        for (t in 12_000L..22_000L step 1_000L) {
+            val (_, next) = a.evaluate(
+                state,
+                PowerSignalSample(false, 50.0, fresh = true, timestampMs = t),
+            )
+            state = next
+        }
+        // The witness lamp is conclusively lit again: partial recovery, cable still out.
+        val (partial, partialState) = a.evaluate(state, sample(false, true, 23_000L))
+        assertTrue(partial is PowerArbiterVerdict.PartialRecovery)
+        state = partialState
+
+        var changed: PowerArbiterVerdict.ConditionChanged? = null
+        for (t in 24_000L..33_000L step 1_000L) {
+            val (verdict, next) = a.evaluate(state, sample(false, true, t))
+            state = next
+            if (verdict is PowerArbiterVerdict.ConditionChanged) changed = verdict
+        }
+
+        assertEquals(PowerCompositeArbiter.SemanticState.DUAL_LOST, changed!!.from)
+        assertEquals(PowerCompositeArbiter.SemanticState.CHARGING_LOST, changed.to)
+    }
+
+    @Test
     fun closeRequiresBothSignalsHealthyTenSeconds() {
         val a = arbiter()
         var state = a.initialState()

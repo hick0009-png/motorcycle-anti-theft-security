@@ -1,6 +1,7 @@
 package com.example.motorcycleantitheftsensor.telegram
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,6 +22,39 @@ class TelegramBotClientSourceContractTest {
             Regex("""Log\.\w+\([^)]*,\s*(e|error|exception)\s*\)""")
                 .containsMatchIn(source),
         )
+    }
+
+    @Test
+    fun theLocationRequestCrumbSitsBehindTheDuplicateGate() {
+        // The update id is committed only after a command finishes, so while a location fix
+        // is being taken Telegram keeps redelivering the same message. Recorded where the
+        // update arrives, one `/where` from the owner produced four rows on the test phone —
+        // a count of deliveries wearing the shape of a count of requests, in the one row an
+        // owner would read to find out whether somebody else had asked.
+        val source = File(
+            "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
+        ).readText()
+
+        val claim = source.indexOf("if (!claimCommand(commandId)) return")
+        val crumb = source.indexOf("breadcrumb(BreadcrumbEvent.WHERE")
+        assertTrue("the crumb is written", crumb > 0)
+        assertTrue("and only once the command has been claimed", crumb > claim)
+        assertEquals(
+            "recorded once per command, never once per delivery",
+            1,
+            Regex(Regex.escape("breadcrumb(BreadcrumbEvent.WHERE")).findAll(source).count(),
+        )
+    }
+
+    @Test
+    fun aRefusedCommandIsRecordedWithoutRecordingWhoSentIt() {
+        val source = File(
+            "src/main/java/com/example/motorcycleantitheftsensor/telegram/TelegramBotClient.kt",
+        ).readText()
+        val denied = source.indexOf("breadcrumb(BreadcrumbEvent.DENIED")
+        assertTrue(denied > 0)
+        // Whatever else changes here, the crumb takes no arguments that could carry a chat id.
+        assertTrue(source.contains("breadcrumb(BreadcrumbEvent.DENIED, emptyList())"))
     }
 
     @Test

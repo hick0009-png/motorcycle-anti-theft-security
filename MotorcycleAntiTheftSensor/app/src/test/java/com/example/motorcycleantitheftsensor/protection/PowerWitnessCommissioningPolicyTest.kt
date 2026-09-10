@@ -275,4 +275,40 @@ class PowerWitnessCommissioningPolicyTest {
             PowerWitnessCommissioningPolicy.requiresRecommission(previous, previous),
         )
     }
+    /**
+     * Bug #6: TYPE_LIGHT is an on-change sensor, so a genuinely stable dark reading
+     * produces no further callbacks. Sparse, irregular events wider than
+     * maxSampleGapMs restart the window forever. A steady 1 Hz re-emit of the same
+     * conclusive reading must let the window complete.
+     */
+    @Test
+    fun darkWindowCompletesWithRepeatedIdenticalLuxAtOneHertz() {
+        val policy = policy()
+        var state = policy.start()
+        for (t in 0..3_000 step 1_000) {
+            state = policy.onSample(
+                state,
+                PowerWitnessSample(lux = 2.0, timestampMs = t.toLong(), fresh = true),
+            )
+        }
+
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.LIT_WINDOW, state.phase)
+    }
+
+    @Test
+    fun sparseSamplesWiderThanTheGapBudgetNeverCompleteTheDarkWindow() {
+        val policy = policy()
+        var state = policy.start()
+        // Irregular on-change callbacks 3 s apart: every one restarts the window.
+        for (t in 0..30_000 step 3_000) {
+            state = policy.onSample(
+                state,
+                PowerWitnessSample(lux = 2.0, timestampMs = t.toLong(), fresh = true),
+            )
+            state = policy.onTick(state, t.toLong())
+        }
+
+        assertEquals(PowerWitnessCommissioningPolicy.Phase.DARK_WINDOW, state.phase)
+    }
+
 }

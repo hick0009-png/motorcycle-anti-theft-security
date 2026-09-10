@@ -7,7 +7,6 @@ import com.example.motorcycleantitheftsensor.protection.AudioTelemetry
 import com.example.motorcycleantitheftsensor.protection.AudioThreatCategory
 import com.example.motorcycleantitheftsensor.protection.AudioThreatMetadata
 import com.example.motorcycleantitheftsensor.protection.ChargingState
-import com.example.motorcycleantitheftsensor.protection.CommandOrigin
 import com.example.motorcycleantitheftsensor.protection.DeliveryState
 import com.example.motorcycleantitheftsensor.protection.POWER_CHALLENGE_DEGRADED
 import com.example.motorcycleantitheftsensor.protection.PowerArmChallengeRegistry
@@ -16,6 +15,10 @@ import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissionin
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessModel
 import com.example.motorcycleantitheftsensor.protection.PowerWitnessSample
 import com.example.motorcycleantitheftsensor.protection.DetectorStartResult
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurement
+import com.example.motorcycleantitheftsensor.protection.GuidanceCode
+import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
+import com.example.motorcycleantitheftsensor.protection.EntryDriftMeasurementStore
 import com.example.motorcycleantitheftsensor.protection.EntryOrientationSample
 import com.example.motorcycleantitheftsensor.protection.EntryProfileSettings
 import com.example.motorcycleantitheftsensor.protection.EntryQuaternion
@@ -25,6 +28,8 @@ import com.example.motorcycleantitheftsensor.protection.IncidentRepository
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.ProfileSupportReason
 import com.example.motorcycleantitheftsensor.protection.ProtectionClock
 import com.example.motorcycleantitheftsensor.protection.ProtectionCoordinator
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
@@ -43,6 +48,9 @@ import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
+import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.sensor.SensorCatalog
+import com.example.motorcycleantitheftsensor.sensor.SensorDescriptor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -54,6 +62,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -99,6 +108,55 @@ class ProtectionViewModelTest {
         assertEquals(ProtectionState.ARMED_DEGRADED, viewModel.uiState.value.protection.state)
         assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
         assertFalse(viewModel.uiState.value.toString().contains("Demo", ignoreCase = true))
+    }
+
+    @Test
+    fun newlyPersistedIncidentReachesTheEventListWithoutAManualRetry() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val incidents = FakeIncidentRepository(listOf(realIncident("older", 1_000L)))
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY),
+            incidents = incidents,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_500L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        assertEquals(listOf("older"), viewModel.uiState.value.events.map { it.id })
+
+        incidents.upsert(realIncident("newer", 2_000L))
+        advanceUntilIdle()
+
+        assertEquals(listOf("newer", "older"), viewModel.uiState.value.events.map { it.id })
+        assertFalse(viewModel.uiState.value.eventsLoading)
+    }
+
+    @Test
+    fun aFailedBackgroundRefreshKeepsTheEventsAlreadyOnScreen() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val incidents = FakeIncidentRepository(listOf(realIncident("older", 1_000L)))
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(ProtectionState.ARMED_HEALTHY),
+            incidents = incidents,
+            settings = FakeProtectionSettingsGateway(),
+            nowMs = { 2_500L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        incidents.failuresRemaining = 1
+        incidents.upsert(realIncident("newer", 2_000L))
+        advanceUntilIdle()
+
+        // The owner never asked for this read, so a failure must not blank the list or
+        // raise the retry banner over events that are still perfectly valid.
+        assertEquals(listOf("older"), viewModel.uiState.value.events.map { it.id })
+        assertNull(viewModel.uiState.value.eventsError)
+        assertFalse(viewModel.uiState.value.eventsLoading)
     }
 
     @Test
@@ -247,7 +305,7 @@ class ProtectionViewModelTest {
             settings = FakeProtectionSettingsGateway(smsFallbackFailure = "provider failed: $secret"),
         )
 
-        fixture.viewModel.configureSmsFallback("+15555550123", secret)
+        fixture.viewModel.configureSmsFallback("+15555550123")
         advanceUntilIdle()
 
         assertFalse(fixture.viewModel.uiState.value.message?.content?.titleTh.orEmpty().contains(secret))
@@ -696,12 +754,12 @@ class ProtectionViewModelTest {
 
     @Test
     fun microphoneHealthTextDistinguishesDetectedUnavailableStaleAndFailed() {
-        assertEquals("ไมโครโฟนพร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
-        assertEquals("ไมโครโฟนพร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
-        assertEquals("ไมโครโฟนไม่พร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
-        assertEquals("ข้อมูลไมโครโฟนล่าช้า", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
-        assertEquals("ไมโครโฟนขัดข้อง", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
-        assertEquals("ยังไม่ทราบสถานะไมโครโฟน", microphoneHealthText(null))
+        assertEquals("ตรวจพบไมโครโฟน", microphoneHealthText(SensorHealth(SensorHealthState.AVAILABLE)))
+                assertEquals("ตรวจพบไมโครโฟน", microphoneHealthText(SensorHealth(SensorHealthState.HEALTHY)))
+                assertEquals("ไมโครโฟนไม่พร้อมใช้งาน", microphoneHealthText(SensorHealth(SensorHealthState.UNAVAILABLE)))
+                assertEquals("ข้อมูลไมโครโฟนไม่ใหม่", microphoneHealthText(SensorHealth(SensorHealthState.STALE)))
+                assertEquals("ไมโครโฟนทำงานผิดพลาด", microphoneHealthText(SensorHealth(SensorHealthState.FAILED)))
+                assertEquals("สถานะไมโครโฟนไม่ทราบ", microphoneHealthText(null))
     }
 
     // --- Task 3: Operation Ownership & Self-Test Result Persistence Tests ---
@@ -732,7 +790,7 @@ class ProtectionViewModelTest {
         val vm = ViewModelProvider(store, factory)[ProtectionViewModel::class.java]
 
         try {
-            vm.configureSmsFallback("+15555550123", "key123")
+            vm.configureSmsFallback("+15555550123")
 
             assertTrue("Fake SMS save should have started", smsStarted.await(2, TimeUnit.SECONDS))
 
@@ -902,14 +960,180 @@ class ProtectionViewModelTest {
     }
 
     @Test
-    fun rejectedArmAndDisarmPublishUpdatedGuidanceTitles() = runTest {
+    fun aRefusedArmSaysArmingFailedRatherThanTheCatchAll() = runTest {
+        // This pinned the opposite: an arm blocked by a missing permission reported
+        // "คำสั่งไม่สำเร็จ", because the refusal was classified by searching its English text
+        // for the word "Arm" and a permission blocker does not contain it.
         val fixture = fixtureWithBlocker("POST_NOTIFICATIONS", testScheduler)
         fixture.viewModel.arm()
         advanceUntilIdle()
 
-        assertEquals("คำสั่งไม่สำเร็จ", fixture.viewModel.uiState.value.message?.content?.titleTh)
-        assertEquals("ไม่สามารถเปิดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_ARM_REJECTED).titleTh)
-        assertEquals("ไม่สามารถปลดการป้องกันได้", com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.COMMAND_DISARM_REJECTED).titleTh)
+        val title = fixture.viewModel.uiState.value.message?.content?.titleTh
+        assertNotEquals("คำสั่งไม่สำเร็จ", title)
+        assertEquals(
+            UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_REJECTED).titleTh,
+            title,
+        )
+        assertEquals("ไม่สามารถเปิดการป้องกันได้", title)
+        assertEquals(
+            "ไม่สามารถปลดการป้องกันได้",
+            UserGuidanceCatalog.content(GuidanceCode.COMMAND_DISARM_REJECTED).titleTh,
+        )
+    }
+
+    @Test
+    fun refusedProfileSaysWhatThisPhoneCannotDoRatherThanCommandFailed() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+                deviceSupport = { profile ->
+                    if (profile == ProtectionProfile.ENTRY) {
+                        ProfileDeviceSupport.Unsupported(
+                            missing = emptySet(),
+                            reason = ProfileSupportReason.DRIFT_TOO_FAST,
+                            trustedHours = 1,
+                        )
+                    } else {
+                        ProfileDeviceSupport.Supported
+                    }
+                },
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value.message?.content
+        assertNotNull(content)
+        // The refusal used to arrive as the catalogue's catch-all, which named neither the
+        // use nor the reason and left the owner with nothing to do about it.
+        assertNotEquals("คำสั่งไม่สำเร็จ", content!!.titleTh)
+        assertTrue(
+            "Refusal body should carry the measured-drift explanation: ${content.bodyTh}",
+            content.bodyTh.contains("ไหลเอง"),
+        )
+    }
+
+    @Test
+    fun pickerRefusesTheDoorWatchOnAPhoneThatMeasuredItselfDrifting() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val store = FakeDriftMeasurementStore(
+            EntryDriftMeasurement(
+                sourceLabel = "game-rotation-vector",
+                // Reaches a 15 degree alert angle in a quarter of an hour: below the two-hour floor.
+                degPerHour = 60.0,
+                measuredMs = 8L * 3_600_000L,
+                measuredAtWallMs = 1_000L,
+            ),
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            sensorCatalog = FullSensorCatalog(),
+            driftMeasurementStore = store,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        val support = viewModel.uiState.value.profileDeviceSupport.getValue(ProtectionProfile.ENTRY)
+        assertTrue("Expected the picker to refuse, but got $support", support is ProfileDeviceSupport.Unsupported)
+        assertEquals(
+            ProfileSupportReason.DRIFT_TOO_FAST,
+            (support as ProfileDeviceSupport.Unsupported).reason,
+        )
+        assertFalse(support.selectable)
+    }
+
+    @Test
+    fun clearingTheMeasurementOffersTheDoorWatchAgain() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val store = FakeDriftMeasurementStore(
+            EntryDriftMeasurement(
+                sourceLabel = "game-rotation-vector",
+                degPerHour = 60.0,
+                measuredMs = 8L * 3_600_000L,
+                measuredAtWallMs = 1_000L,
+            ),
+        )
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            sensorCatalog = FullSensorCatalog(),
+            driftMeasurementStore = store,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.clearEntryDriftMeasurement()
+        advanceUntilIdle()
+
+        assertNull(store.load())
+        assertEquals(
+            ProfileDeviceSupport.Supported,
+            viewModel.uiState.value.profileDeviceSupport.getValue(ProtectionProfile.ENTRY),
+        )
+    }
+
+    @Test
+    fun choosingAUseIsReportedAsChoosingAUseNotAsDisarming() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repository = fakeProfileRepository(selectedProfile = null)
+        val viewModel = ProtectionViewModel(
+            coordinator = fakeCoordinator(
+                state = ProtectionState.DISARMED_ONLINE,
+                profileRepository = repository,
+            ),
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.selectProfile(ProtectionProfile.ENTRY)
+        advanceUntilIdle()
+
+        // An applied command used to be named after the state it left behind, and choosing a
+        // use while disarmed leaves the system disarmed.
+        val content = viewModel.uiState.value.message?.content
+        assertNotNull(content)
+        assertNotEquals("ปลดการป้องกันสำเร็จ", content!!.titleTh)
+        assertEquals(
+            UserGuidanceCatalog.content(GuidanceCode.PROFILE_SELECTED).titleTh,
+            content.titleTh,
+        )
     }
 
     // --- Task 7: Profile picker and armed-change confirmation ---
@@ -934,7 +1158,7 @@ class ProtectionViewModelTest {
     }
 
     @Test
-    fun selectingEntryShowsSetupRequiredAndDoesNotArm() = runTest {
+    fun selectingEntryIsReadyToArmOnSoundAndMovementBeforeAnyCalibration() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repository = fakeProfileRepository(selectedProfile = null)
         val viewModel = ProtectionViewModel(
@@ -955,13 +1179,18 @@ class ProtectionViewModelTest {
         viewModel.selectProfile(ProtectionProfile.ENTRY)
         advanceUntilIdle()
 
+        // This asserted the opposite: choosing the door watch left the owner at
+        // SETUP_REQUIRED, and arming was refused until two guided cycles had been performed.
+        // The first night was therefore spent unwatched, which is the night a new owner is
+        // most likely to want it. The angle level still refuses without a model; see
+        // ProtectionCoordinatorTest.
         assertEquals(ProtectionProfile.ENTRY, viewModel.uiState.value.profile.selectedProfile)
-        assertEquals(ProfileSetupState.SETUP_REQUIRED, viewModel.uiState.value.profile.setupState)
+        assertEquals(ProfileSetupState.READY, viewModel.uiState.value.profile.setupState)
 
         viewModel.arm()
         advanceUntilIdle()
 
-        assertEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
+        assertNotEquals(ProtectionState.SETUP_REQUIRED, viewModel.uiState.value.protection.state)
     }
 
     @Test
@@ -1071,6 +1300,186 @@ class ProtectionViewModelTest {
         assertNull(viewModel.uiState.value.profile.commissioning)
     }
 
+    /**
+     * The number on the calibration screen has to answer the door, not the sample rate.
+     *
+     * The display used to carry its own closed reference and re-seat it on every sample that
+     * read under three degrees. This stream is registered at game rate, so that asked for
+     * more than 150 degrees a second before the reading would leave zero: a door pushed at
+     * any human speed dragged the reference along with it, and an owner watching a live
+     * angle sit at `0°` has no way to tell a working calibration from a dead sensor.
+     */
+    @Test
+    fun entryCommissioningLiveAngleFollowsADoorOpenedAtHumanSpeed() = runTest {
+        val (viewModel, _, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        fun twist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+            timestampMs = timestampMs,
+            quaternion = EntryQuaternion(
+                w = Math.cos(Math.toRadians(degrees / 2)),
+                x = 0.0,
+                y = 0.0,
+                z = Math.sin(Math.toRadians(degrees / 2)),
+            ),
+            fresh = true,
+        )
+
+        runtime.emit(twist(0.0, 0L))
+        var still = 1_000L
+        while (still <= 5_000L) {
+            runtime.emit(twist(0.0, still))
+            still += 1_000L
+        }
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_ONE,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // One degree every twenty milliseconds: fifty degrees a second, an ordinary push on
+        // a door, and a third of the speed the old display silently demanded.
+        var degrees = 1.0
+        var atMs = 5_020L
+        while (degrees <= 20.0) {
+            runtime.emit(twist(degrees, atMs))
+            degrees += 1.0
+            atMs += 20L
+        }
+        advanceUntilIdle()
+
+        val live = viewModel.uiState.value.profile.commissioning?.liveAngleDeg
+        assertNotNull(live)
+        assertEquals(20.0, live!!, 0.5)
+    }
+
+    @Test
+    fun entryCommissioningClampsCloseThresholdBelowAlertAngle() = runTest {
+        val (viewModel, _, _) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        // 5 - 2.0 = 3.0, so closeThreshold 4.0 must be clamped to 3.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 5, closeThresholdDeg = 4.0)
+        advanceUntilIdle()
+        assertEquals(3.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+
+        // Lower bound 2.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 15, closeThresholdDeg = 1.0)
+        advanceUntilIdle()
+        assertEquals(2.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+
+        // Upper bound 10.0
+        viewModel.startEntryCommissioning(alertAngleDeg = 30, closeThresholdDeg = 15.0)
+        advanceUntilIdle()
+        assertEquals(10.0, viewModel.uiState.value.profile.commissioning?.closeThresholdDeg)
+    }
+
+    @Test
+    fun entryCommissioningTareZeroDuringStillCheckRestartsTheWindow() = runTest {
+        val (viewModel, _, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        // Four seconds of stillness: one short of the window.
+        runtime.emit(entryTwist(0.0, 0L))
+        var t = 1_000L
+        while (t <= 4_000L) {
+            runtime.emit(entryTwist(0.0, t))
+            t += 1_000L
+        }
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.STILL_CHECK,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // There is no cycle to keep and no closed reference to move yet, so the tare restarts
+        // the five seconds: the four already served do not count towards the new window.
+        viewModel.tareEntryCommissioningZero()
+        advanceUntilIdle()
+
+        runtime.emit(entryTwist(0.0, 5_000L))
+        runtime.emit(entryTwist(0.0, 8_000L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.STILL_CHECK,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        runtime.emit(entryTwist(0.0, 10_100L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_ONE,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+    }
+
+    /**
+     * The owner presses "this is zero" because the reading has drifted off the shut door, not
+     * because they want to walk the flow again. Sending them back through the still check would
+     * be tolerable; throwing away a cycle they already walked, without saying so, is not — and
+     * that is what routing the button through `start()` did.
+     */
+    @Test
+    fun entryCommissioningTareZeroKeepsTheCycleAlreadyProven() = runTest {
+        val (viewModel, repository, runtime) = entryViewModelFixture(testScheduler)
+        advanceUntilIdle()
+
+        viewModel.startEntryCommissioning(alertAngleDeg = 15)
+        advanceUntilIdle()
+
+        runtime.emit(entryTwist(0.0, 0L))
+        var t = 1_000L
+        while (t <= 5_000L) {
+            runtime.emit(entryTwist(0.0, t))
+            t += 1_000L
+        }
+        // Cycle one: open past the threshold and shut again.
+        runtime.emit(entryTwist(20.0, 5_500L))
+        runtime.emit(entryTwist(0.0, 6_000L))
+        advanceUntilIdle()
+        assertEquals(
+            EntryCommissioningPhase.CYCLE_TWO,
+            viewModel.uiState.value.profile.commissioning?.phase,
+        )
+
+        // The source has drifted: the shut door now reads two degrees, and the tare says so.
+        runtime.emit(entryTwist(2.0, 6_500L))
+        advanceUntilIdle()
+        viewModel.tareEntryCommissioningZero()
+        advanceUntilIdle()
+
+        val tared = viewModel.uiState.value.profile.commissioning
+        assertEquals(EntryCommissioningPhase.CYCLE_TWO, tared?.phase)
+        assertEquals(0.0, tared?.liveAngleDeg)
+        assertEquals(0.0, tared?.peakAngleDeg)
+        assertNull(tared?.failureReason)
+
+        // One more cycle, measured from the new zero, is all that should be left to do.
+        runtime.emit(entryTwist(22.0, 7_000L))
+        runtime.emit(entryTwist(2.0, 7_500L))
+        advanceUntilIdle()
+
+        val stored = repository.load().profiles.getValue(ProtectionProfile.ENTRY)
+        assertEquals(ProfileSetupState.READY, stored.setupState)
+    }
+
+    private fun entryTwist(degrees: Double, timestampMs: Long) = EntryOrientationSample(
+        timestampMs = timestampMs,
+        quaternion = EntryQuaternion(
+            w = Math.cos(Math.toRadians(degrees / 2)),
+            x = 0.0,
+            y = 0.0,
+            z = Math.sin(Math.toRadians(degrees / 2)),
+        ),
+        fresh = true,
+    )
+
     @Test
     fun entryAngleQuickChoicesAndSliderBoundsAreEnforced() = runTest {
         val (viewModel, repository, _) = entryViewModelFixture(testScheduler)
@@ -1164,6 +1573,82 @@ class ProtectionViewModelTest {
             add(PowerWitnessSample(lux = lux, timestampMs = t, fresh = true))
             t += 1_000L
         }
+    }
+
+    @Test
+    fun calibrationWithoutALightSourceFailsAtOnceInsteadOfWaitingForever() = runTest {
+        val fixture = powerViewModelFixture(testScheduler)
+        fixture.runtime.lightSourceAvailable = false
+        advanceUntilIdle()
+
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        // A phone with no ambient-light hardware can never finish the guided flow, so
+        // saying "step 1/2, switch the lamp off" would be a lie the owner acts on.
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.FAILED, commissioning?.phase)
+        assertEquals(PowerCommissioningFailure.NO_LIGHT_SENSOR, commissioning?.failureReason)
+        assertTrue(fixture.runtime.streamStopped)
+    }
+
+    @Test
+    fun calibrationThatNeverReceivesALightSampleGivesUp() = runTest {
+        val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        var elapsedMs = 0L
+        val fixture = powerViewModelFixture(
+            scheduler = testScheduler,
+            ticker = ticks,
+            elapsedNowMs = { elapsedMs },
+        )
+        advanceUntilIdle()
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+
+        elapsedMs = 4_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+        assertEquals(
+            PowerCommissioningPhase.DARK_WINDOW,
+            fixture.viewModel.uiState.value.profile.powerCommissioning?.phase,
+        )
+
+        // The source was acquired but nothing ever arrived — a listener that died
+        // quietly, or hardware that vanished mid-session, as this device did once.
+        elapsedMs = 5_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.FAILED, commissioning?.phase)
+        assertEquals(PowerCommissioningFailure.NO_LIGHT_SAMPLES, commissioning?.failureReason)
+        assertTrue(fixture.runtime.streamStopped)
+    }
+
+    @Test
+    fun calibrationKeepsWaitingWhileTheSensorIsStillReporting() = runTest {
+        val ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        var elapsedMs = 0L
+        val fixture = powerViewModelFixture(
+            scheduler = testScheduler,
+            ticker = ticks,
+            elapsedNowMs = { elapsedMs },
+        )
+        advanceUntilIdle()
+        fixture.viewModel.startPowerCommissioning()
+        advanceUntilIdle()
+        fixture.runtime.emit(PowerWitnessSample(lux = 5.0, timestampMs = 0L, fresh = true))
+        advanceUntilIdle()
+
+        // A steady lamp on an on-change sensor emits nothing after the first reading;
+        // the give-up rule must not mistake that for a dead source.
+        elapsedMs = 9_000L
+        ticks.tryEmit(Unit)
+        advanceUntilIdle()
+
+        val commissioning = fixture.viewModel.uiState.value.profile.powerCommissioning
+        assertEquals(PowerCommissioningPhase.DARK_WINDOW, commissioning?.phase)
+        assertNull(commissioning?.failureReason)
     }
 
     @Test
@@ -1387,25 +1872,62 @@ class ProtectionViewModelTest {
     }
 
     @Test
-    fun powerSummaryRowsKeepLiveWitnessStatusSeparateFromPlacementRevalidation() {
-        // A skipped per-arm placement check does not make a working light sensor unavailable.
+    fun powerSummaryRowsDeriveIndependentlyFromEachSignal() {
+        val witnessModel = PowerWitnessModel(
+            darkMinLux = 5.0,
+            darkMaxLux = 8.0,
+            litMinLux = 200.0,
+            litMaxLux = 220.0,
+            guardBandLux = 10.0,
+            algorithmVersion = PowerWitnessCommissioningPolicy.ALGORITHM_VERSION,
+            sensorIdentity = "test-sensor",
+            hoodSignature = "hood-test",
+        )
+
+        // A skipped per-arm placement check does not make a working light sensor
+        // unavailable; it is reported through its own field instead.
         val connectedWitnessNotRevalidated = powerSummaryRows(
             chargingState = ChargingState.CHARGING,
             degradationReasons = setOf(POWER_CHALLENGE_DEGRADED),
-            lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
+            lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY, lastSampleAtMs = 200L),
+            powerSensorHealth = SensorHealth(SensorHealthState.HEALTHY, lastSampleAtMs = 300L),
         )
-        assertEquals(ChargingRowState.CONNECTED, connectedWitnessNotRevalidated.charging)
-        assertEquals(WitnessRowState.DETECTED, connectedWitnessNotRevalidated.witness)
+        assertEquals(ChargingRowState.CHARGING, connectedWitnessNotRevalidated.charging)
+        assertEquals(WitnessRowState.AVAILABLE, connectedWitnessNotRevalidated.witness)
         assertTrue(connectedWitnessNotRevalidated.requiresWitnessPlacementRevalidation)
+        assertEquals(300L, connectedWitnessNotRevalidated.lastUpdatedAtMs)
+        assertFalse(connectedWitnessNotRevalidated.confirmedFault)
 
-        // Charger lost while the witness still sees the lamp: never an outage claim.
+        // Sensor availability alone is not evidence that the witness lamp is lit.
         val chargerGoneWitnessUp = powerSummaryRows(
             chargingState = ChargingState.NOT_CHARGING,
             degradationReasons = emptySet(),
             lightSensorHealth = SensorHealth(SensorHealthState.AVAILABLE),
         )
-        assertEquals(ChargingRowState.DISCONNECTED, chargerGoneWitnessUp.charging)
-        assertEquals(WitnessRowState.DETECTED, chargerGoneWitnessUp.witness)
+        assertEquals(ChargingRowState.NOT_CHARGING, chargerGoneWitnessUp.charging)
+        assertEquals(WitnessRowState.AVAILABLE, chargerGoneWitnessUp.witness)
+
+        val detectedWitness = powerSummaryRows(
+            chargingState = ChargingState.CHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = com.example.motorcycleantitheftsensor.protection.LightHealthDetail(lastLux = 205.0),
+            ),
+            witnessModel = witnessModel,
+        )
+        assertEquals(WitnessRowState.DETECTED, detectedWitness.witness)
+
+        val darkWitness = powerSummaryRows(
+            chargingState = ChargingState.DISCHARGING,
+            degradationReasons = emptySet(),
+            lightSensorHealth = SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                lightDetail = com.example.motorcycleantitheftsensor.protection.LightHealthDetail(lastLux = 7.0),
+            ),
+            witnessModel = witnessModel,
+        )
+        assertEquals(WitnessRowState.DARK, darkWitness.witness)
 
         // Unknown charging plus stale light evidence stays honest on both rows.
         val unknownBoth = powerSummaryRows(
@@ -1417,9 +1939,70 @@ class ProtectionViewModelTest {
         assertEquals(WitnessRowState.UNAVAILABLE, unknownBoth.witness)
 
         assertEquals(
-            ChargingRowState.CONNECTED,
+            ChargingRowState.FULL,
             powerSummaryRows(ChargingState.FULL, emptySet(), null).charging,
         )
+        assertEquals(
+            ChargingRowState.DISCHARGING,
+            powerSummaryRows(ChargingState.DISCHARGING, emptySet(), null).charging,
+        )
+        assertTrue(
+            powerSummaryRows(
+                chargingState = ChargingState.DISCHARGING,
+                degradationReasons = emptySet(),
+                lightSensorHealth = SensorHealth(SensorHealthState.HEALTHY),
+                confirmedFault = true,
+            ).confirmedFault,
+        )
+        assertEquals(
+            400L,
+            powerSummaryRows(
+                chargingState = ChargingState.CHARGING,
+                degradationReasons = emptySet(),
+                lightSensorHealth = null,
+                powerSensorHealth = SensorHealth(
+                    state = SensorHealthState.AVAILABLE,
+                    powerThermalDetail = com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail(
+                        lastUpdateWallClockMs = 400L,
+                    ),
+                ),
+            ).lastUpdatedAtMs,
+        )
+    }
+
+    @Test
+    fun disarmedPowerProfileRefreshesChargingRowFromLiveStatus() = runTest {
+        val repository = fakeProfileRepository(ProtectionProfile.POWER)
+        val coordinator = fakeCoordinator(
+            state = ProtectionState.DISARMED_ONLINE,
+            profileRepository = repository,
+        )
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val viewModel = ProtectionViewModel(
+            coordinator = coordinator,
+            incidents = FakeIncidentRepository(emptyList()),
+            settings = FakeProtectionSettingsGateway(),
+            profileRepository = repository,
+            nowMs = { 1_000L },
+            ticker = emptyFlow(),
+            dispatcher = dispatcher,
+            callbackDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        assertEquals(ProtectionState.DISARMED_ONLINE, viewModel.uiState.value.protection.state)
+        coordinator.recordSensorHealth(
+            SensorKind.POWER_THERMAL,
+            SensorHealth(
+                state = SensorHealthState.HEALTHY,
+                powerThermalDetail = com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail(
+                    chargingState = ChargingState.DISCHARGING,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(ChargingRowState.DISCHARGING, viewModel.uiState.value.profile.powerSummary?.charging)
     }
 
     @Test
@@ -1536,7 +2119,7 @@ class ProtectionViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            ChargingRowState.DISCONNECTED,
+            ChargingRowState.DISCHARGING,
             fixture.viewModel.uiState.value.profile.powerSummary?.charging,
         )
     }
@@ -1589,6 +2172,7 @@ private class FakeEntrySampleRuntime : ProtectionRuntime {
 
 private class FakePowerSampleRuntime : ProtectionRuntime {
     private val samples = MutableSharedFlow<PowerWitnessSample>(extraBufferCapacity = 64)
+    var lightSourceAvailable = true
     var streamStarted = false
         private set
     var streamStopped = false
@@ -1615,8 +2199,9 @@ private class FakePowerSampleRuntime : ProtectionRuntime {
 
     override fun powerWitnessSamples(): Flow<PowerWitnessSample> = samples
 
-    override fun startPowerCommissioningStream() {
+    override fun startPowerCommissioningStream(): Boolean {
         streamStarted = true
+        return lightSourceAvailable
     }
 
     override fun stopPowerCommissioningStream() {
@@ -1692,6 +2277,7 @@ private fun fakeCoordinator(
     blockers: Set<String> = emptySet(),
     profileRepository: ProtectionProfileRepository? = null,
     powerIntegrityChallenge: (() -> Boolean)? = null,
+    deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = { ProfileDeviceSupport.Supported },
 ): ProtectionCoordinator = ProtectionCoordinator(
     initialSnapshot = snapshot(state = state, lastTransitionAtMs = 1_000L),
     runtime = FakeRuntime(blockers),
@@ -1699,7 +2285,45 @@ private fun fakeCoordinator(
     clock = ProtectionClock { 2_000L },
     profileRepository = profileRepository,
     powerIntegrityChallenge = powerIntegrityChallenge,
+    deviceSupport = deviceSupport,
 )
+
+/** Every source present, so the support policy judges rather than short-circuiting. */
+private class FullSensorCatalog : SensorCatalog {
+    override fun descriptors(): Map<SensorSource, SensorDescriptor> =
+        SensorSource.entries.associateWith(::descriptor)
+
+    override fun descriptor(source: SensorSource): SensorDescriptor = SensorDescriptor(
+        source = source,
+        androidType = 1,
+        name = source.name,
+        vendor = "Fake",
+        reportingMode = 1,
+        isWakeUp = false,
+        minDelayUs = 1_000,
+        maxDelayUs = 200_000,
+        maximumRange = 100f,
+        resolution = 0.01f,
+        powerMa = 0.5f,
+        isAvailable = true,
+    )
+
+    override fun isAvailable(source: SensorSource): Boolean = true
+}
+
+private class FakeDriftMeasurementStore(
+    private var measurement: EntryDriftMeasurement?,
+) : EntryDriftMeasurementStore {
+    override fun load(): EntryDriftMeasurement? = measurement
+
+    override fun save(measurement: EntryDriftMeasurement) {
+        this.measurement = measurement
+    }
+
+    override fun clear() {
+        measurement = null
+    }
+}
 
 private class ViewModelProfileRepositoryFake(
     private var state: ProtectionProfileStoreState,
@@ -1815,13 +2439,17 @@ private class FakeRuntime(
 
 private class FakeIncidentRepository(
     incidents: List<SecurityIncident> = emptyList(),
-    private var failuresRemaining: Int = 0,
+    var failuresRemaining: Int = 0,
 ) : IncidentRepository {
     private val incidents = incidents.toMutableList()
+    private val revisions = MutableStateFlow(0L)
+
+    override val revision: StateFlow<Long> = revisions.asStateFlow()
 
     override fun upsert(incident: SecurityIncident) {
         incidents.removeAll { it.id == incident.id }
         incidents.add(0, incident)
+        revisions.value += 1L
     }
 
     override fun findById(id: String): SecurityIncident? = incidents.find { it.id == id }
@@ -1836,6 +2464,7 @@ private class FakeIncidentRepository(
 
     override fun clearHistory() {
         incidents.clear()
+        revisions.value += 1L
     }
 }
 
@@ -1949,7 +2578,7 @@ private class FakeProtectionSettingsGateway(
         return SettingsOperationResult(applied = true, message = "Pairing reset")
     }
 
-    override fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult {
+    override fun saveSmsFallback(destination: String): SettingsOperationResult {
         smsFallbackStarted?.countDown()
         allowSmsFallbackLatch?.let { gate ->
             require(gate.await(5, TimeUnit.SECONDS)) { "SMS save gate timed out" }

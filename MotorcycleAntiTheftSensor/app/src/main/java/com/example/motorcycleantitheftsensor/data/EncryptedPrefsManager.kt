@@ -7,6 +7,7 @@ import com.example.motorcycleantitheftsensor.security.PairingCode
 import com.example.motorcycleantitheftsensor.security.PairingCodePolicy
 import com.example.motorcycleantitheftsensor.security.PairingResult
 import com.example.motorcycleantitheftsensor.security.SecureKeyManager
+import com.example.motorcycleantitheftsensor.telephony.EncryptedSmsCodec
 import java.util.UUID
 
 /**
@@ -24,6 +25,7 @@ class EncryptedPrefsManager(private val context: Context) {
         private const val LEGACY_AUTHENTICATOR_SEED_KEY = "enc_totp_seed"
         private const val KEY_DEVICE_UUID = "enc_device_uuid"
         private const val KEY_SMS_AES_KEY = "enc_sms_aes_key"
+        private const val KEY_SMS_AES_KEY_V3 = "enc_sms_aes_key_v3"
         private const val KEY_SMS_DESTINATION = "enc_sms_destination"
         private const val KEY_SYSTEM_ARMED = "system_armed_state"
         private const val KEY_AUTO_RECOVERY_AFTER_BOOT = "auto_recovery_after_boot"
@@ -34,6 +36,7 @@ class EncryptedPrefsManager(private val context: Context) {
         private const val KEY_PARKING_ANCHOR = "enc_parking_anchor_json"
         private const val KEY_LIVE_PURSUIT_SESSION = "enc_live_pursuit_session_json"
         private const val KEY_MOVEMENT_TRACKING_STATE = "enc_movement_tracking_state_json"
+        private const val KEY_ENTRY_CEILING_WARNED_SESSION = "entry_ceiling_warned_session"
     }
 
     private val secureKeyManager = SecureKeyManager(context)
@@ -146,12 +149,30 @@ class EncryptedPrefsManager(private val context: Context) {
         return newUuid
     }
 
-    // --- SMS Pre-Shared Key ---
-    fun saveSmsAesKey(keyBase64: String) {
-        prefs.edit().putString(KEY_SMS_AES_KEY, keyBase64).apply()
+    // --- SMS Device Key ---
+    /**
+     * The key the SMS fallback seals alerts under, created on first use and never shown
+     * to anyone. Both ends of the round trip are this device — it encrypts the alert and
+     * it decrypts what the owner forwards back through `/decode` — so there is nothing to
+     * type, and nothing weak enough to brute force from an intercepted message.
+     *
+     * Written with commit() rather than apply(): a key lost to a crash between generating
+     * and persisting would leave alerts on the wire that nothing can open.
+     */
+    fun getOrCreateSmsAesKey(): String {
+        prefs.getString(KEY_SMS_AES_KEY_V3, null)
+            ?.takeIf { EncryptedSmsCodec.isValidKeyBase64(it) }
+            ?.let { return it }
+        val generated = EncryptedSmsCodec.generateKeyBase64()
+        prefs.edit().putString(KEY_SMS_AES_KEY_V3, generated).commit()
+        return generated
     }
 
-    fun getSmsAesKey(): String? {
+    /**
+     * The passphrase older builds asked the owner to type. Read-only, and used for nothing
+     * but opening alerts sent before the key was randomised.
+     */
+    fun getLegacySmsAesKey(): String? {
         return prefs.getString(KEY_SMS_AES_KEY, null)
     }
 
@@ -160,6 +181,21 @@ class EncryptedPrefsManager(private val context: Context) {
     }
 
     fun getSmsDestination(): String? = prefs.getString(KEY_SMS_DESTINATION, null)
+
+    // --- Entry drift ceiling warning ---
+    /**
+     * The armed session already warned about for outliving its measured drift ceiling.
+     *
+     * Durable because the warning is sent during sessions that last a night, across which
+     * the process is routinely killed and restarted. An owner woken twice by the same piece
+     * of advice learns to ignore the app rather than the drift.
+     */
+    fun getEntryCeilingWarnedSessionId(): String? =
+        prefs.getString(KEY_ENTRY_CEILING_WARNED_SESSION, null)
+
+    fun setEntryCeilingWarnedSessionId(sessionId: String) {
+        prefs.edit().putString(KEY_ENTRY_CEILING_WARNED_SESSION, sessionId).apply()
+    }
 
     // --- Arm / Disarm State ---
     fun setSystemArmed(armed: Boolean) {

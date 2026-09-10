@@ -133,7 +133,7 @@ class IncidentDeliveryCoordinatorTest {
     }
 
     @Test
-    fun smsFallbackUsesRedactedSmsMessageWithoutCoordinatesOrMapsUrl() = runTest {
+    fun smsFallbackCarriesCoordinatesButNotTheGeocodedLabelOrMapsUrl() = runTest {
         var deliveredSmsMessage: String? = null
         var deliveredTelegramMessage: String? = null
         val coordinator = IncidentDeliveryCoordinator(
@@ -157,11 +157,10 @@ class IncidentDeliveryCoordinatorTest {
         assertTrue(deliveredTelegramMessage != null && deliveredTelegramMessage!!.contains("maps.google.com"))
         assertTrue(deliveredTelegramMessage!!.contains("Bangkok, Thailand"))
 
-        // SMS received redacted content
+        // SMS carries the coordinates a searcher can act on, and nothing the network paid for
         assertTrue(deliveredSmsMessage != null)
+        assertTrue(deliveredSmsMessage!!.contains("13.75630,100.50180"))
         assertFalse(deliveredSmsMessage!!.contains("maps.google.com"))
-        assertFalse(deliveredSmsMessage!!.contains("13.7563"))
-        assertFalse(deliveredSmsMessage!!.contains("100.5018"))
         assertFalse(deliveredSmsMessage!!.contains("Bangkok, Thailand"))
     }
 
@@ -196,6 +195,155 @@ class IncidentDeliveryCoordinatorTest {
         assertEquals(DeliveryState.SENT, res2.deliveryState)
         assertEquals(DeliveryState.SENT, res3.deliveryState)
     }
+
+    /**
+     * The memo exists so one event cannot be announced twice. A failure is not an announcement,
+     * and remembering it turned every later attempt at the same event into a replay of the
+     * failure — which is exactly what a retry after the network returns is.
+     */
+    @Test
+    fun aDeliveryThatFailedIsAttemptedAgainRatherThanReplayedFromTheMemo() = runTest {
+        var telegramWorks = false
+        var attempts = 0
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport {
+                attempts += 1
+                telegramWorks
+            },
+            sms = IncidentTransport { false },
+        )
+        val update = IncidentUpdate.Opened(criticalReal())
+        val configuration = DeliveryConfiguration(smsConfigured = false)
+
+        val first = coordinator.deliver(update, configuration)
+        telegramWorks = true
+        val second = coordinator.deliver(update, configuration)
+        val third = coordinator.deliver(update, configuration)
+
+        assertEquals(DeliveryState.FAILED, first.deliveryState)
+        assertEquals(DeliveryState.SENT, second.deliveryState)
+        // The success is memoized, so the third call costs nothing and announces nothing.
+        assertEquals(DeliveryState.SENT, third.deliveryState)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun aRedeliveredIncidentSaysItIsLate() = runTest {
+        val messages = mutableListOf<String>()
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { message ->
+                messages += message
+                true
+            },
+            sms = IncidentTransport { false },
+        )
+        val incident = criticalReal().copy(updatedAtMs = 1_000L)
+
+        coordinator.redeliver(
+            incident,
+            DeliveryConfiguration(smsConfigured = false),
+            nowMs = 1_000L + 90L * 60L * 1000L,
+        )
+
+        assertEquals(1, messages.size)
+        assertTrue(messages.single().startsWith("⏱ ส่งย้อนหลัง"))
+        assertTrue(messages.single().contains("1 ชั่วโมง 30 นาที"))
+    }
+}
+
+/**
+ * The fallback used to be reserved for CRITICAL, and a door opening while armed is raised as
+ * WARNING — CRITICAL is kept for the mount being moved. So the one event the door watch exists
+ * to report was the one event with no second channel, which is what the phone would have done
+ * on the night the network was gone even with a destination saved.
+ */
+class SmsFallbackEligibilityTest {
+
+    @Test
+    fun aDoorOpeningReachesTheFallbackEvenThoughItIsOnlyAWarning() = runTest {
+        val smsMessages = mutableListOf<String>()
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { false },
+            sms = IncidentTransport { message ->
+                smsMessages += message
+                true
+            },
+        )
+
+        val delivered = coordinator.deliver(
+            entryIncident(ProtectionDiagnostics.ENTRY_DOOR_OPEN),
+            DeliveryConfiguration(smsConfigured = true),
+        )
+
+        assertEquals(1, smsMessages.size)
+        assertEquals(DeliveryState.SENT, delivered.deliveryState)
+    }
+
+    /**
+     * An unavailable orientation source is a health notice about the watch rather than a report
+     * of somebody at the door. Spending the fallback on those is how the allowance is gone
+     * before the night it matters.
+     */
+    @Test
+    fun aWarningThatIsNotADoorOpeningStillDoesNotSpendTheFallback() = runTest {
+        var smsTried = false
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { false },
+            sms = IncidentTransport { smsTried = true; true },
+        )
+
+        val delivered = coordinator.deliver(
+            entryIncident(ProtectionDiagnostics.ENTRY_SOURCE_UNAVAILABLE),
+            DeliveryConfiguration(smsConfigured = true),
+        )
+
+        org.junit.Assert.assertFalse(smsTried)
+        assertEquals(DeliveryState.FAILED, delivered.deliveryState)
+    }
+
+    @Test
+    fun theFallbackIsStillOnlyReachedAfterTelegramHasFailed() = runTest {
+        var smsTried = false
+        val coordinator = IncidentDeliveryCoordinator(
+            repository = RecordingIncidentRepository(mutableListOf()),
+            formatter = IncidentMessageFormatter(),
+            telegram = IncidentTransport { true },
+            sms = IncidentTransport { smsTried = true; true },
+        )
+
+        coordinator.deliver(
+            entryIncident(ProtectionDiagnostics.ENTRY_DOOR_OPEN),
+            DeliveryConfiguration(smsConfigured = true),
+        )
+
+        org.junit.Assert.assertFalse(smsTried)
+    }
+
+    private fun entryIncident(diagnostic: String): SecurityIncident = incident(
+        id = "entry-$diagnostic",
+        updatedAtMs = 1_000L,
+        severity = IncidentSeverity.WARNING,
+    ).copy(
+        type = IncidentType.ENTRY_DOOR,
+        evidence = listOf(
+            IncidentEvidence(
+                kind = SensorKind.VIBRATION,
+                eventElapsedMs = 1_000L,
+                wallClockMs = 1_000L,
+                normalizedValue = 25.0,
+                baselineDelta = 25.0,
+                diagnostic = diagnostic,
+            ),
+        ),
+    )
 }
 
 private fun coordinator(

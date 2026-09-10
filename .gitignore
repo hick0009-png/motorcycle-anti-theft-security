@@ -27,3 +27,8 @@
 
 # JVM crash reports emitted beneath Android module directories
 /MotorcycleAntiTheftSensor/app/hs_err_pid*.log
+
+# Scratch capture from the device, kept locally: uiautomator hierarchy dumps and
+# attachments dropped in by the desktop client. Neither is repository content.
+/moto-guard-*.xml
+/.hermes/

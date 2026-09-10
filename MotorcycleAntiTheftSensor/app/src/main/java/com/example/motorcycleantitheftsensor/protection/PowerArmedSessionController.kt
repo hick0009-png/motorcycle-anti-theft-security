@@ -80,6 +80,16 @@ class PowerArmedSessionController {
     fun activeWitnessModel(): PowerWitnessModel? = synchronized(lock) { activeWitnessModel }
 
     /**
+     * Whether the arbiter's last conclusive reading found the witness lamp lit, or null
+     * when no armed session has reached a conclusion yet.
+     *
+     * The owner asking "/status" in this mode is asking exactly one question — is the power
+     * still on — and the arbiter is the only thing that knows, because a raw lux value means
+     * nothing without the commissioned bands it is judged against.
+     */
+    fun witnessLit(): Boolean? = synchronized(lock) { arbiterState?.lastConclusiveWitnessLit }
+
+    /**
      * Feeds one composite charging/witness sample. Returns the verdicts produced by the
      * sample — empty while no session is active (no compatible calibration exists, so no
      * outage claim is possible) or when the sample causes no transition.
@@ -133,8 +143,22 @@ class PowerArmedSessionController {
         if (sample.timestampMs - start < ARM_REFERENCE_WINDOW_MS) return emptyList()
 
         val reference = armReferenceSamples.average()
-        armReferenceLux = reference
-        val activeModel = commissionedModel.scaledForLitReference(reference)
+        // The window captures the *on-lamp* level so the commissioned bands can be
+        // re-expressed for tonight's ambient. That re-expression is only meaningful when
+        // the lamp is actually lit at Arm: rescaling a dark reading would slide the whole
+        // model down until that dark level sits above its own lit threshold, so a witness
+        // that is plainly off would report "detected" and the mode would guard nothing.
+        // Adopt the scaling only for a reference that reads lit against the *commissioned*
+        // model; otherwise keep the commissioned bands so the arbiter judges the true
+        // state (dark → witness lost, in-between → ambiguous) instead of forcing lit.
+        val referenceReadsLit = reference >= commissionedModel.witnessLitThresholdLux
+        val activeModel = if (referenceReadsLit) {
+            armReferenceLux = reference
+            commissionedModel.scaledForLitReference(reference)
+        } else {
+            armReferenceLux = null
+            commissionedModel
+        }
         activeWitnessModel = activeModel
         val evaluator = PowerCompositeArbiter(activeModel, requireNotNull(settings))
         arbiter = evaluator

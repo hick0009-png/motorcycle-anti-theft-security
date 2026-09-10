@@ -42,10 +42,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -62,22 +64,35 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.motorcycleantitheftsensor.autostart.BackgroundKeepAliveManager
+import com.example.motorcycleantitheftsensor.ui.protection.BlackBoxExportCard
+import com.example.motorcycleantitheftsensor.theme.Navy
+import com.example.motorcycleantitheftsensor.theme.NavyHeader
+import com.example.motorcycleantitheftsensor.theme.OutlineStrong
+import com.example.motorcycleantitheftsensor.theme.StatusCritical
+import com.example.motorcycleantitheftsensor.theme.StatusHealthy
+import com.example.motorcycleantitheftsensor.theme.StatusWarning
+import com.example.motorcycleantitheftsensor.theme.SurfaceMuted
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
-import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.SensorCapability
+import com.example.motorcycleantitheftsensor.protection.SensorContribution
 import com.example.motorcycleantitheftsensor.protection.SensorConfigurationPolicy
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.SensorPreset
 import com.example.motorcycleantitheftsensor.protection.SensorRole
 import com.example.motorcycleantitheftsensor.protection.SensorSource
 import com.example.motorcycleantitheftsensor.ui.ChargingRowState
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
+import com.example.motorcycleantitheftsensor.ui.ProtectionDestination
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
+import com.example.motorcycleantitheftsensor.ui.inventorySummary
+import com.example.motorcycleantitheftsensor.ui.roleTally
 import com.example.motorcycleantitheftsensor.ui.ProtectionUiState
 import com.example.motorcycleantitheftsensor.ui.WitnessRowState
 import com.example.motorcycleantitheftsensor.ui.SettingsOperation
@@ -97,13 +112,30 @@ import kotlin.math.roundToInt
  * only accents without a scheme equivalent are defined here. Every pairing meets
  * WCAG AA (≥4.5:1) on white.
  */
-private val RowSurface = Color(0xFFF2F2F0)   // inner rows / chips
-private val BorderNeutral = Color(0xFFC9C9C6) // borders / inactive tracks
-private val ActionBlue = Color(0xFF1D4ED8)    // actions/links on white (6.3:1)
-private val StatusGreen = Color(0xFF047857)   // armed/healthy text (5.2:1)
-private val StatusAmber = Color(0xFFB45309)   // warning text (4.7:1)
-private val StatusRed = Color(0xFFB91C1C)     // error text / destructive fill
-private val ProgressCyan = Color(0xFF0891B2)  // decorative progress only
+private val RowSurface = SurfaceMuted        // inner rows / chips
+
+/**
+ * Dimming for controls a profile has locked. Matches the M3 disabled-content alpha.
+ * Only controls carry it: the lock chip and its reason stay at full contrast, because
+ * they are the text that explains the dimming (WCAG AA exempts disabled controls, not
+ * the explanation next to them).
+ */
+private const val LockedContentAlpha = 0.38f
+private val BorderNeutral = OutlineStrong     // borders / inactive tracks (3.3:1, was 1.9:1)
+
+/**
+ * Actions on this screen are the brand, not a fourth accent.
+ *
+ * This screen used its own blue for every link and button while the home screen used navy
+ * for the same job — two answers to "what does a tappable thing look like here". Navy reads
+ * as the action colour app-wide now, and the blue is gone rather than renamed.
+ */
+private val BrandAction = Navy
+
+private val StatusGreen = StatusHealthy       // armed/healthy text (5.5:1)
+private val StatusAmber = StatusWarning       // warning text (5.9:1, was 5.0:1)
+private val StatusRed = StatusCritical        // error text / destructive fill (7.5:1)
+private val ProgressAccent = NavyHeader       // decorative progress only
 
 private enum class SettingsPage(
     val title: String,
@@ -130,7 +162,6 @@ fun SettingsScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     var replacementToken by remember { mutableStateOf("") }
     var smsDestination by rememberSaveable { mutableStateOf("") }
-    var smsKey by remember { mutableStateOf("") }
     var sensitivityDraft by rememberSaveable { mutableIntStateOf(state.settings.sensitivity) }
     var confirmResetPairing by rememberSaveable { mutableStateOf(false) }
     var advancedDiagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
@@ -143,7 +174,6 @@ fun SettingsScreen(
     DisposableEffect(Unit) {
         onDispose {
             replacementToken = ""
-            smsKey = ""
         }
     }
 
@@ -214,7 +244,7 @@ fun SettingsScreen(
                     Text(
                         "กำลังรีเฟรชการตั้งค่า...",
                         style = MaterialTheme.typography.bodySmall,
-                        color = ProgressCyan,
+                        color = ProgressAccent,
                     )
                 }
                 state.settingsError?.let { error ->
@@ -229,7 +259,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     ) {
                         Text("ลองใหม่อีกครั้ง")
                     }
@@ -297,9 +327,9 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Surface(
-                                color = ActionBlue.copy(alpha = 0.15f),
+                                color = BrandAction.copy(alpha = 0.15f),
                                 shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
+                                border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.3f)),
                             ) {
                                 Text(
                                     text = "$sensitivityDraft/10",
@@ -343,7 +373,7 @@ fun SettingsScreen(
                                         modifier = Modifier
                                             .weight(1f)
                                             .heightIn(min = 48.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                                         shape = RoundedCornerShape(12.dp),
                                     ) {
                                         Text("$choice°", fontWeight = FontWeight.Bold)
@@ -378,8 +408,10 @@ fun SettingsScreen(
                         DiagnosticRow(
                             "การชาร์จโทรศัพท์",
                             when (rows?.charging) {
-                                ChargingRowState.CONNECTED -> "เชื่อมต่อ"
-                                ChargingRowState.DISCONNECTED -> "หยุด"
+                                ChargingRowState.CHARGING -> "กำลังชาร์จ"
+                                ChargingRowState.FULL -> "ชาร์จเต็ม · ยังเสียบสายอยู่"
+                                ChargingRowState.DISCHARGING -> "ไม่ได้เสียบสายชาร์จ"
+                                ChargingRowState.NOT_CHARGING -> "ไม่ได้ชาร์จในขณะนี้"
                                 ChargingRowState.UNKNOWN, null -> "ไม่ทราบ"
                             },
                         )
@@ -389,6 +421,7 @@ fun SettingsScreen(
                                 WitnessRowState.DETECTED -> "พบ"
                                 WitnessRowState.DARK -> "ไม่พบ"
                                 WitnessRowState.AMBIGUOUS -> "อยู่ระหว่างเกณฑ์"
+                                WitnessRowState.AVAILABLE -> "เซนเซอร์พร้อมอ่านค่า"
                                 WitnessRowState.UNAVAILABLE, null -> "ใช้งานไม่ได้"
                             },
                         )
@@ -408,6 +441,10 @@ fun SettingsScreen(
                 modifier = Modifier.semantics { heading() },
             )
         }
+
+        // The readiness card lives once, on the settings overview
+        // (RemoteControlReadinessCard), which already carries the same three rows
+        // and test tags plus a jump to the page that fixes each gap.
 
         }
 
@@ -437,13 +474,57 @@ fun SettingsScreen(
         }
 
         if (advancedDiagnosticsExpanded) {
+        item(key = "blackbox-export") {
+            BlackBoxExportCard()
+        }
         item(key = "sensor-fusion-settings") {
             var showAdvancedDialog by rememberSaveable { mutableStateOf(false) }
             var showNoPrimaryWarningDialog by rememberSaveable { mutableStateOf(false) }
+            var lockedSourcesExpanded by rememberSaveable { mutableStateOf(false) }
+            // Rows live in a LazyColumn, so this cannot be per-row state: scrolling a row
+            // out of view would silently collapse it again.
+            var expandedEffects by rememberSaveable(stateSaver = ExpandedSourcesSaver) {
+                mutableStateOf(emptySet<SensorSource>())
+            }
             val configPolicy = remember { SensorConfigurationPolicy() }
             val currentConfig = state.settings.sensorConfiguration
                 ?: remember { configPolicy.forPreset(SensorPreset.BALANCED) }
             val displayPreset = state.settings.sensorDisplayPreset ?: configPolicy.displayPreset(currentConfig)
+            val editability = state.sensorEditability
+            val availability = state.sensorAvailability
+            val recommendation = state.sensorRecommendation
+            // Defense in depth. The domain pins these sources OFF when it resolves the
+            // profile anyway, but a configuration restored from an older version could
+            // still carry a raised role, and this screen must never write one back.
+            val missingSources = availability
+                .filterValues { it.availability == SensorAvailability.MISSING }
+                .keys
+            // What the profile will actually run, given what this screen is holding. Both
+            // the summary and every save go through it, so the counts on the card cannot
+            // disagree with what gets written.
+            val pinLockedOff: (SensorFusionConfiguration) -> SensorFusionConfiguration = { config ->
+                editability.lockedSources.fold(config) { pinned, source ->
+                    configPolicy.withSourceRole(pinned, source, SensorRole.OFF)
+                }
+            }
+            val saveConfiguration: (SensorFusionConfiguration) -> Unit = { requested ->
+                val withoutLocked = pinLockedOff(requested)
+                // A primary the phone does not have makes the controller reject the whole
+                // configuration, stopping every other sensor with it. Demoting to supporting
+                // keeps the owner's intent — that source still counts when it exists — while
+                // leaving a configuration this device can actually apply. Only sources the
+                // catalog positively reports as missing are touched; an unread catalog is
+                // not evidence of missing hardware.
+                actions.updateSensorConfiguration(
+                    missingSources.fold(withoutLocked) { config, source ->
+                        if (config.source(source).role == SensorRole.PRIMARY) {
+                            configPolicy.withSourceRole(config, source, SensorRole.SUPPORTING)
+                        } else {
+                            config
+                        }
+                    },
+                )
+            }
 
             SettingsCard(title = "เซ็นเซอร์ขั้นสูงและบทบาทการตรวจจับ") {
                 Text(
@@ -451,6 +532,81 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                // Level 2 of the three availability surfaces: what this device actually has.
+                val inventory = availability.inventorySummary()
+                if (inventory.known) {
+                    Text(
+                        text = PresentationTextCatalog.sensorInventoryLine(
+                            available = inventory.available,
+                            limited = inventory.limited,
+                            missing = inventory.missing,
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_INVENTORY_SUMMARY_TAG),
+                    )
+                }
+
+                // Level 3: what this use is set up to run, as opposed to what the phone has.
+                val tallyProfile = recommendation.profile
+                if (tallyProfile != null) {
+                    // Stated before the counts, because it is the question the counts are
+                    // an answer to: which signals may raise an alert by themselves.
+                    Text(
+                        text = PresentationTextCatalog.hostSummaryLine(
+                            ProtectionProfilePolicy.hosts(tallyProfile),
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_HOST_SUMMARY_TAG),
+                    )
+                    Text(
+                        text = PresentationTextCatalog.HOST_SUMMARY_EXPLANATION,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (tallyProfile != null) {
+                    val tally = pinLockedOff(currentConfig).roleTally()
+                    Text(
+                        text = PresentationTextCatalog.sensorRoleTallyLine(
+                            profile = tallyProfile,
+                            primary = tally.primary,
+                            supporting = tally.supporting,
+                            off = tally.off,
+                        ),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .testTag(SENSOR_ROLE_TALLY_TAG),
+                    )
+                    Text(
+                        text = if (tally.armable) {
+                            PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE
+                        } else {
+                            "⚠️ ${PresentationTextCatalog.SENSOR_NO_PRIMARY_WARNING}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.then(
+                            if (tally.armable) Modifier else Modifier.testTag(SENSOR_NO_PRIMARY_TAG),
+                        ),
+                    )
+                }
+
+                val lockNotice = editability.notice
+                if (editability.anyLocked && lockNotice != null) {
+                    SensorLockBanner(
+                        notice = lockNotice,
+                        onChangeUse = { actions.selectDestination(ProtectionDestination.PROTECTION) },
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -462,6 +618,14 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
                 )
+                if (!editability.presetSelectable) {
+                    // A profile that pins the roles itself can never match a preset, so the
+                    // three buttons would only produce a configuration it overrides again.
+                    LockChip(
+                        label = editability.presetNotice ?: PresentationTextCatalog.SENSOR_LOCK_CHIP,
+                        modifier = Modifier.testTag(SENSOR_PRESET_LOCKED_TAG),
+                    )
+                } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -478,13 +642,13 @@ fun SettingsScreen(
                             Button(
                                 onClick = {
                                     val newConfig = configPolicy.forPreset(preset)
-                                    actions.updateSensorConfiguration(newConfig)
+                                    saveConfiguration(newConfig)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 48.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ActionBlue,
+                                    containerColor = BrandAction,
                                     contentColor = Color.White,
                                 ),
                                 shape = RoundedCornerShape(12.dp),
@@ -499,7 +663,7 @@ fun SettingsScreen(
                             OutlinedButton(
                                 onClick = {
                                     val newConfig = configPolicy.forPreset(preset)
-                                    actions.updateSensorConfiguration(newConfig)
+                                    saveConfiguration(newConfig)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -519,13 +683,17 @@ fun SettingsScreen(
                         }
                     }
                 }
+                }
 
-                if (displayPreset == com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay.CUSTOM) {
+                // CUSTOM would latch forever under a role-pinning profile and read as a fault.
+                if (editability.presetSelectable &&
+                    displayPreset == com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay.CUSTOM
+                ) {
                     Text(
                         text = "รูปแบบ: กำหนดเอง",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.SemiBold,
-                            color = ProgressCyan,
+                            color = ProgressAccent,
                         ),
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -537,6 +705,7 @@ fun SettingsScreen(
                 SensorCapability.entries.forEach { capability ->
                     val capName = PresentationTextCatalog.capabilityName(capability)
                     val capConfig = currentConfig.capability(capability)
+                    val capabilityLocked = editability.isLocked(capability)
                     var sliderValue by remember(capConfig.sensitivity) { mutableIntStateOf(capConfig.sensitivity) }
 
                     Card(
@@ -544,7 +713,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = RowSurface.copy(alpha = 0.5f),
+                            containerColor = RowSurface.copy(alpha = if (capabilityLocked) 0.28f else 0.5f),
                         ),
                         border = BorderStroke(1.dp, BorderNeutral.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(12.dp),
@@ -553,15 +722,48 @@ fun SettingsScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(
-                                text = capName,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = capName,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                )
+                                if (capabilityLocked) LockChip()
+                            }
+                            // Full contrast: this is the text that explains the dimming.
+                            val capabilityReason = editability.rowReason
+                            if (capabilityLocked && capabilityReason != null) {
+                                Text(
+                                    text = capabilityReason,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            // Where the use reads these sensors directly, the slider and the
+                            // roles govern only the fusion running alongside. Staying silent
+                            // here would let the owner turn a group down and believe the
+                            // detection went with it.
+                            val capabilityCaveat = recommendation.profile?.let { profile ->
+                                PresentationTextCatalog.capabilityCaveat(profile, capability)
+                            }
+                            if (capabilityCaveat != null) {
+                                Text(
+                                    text = "${PresentationTextCatalog.SENSOR_CAVEAT_PREFIX}: $capabilityCaveat",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.testTag(sensorCapabilityCaveatTag(capability)),
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (capabilityLocked) LockedContentAlpha else 1f),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -571,15 +773,15 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Surface(
-                                    color = ActionBlue.copy(alpha = 0.15f),
+                                    color = BrandAction.copy(alpha = 0.15f),
                                     shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.3f)),
+                                    border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.3f)),
                                 ) {
                                     Text(
                                         text = "ระดับการตรวจจับ $sliderValue/10",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = ProgressCyan,
+                                            color = ProgressAccent,
                                         ),
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     )
@@ -592,11 +794,21 @@ fun SettingsScreen(
                                 },
                                 onValueChangeFinished = {
                                     val updatedConfig = configPolicy.withGroupSensitivity(currentConfig, capability, sliderValue)
-                                    actions.updateSensorConfiguration(updatedConfig)
+                                    saveConfiguration(updatedConfig)
                                 },
-                                enabled = !state.settingsOperationInFlight,
-                                sliderContentDescription = "ระดับการตรวจจับ $sliderValue เต็ม 10",
-                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.settingsOperationInFlight && !capabilityLocked,
+                                sliderContentDescription = if (capabilityLocked) {
+                                    PresentationTextCatalog.sensorLockedContentDescription(
+                                        capName,
+                                        requireNotNull(editability.profile),
+                                    )
+                                } else {
+                                    "ระดับการตรวจจับ $sliderValue เต็ม 10"
+                                },
+                                testTag = sensorCapabilitySliderTag(capability),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .alpha(if (capabilityLocked) LockedContentAlpha else 1f),
                             )
                         }
                     }
@@ -609,8 +821,8 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    border = BorderStroke(1.dp, ActionBlue.copy(alpha = 0.8f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
+                    border = BorderStroke(1.dp, BrandAction.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("กำหนดบทบาทเซ็นเซอร์ขั้นสูง", fontWeight = FontWeight.SemiBold)
@@ -631,113 +843,139 @@ fun SettingsScreen(
                         )
                     },
                     text = {
+                        val editableSources = editability.editableSources
+                        val lockedSources = editability.lockedSourceList
+                        val divergingSources =
+                            recommendation.divergingSources(currentConfig, editability)
+                        val recommendedDescription: (SensorRole) -> String? = { candidate ->
+                            recommendation.profile?.let { profile ->
+                                PresentationTextCatalog.sensorRecommendedContentDescription(
+                                    roleButtonLabel(candidate),
+                                    profile,
+                                )
+                            }
+                        }
+                        val onSelectRole: (SensorSource, SensorRole) -> Unit = { source, role ->
+                            val updatedConfig = configPolicy.withSourceRole(currentConfig, source, role)
+                            val hasPrimary = configPolicy.armEligibility(updatedConfig) is
+                                com.example.motorcycleantitheftsensor.protection.SensorArmEligibility.Eligible
+                            if (!hasPrimary) {
+                                showNoPrimaryWarningDialog = true
+                            } else {
+                                saveConfiguration(updatedConfig)
+                            }
+                        }
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 440.dp),
+                                .heightIn(max = 440.dp)
+                                .testTag(SENSOR_ROLE_LIST_TAG),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(SensorSource.entries.size) { index ->
-                                val source = SensorSource.entries[index]
-                                val srcConfig = currentConfig.source(source)
-                                val srcName = PresentationTextCatalog.sourceName(source)
-                                val capName = PresentationTextCatalog.capabilityName(source.capability)
-
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = RowSurface.copy(alpha = 0.7f),
-                                    ),
-                                    border = BorderStroke(1.dp, BorderNeutral),
-                                    shape = RoundedCornerShape(10.dp),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                            val divergingProfile = recommendation.profile
+                            if (divergingSources.isNotEmpty() && divergingProfile != null) {
+                                item {
+                                    RestoreRecommendedRow(
+                                        line = PresentationTextCatalog.sensorDivergesLine(
+                                            divergingSources.size,
+                                            divergingProfile,
+                                        ),
+                                        onRestore = {
+                                            // Both stores are written on purpose. Clearing the
+                                            // profile overrides is what "recommended" means, but
+                                            // this screen still reads the shared configuration
+                                            // (T9), so without the second write the owner would
+                                            // press the button and see nothing move.
+                                            saveConfiguration(
+                                                recommendation.roles.entries.fold(currentConfig) {
+                                                    config, (source, role) ->
+                                                    configPolicy.withSourceRole(config, source, role)
+                                                },
+                                            )
+                                            actions.restoreRecommendedProfile()
+                                        },
+                                    )
+                                }
+                            }
+                            if (editability.anyLocked) {
+                                item {
+                                    SensorGroupHeading(
+                                        "เซ็นเซอร์ที่โหมดนี้ใช้ (${editableSources.size})",
+                                    )
+                                }
+                            }
+                            items(editableSources.size) { index ->
+                                val source = editableSources[index]
+                                val recommendedRole = recommendation.recommendedRole(source)
+                                SensorRoleRow(
+                                    source = source,
+                                    role = currentConfig.source(source).role,
+                                    availability = availability[source]?.availability,
+                                    locked = false,
+                                    lockReason = null,
+                                    lockedContentDescription = null,
+                                    contribution = recommendation.profile?.let { profile ->
+                                        PresentationTextCatalog.contribution(profile, source)
+                                    },
+                                    recommendedContentDescription =
+                                        recommendedRole?.let(recommendedDescription),
+                                    diverges = source in divergingSources,
+                                    expanded = source in expandedEffects,
+                                    onToggleExpanded = {
+                                        expandedEffects = if (source in expandedEffects) {
+                                            expandedEffects - source
+                                        } else {
+                                            expandedEffects + source
+                                        }
+                                    },
+                                    onSelectRole = { role -> onSelectRole(source, role) },
+                                )
+                            }
+                            if (lockedSources.isNotEmpty()) {
+                                item {
+                                    // Collapsed by default: present and inspectable, not in the way.
+                                    OutlinedButton(
+                                        onClick = { lockedSourcesExpanded = !lockedSourcesExpanded },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag(SENSOR_LOCKED_GROUP_TOGGLE_TAG),
+                                        border = BorderStroke(1.dp, BorderNeutral),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
                                     ) {
                                         Text(
-                                            text = srcName,
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
+                                            text = "${if (lockedSourcesExpanded) "ซ่อน" else "แสดง"} " +
+                                                "🔒 ถูกล็อกในโหมดนี้ (${lockedSources.size})",
+                                            style = MaterialTheme.typography.labelMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
                                             ),
                                         )
-                                        Text(
-                                            text = "กลุ่ม: $capName",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.outline,
+                                    }
+                                }
+                                if (lockedSourcesExpanded) {
+                                    items(lockedSources.size) { index ->
+                                        val source = lockedSources[index]
+                                        SensorRoleRow(
+                                            source = source,
+                                            role = currentConfig.source(source).role,
+                                            availability = availability[source]?.availability,
+                                            locked = true,
+                                            lockReason = editability.rowReason,
+                                            lockedContentDescription =
+                                                PresentationTextCatalog.sensorLockedContentDescription(
+                                                    PresentationTextCatalog.sourceName(source),
+                                                    requireNotNull(editability.profile),
+                                                ),
+                                            contribution = null,
+                                            recommendedContentDescription = null,
+                                            diverges = false,
+                                            expanded = false,
+                                            onToggleExpanded = { },
+                                            onSelectRole = { },
                                         )
-
-                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                        // Role Selector (Compact 3-button row with weight to prevent overflow)
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        ) {
-                                            val roles = listOf(
-                                                SensorRole.PRIMARY to "หลัก",
-                                                SensorRole.SUPPORTING to "ประกอบ",
-                                                SensorRole.OFF to "ปิด",
-                                            )
-
-                                            roles.forEach { (role, label) ->
-                                                val isSelected = srcConfig.role == role
-                                                if (isSelected) {
-                                                    Button(
-                                                        onClick = {},
-                                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .heightIn(min = 40.dp),
-                                                        colors = ButtonDefaults.buttonColors(
-                                                            containerColor = when (role) {
-                                                                SensorRole.PRIMARY -> StatusGreen
-                                                                SensorRole.SUPPORTING -> ActionBlue
-                                                                SensorRole.OFF -> StatusRed
-                                                            },
-                                                            contentColor = Color.White,
-                                                        ),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                    ) {
-                                                        Text(
-                                                            text = label,
-                                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                                fontWeight = FontWeight.Bold,
-                                                            ),
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                } else {
-                                                    OutlinedButton(
-                                                        onClick = {
-                                                            val updatedConfig = configPolicy.withSourceRole(currentConfig, source, role)
-                                                            val hasPrimary = configPolicy.armEligibility(updatedConfig) is com.example.motorcycleantitheftsensor.protection.SensorArmEligibility.Eligible
-                                                            if (!hasPrimary) {
-                                                                showNoPrimaryWarningDialog = true
-                                                            } else {
-                                                                actions.updateSensorConfiguration(updatedConfig)
-                                                            }
-                                                        },
-                                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .heightIn(min = 40.dp),
-                                                        border = BorderStroke(1.dp, BorderNeutral),
-                                                        colors = ButtonDefaults.outlinedButtonColors(
-                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        ),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                    ) {
-                                                        Text(
-                                                            text = label,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            maxLines = 1,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -746,7 +984,7 @@ fun SettingsScreen(
                     confirmButton = {
                         Button(
                             onClick = { showAdvancedDialog = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                             shape = RoundedCornerShape(8.dp),
                         ) {
                             Text("เสร็จสิ้น", fontWeight = FontWeight.Bold)
@@ -840,9 +1078,9 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
+                        focusedBorderColor = BrandAction,
                         unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
+                        focusedLabelColor = BrandAction,
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
@@ -857,7 +1095,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingBotToken) {
@@ -898,7 +1136,9 @@ fun SettingsScreen(
                     if (state.settings.smsFallbackConfigured) "พร้อมใช้งาน" else "ยังไม่ได้ตั้งค่า",
                 )
                 Text(
-                    text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)",
+                    text = "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น " +
+                        "ข้อความจะมีสาเหตุที่ตรวจพบและพิกัดล่าสุด เข้ารหัส AES-256-GCM ด้วยกุญแจที่เครื่องสร้างเองและไม่ออกจากเครื่อง " +
+                        "อ่านข้อความได้โดยส่งต่อทั้งข้อความให้บอทด้วยคำสั่ง /decode",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -913,41 +1153,23 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
+                        focusedBorderColor = BrandAction,
                         unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
-                        unfocusedLabelColor = MaterialTheme.colorScheme.outline,
-                    ),
-                )
-                OutlinedTextField(
-                    value = smsKey,
-                    onValueChange = { smsKey = it },
-                    label = { Text("คีย์เข้ารหัส SMS (Encryption Key)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ActionBlue,
-                        unfocusedBorderColor = BorderNeutral,
-                        focusedLabelColor = ActionBlue,
+                        focusedLabelColor = BrandAction,
                         unfocusedLabelColor = MaterialTheme.colorScheme.outline,
                     ),
                 )
                 Button(
                     onClick = {
-                        val destination = smsDestination
-                        val key = smsKey
-                        actions.configureSmsFallback(destination, key)
+                        actions.configureSmsFallback(smsDestination)
                         smsDestination = ""
-                        smsKey = ""
                     },
-                    enabled = smsDestination.isNotBlank() && smsKey.isNotBlank() &&
+                    enabled = smsDestination.isNotBlank() &&
                         !state.settingsOperationInFlight,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (savingSmsFallback) {
@@ -1008,7 +1230,7 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("ขอสิทธิการเข้าถึงที่ขาด", fontWeight = FontWeight.Bold)
@@ -1056,7 +1278,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) StatusGreen else ActionBlue,
+                        containerColor = if (keepAliveStatus.isBatteryOptimizedIgnored) StatusGreen else BrandAction,
                     ),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -1077,8 +1299,8 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
-                        border = BorderStroke(1.dp, ActionBlue),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ActionBlue),
+                        border = BorderStroke(1.dp, BrandAction),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandAction),
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text("เปิดการตั้งค่า Auto-Start (${keepAliveStatus.manufacturer})", fontWeight = FontWeight.SemiBold)
@@ -1236,7 +1458,7 @@ private fun SettingsLoadState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (loading) CircularProgressIndicator(color = ActionBlue)
+            if (loading) CircularProgressIndicator(color = BrandAction)
             Text(
                 text = if (loading) "กำลังโหลดการตั้งค่า..." else "ไม่สามารถโหลดการตั้งค่าได้",
                 style = MaterialTheme.typography.titleLarge.copy(
@@ -1250,7 +1472,7 @@ private fun SettingsLoadState(
                 Button(
                     onClick = retry,
                     modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text("ลองใหม่อีกครั้ง")
@@ -1261,6 +1483,517 @@ private fun SettingsLoadState(
 }
 
 private const val SENSITIVITY_SLIDER_TAG = "sensitivity_slider"
+internal const val SENSOR_LOCK_BANNER_TAG = "ui.settings.sensor.LOCK_BANNER"
+internal const val SENSOR_PRESET_LOCKED_TAG = "ui.settings.sensor.PRESET_LOCKED"
+internal const val SENSOR_LOCKED_GROUP_TOGGLE_TAG = "ui.settings.sensor.LOCKED_GROUP_TOGGLE"
+internal const val SENSOR_ROLE_LIST_TAG = "ui.settings.sensor.ROLE_LIST"
+internal const val SENSOR_INVENTORY_SUMMARY_TAG = "ui.settings.sensor.INVENTORY_SUMMARY"
+internal const val SENSOR_RESTORE_RECOMMENDED_TAG = "ui.settings.sensor.RESTORE_RECOMMENDED"
+
+internal fun sensorSourceDivergesTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.DIVERGES"
+
+internal fun sensorSourceDetectsTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.DETECTS"
+
+internal fun sensorSourceEffectsToggleTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.EFFECTS_TOGGLE"
+
+internal fun sensorSourceEffectTag(source: SensorSource, role: SensorRole): String =
+    "ui.settings.sensor.source.${source.name}.effect.${role.name}"
+
+internal fun sensorSourceCostTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.COST"
+
+internal fun sensorSourceUnavailableTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.PRIMARY_UNAVAILABLE"
+
+internal const val SENSOR_HOST_SUMMARY_TAG = "ui.settings.sensor.HOST_SUMMARY"
+
+internal const val SENSOR_ROLE_TALLY_TAG = "ui.settings.sensor.ROLE_TALLY"
+internal const val SENSOR_NO_PRIMARY_TAG = "ui.settings.sensor.NO_PRIMARY"
+
+internal fun sensorCapabilityCaveatTag(capability: SensorCapability): String =
+    "ui.settings.sensor.capability.${capability.name}.CAVEAT"
+
+internal fun sensorSourceCaveatTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.CAVEAT"
+
+internal fun sensorSourceArmingRuleTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.ARMING_RULE"
+
+/** Survives rotation by name, since enum entries themselves cannot go into a Bundle. */
+private val ExpandedSourcesSaver = listSaver<Set<SensorSource>, String>(
+    save = { expanded -> expanded.map(SensorSource::name) },
+    restore = { names -> names.map(SensorSource::valueOf).toSet() },
+)
+
+/** The three role buttons, in the order the row draws them. */
+private val ROLE_BUTTON_ORDER = listOf(SensorRole.PRIMARY, SensorRole.SUPPORTING, SensorRole.OFF)
+
+private fun roleButtonLabel(role: SensorRole): String = when (role) {
+    SensorRole.PRIMARY -> "หลัก"
+    SensorRole.SUPPORTING -> "ประกอบ"
+    SensorRole.OFF -> "ปิด"
+}
+
+internal fun sensorSourceAvailabilityTag(source: SensorSource): String =
+    "ui.settings.sensor.source.${source.name}.AVAILABILITY"
+
+internal fun sensorCapabilitySliderTag(capability: SensorCapability): String =
+    "ui.settings.sensor.capability.${capability.name}.SLIDER"
+
+internal fun sensorSourceRoleTag(source: SensorSource, role: SensorRole): String =
+    "ui.settings.sensor.source.${source.name}.role.${role.name}"
+
+/**
+ * States, at full contrast, that the selected profile owns these sensors, and offers the
+ * only way out: changing the protection use.
+ */
+@Composable
+private fun SensorLockBanner(notice: String, onChangeUse: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .testTag(SENSOR_LOCK_BANNER_TAG),
+        colors = CardDefaults.cardColors(containerColor = RowSurface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "🔒 $notice",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(
+                onClick = onChangeUse,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .heightIn(min = 48.dp),
+            ) {
+                Text(
+                    text = PresentationTextCatalog.SENSOR_LOCK_CHANGE_USE,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = BrandAction,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The overnight drift measurement.
+ *
+ * Its state is read straight from the service rather than routed through the protection
+ * UI state: nothing here is protection state, nothing else reads it, and the recording
+ * outlives the screen it is started from. It reports rather than decides — the verdict
+ * line states the measurement against the threshold and stops there.
+ */
+/**
+ * Offered only while something actually diverges: a button that restores what is already
+ * in place teaches the owner nothing and invites a pointless write.
+ */
+@Composable
+private fun RestoreRecommendedRow(line: String, onRestore: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = RowSurface),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "⚠️ $line",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(
+                onClick = onRestore,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .heightIn(min = 48.dp)
+                    .testTag(SENSOR_RESTORE_RECOMMENDED_TAG),
+            ) {
+                Text(
+                    text = PresentationTextCatalog.SENSOR_RESTORE_RECOMMENDED,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = BrandAction,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LockChip(
+    label: String = PresentationTextCatalog.SENSOR_LOCK_CHIP,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = RowSurface,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, BorderNeutral),
+    ) {
+        Text(
+            text = "🔒 $label",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SensorGroupHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.semantics { heading() },
+    )
+}
+
+/**
+ * One hardware source and its three role buttons.
+ *
+ * When [locked] the profile owns this source: every button is disabled, not merely
+ * unhandled, so TalkBack stops announcing them as actionable, and the reason keeps full
+ * contrast while the buttons dim.
+ *
+ * [contribution] carries everything the selected use has to say about this source: the
+ * role it recommends (which stars a button), what the source detects, and what each role
+ * would do. A locked row passes null for all of it — it already carries the reason this
+ * profile does not detect with it, and a star over a button that cannot be pressed, or a
+ * contribution underneath a line saying there is none, would both contradict that.
+ *
+ * [diverges] says the current role is not the recommended one.
+ *
+ * A source this device does not have keeps its supporting and off buttons: only primary
+ * is refused, because only primary makes the controller reject the whole configuration.
+ */
+@Composable
+private fun SensorAvailabilityBadge(source: SensorSource, availability: SensorAvailability) {
+    val name = PresentationTextCatalog.sourceName(source)
+    Surface(
+        color = RowSurface,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, BorderNeutral),
+        modifier = Modifier
+            .testTag(sensorSourceAvailabilityTag(source))
+            .semantics {
+                contentDescription =
+                    PresentationTextCatalog.sensorAvailabilityContentDescription(name, availability)
+            },
+    ) {
+        Text(
+            text = "${PresentationTextCatalog.sensorAvailabilityBadge(availability)} " +
+                PresentationTextCatalog.sensorAvailabilityLabel(availability),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SensorRoleRow(
+    source: SensorSource,
+    role: SensorRole,
+    availability: SensorAvailability?,
+    locked: Boolean,
+    lockReason: String?,
+    lockedContentDescription: String?,
+    contribution: SensorContribution?,
+    recommendedContentDescription: String?,
+    diverges: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onSelectRole: (SensorRole) -> Unit,
+) {
+    val hardwareMissing = availability == SensorAvailability.MISSING
+    val recommendedRole = contribution?.recommendedRole
+    val srcName = PresentationTextCatalog.sourceName(source)
+    val capName = PresentationTextCatalog.capabilityName(source.capability)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = RowSurface.copy(alpha = if (locked) 0.35f else 0.7f),
+        ),
+        border = BorderStroke(1.dp, BorderNeutral),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = srcName,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                )
+                if (locked) LockChip()
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "กลุ่ม: $capName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                // Full contrast even on a locked row: whether the hardware exists is a
+                // fact about the device, not about the profile that dimmed the buttons.
+                if (availability != null) SensorAvailabilityBadge(source, availability)
+            }
+            if (contribution != null) {
+                Text(
+                    text = "${PresentationTextCatalog.SENSOR_DETECTS_PREFIX}: ${contribution.detectsTh}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceDetectsTag(source)),
+                )
+            }
+            if (locked && lockReason != null) {
+                Text(
+                    text = lockReason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (hardwareMissing && !locked) {
+                Text(
+                    text = "⚠️ " + if (role == SensorRole.PRIMARY) {
+                        PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE_NOW
+                    } else {
+                        PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceUnavailableTag(source)),
+                )
+            }
+            if (diverges) {
+                Text(
+                    text = "⚠️ ${PresentationTextCatalog.SENSOR_DIVERGES_CHIP}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag(sensorSourceDivergesTag(source)),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (locked) LockedContentAlpha else 1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                ROLE_BUTTON_ORDER.forEach { candidate ->
+                    val isSelected = role == candidate
+                    val isRecommended = candidate == recommendedRole
+                    val refused = hardwareMissing && candidate == SensorRole.PRIMARY
+                    val selectable = !locked && !refused
+                    // The star must reach TalkBack as words; it announces the glyph as
+                    // "star", which says nothing about why the button carries one.
+                    val describedAs = when {
+                        locked -> lockedContentDescription
+                        refused -> PresentationTextCatalog.SENSOR_PRIMARY_UNAVAILABLE
+                        isRecommended -> recommendedContentDescription
+                        else -> null
+                    }
+                    val label = if (isRecommended) {
+                        "${PresentationTextCatalog.SENSOR_RECOMMENDED_STAR} ${roleButtonLabel(candidate)}"
+                    } else {
+                        roleButtonLabel(candidate)
+                    }
+                    val buttonModifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp)
+                        .testTag(sensorSourceRoleTag(source, candidate))
+                        .then(
+                            if (describedAs != null) {
+                                Modifier.semantics { contentDescription = describedAs }
+                            } else {
+                                Modifier
+                            },
+                        )
+                    if (isSelected) {
+                        Button(
+                            onClick = {},
+                            enabled = selectable,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = buttonModifier,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = when (candidate) {
+                                    SensorRole.PRIMARY -> StatusGreen
+                                    SensorRole.SUPPORTING -> BrandAction
+                                    SensorRole.OFF -> StatusRed
+                                },
+                                contentColor = Color.White,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onSelectRole(candidate) },
+                            enabled = selectable,
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                            modifier = buttonModifier,
+                            border = BorderStroke(1.dp, BorderNeutral),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (contribution != null) {
+                TextButton(
+                    onClick = onToggleExpanded,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag(sensorSourceEffectsToggleTag(source)),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = "${if (expanded) "▾" else "▸"} " +
+                            PresentationTextCatalog.SENSOR_ROLE_EFFECTS_TITLE,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = BrandAction,
+                    )
+                }
+                if (expanded) {
+                    SensorRoleEffects(
+                        source = source,
+                        currentRole = role,
+                        contribution = contribution,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The three roles side by side, so the choice is between outcomes rather than between
+ * three words. The filled bullet marks the role in force now and the star the one this
+ * profile recommends; they are different marks because they answer different questions.
+ */
+@Composable
+private fun SensorRoleEffects(
+    source: SensorSource,
+    currentRole: SensorRole,
+    contribution: SensorContribution,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ROLE_BUTTON_ORDER.forEach { candidate ->
+            val effect = when (candidate) {
+                SensorRole.PRIMARY -> contribution.asPrimaryTh
+                SensorRole.SUPPORTING -> contribution.asSupportingTh
+                SensorRole.OFF -> contribution.ifOffTh
+            }
+            val isCurrent = candidate == currentRole
+            val isRecommended = candidate == contribution.recommendedRole
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(sensorSourceEffectTag(source, candidate)),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = if (isCurrent) "●" else "○",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = roleButtonLabel(candidate) +
+                            if (isRecommended) {
+                                " ${PresentationTextCatalog.SENSOR_RECOMMENDED_STAR} " +
+                                    PresentationTextCatalog.SENSOR_RECOMMENDED_CHIP
+                            } else {
+                                ""
+                            },
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = effect,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        contribution.caveatTh?.let { caveat ->
+            Text(
+                text = "${PresentationTextCatalog.SENSOR_CAVEAT_PREFIX}: $caveat",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag(sensorSourceCaveatTag(contribution.source)),
+            )
+        }
+        // A property of the primary role itself, so it is stated once here rather than
+        // repeated inside all thirty per-sensor entries. The card summary says the same
+        // thing, but the card is behind this dialog and cannot be read from here.
+        Text(
+            text = PresentationTextCatalog.SENSOR_PRIMARY_ARMING_RULE,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.testTag(sensorSourceArmingRuleTag(contribution.source)),
+        )
+        Text(
+            text = "${PresentationTextCatalog.SENSOR_COST_PREFIX}: ${contribution.costTh}",
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag(sensorSourceCostTag(source)),
+        )
+    }
+}
 
 @Composable
 private fun AccessibleSensitivitySlider(
@@ -1270,6 +2003,7 @@ private fun AccessibleSensitivitySlider(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     sliderContentDescription: String = "ระดับการตรวจจับ $value เต็ม 10",
+    testTag: String = SENSITIVITY_SLIDER_TAG,
 ) {
     val valueRange = 1f..10f
     val updateFromX: (Float, Float) -> Unit = { x, width ->
@@ -1291,8 +2025,8 @@ private fun AccessibleSensitivitySlider(
             steps = 8,
             enabled = enabled,
             colors = SliderDefaults.colors(
-                thumbColor = ActionBlue,
-                activeTrackColor = ActionBlue,
+                thumbColor = BrandAction,
+                activeTrackColor = BrandAction,
                 inactiveTrackColor = BorderNeutral,
             ),
             modifier = Modifier
@@ -1302,7 +2036,7 @@ private fun AccessibleSensitivitySlider(
         Spacer(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag(SENSITIVITY_SLIDER_TAG)
+                .testTag(testTag)
                 .semantics {
                     contentDescription = sliderContentDescription
                     progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), valueRange, 8)
@@ -1487,7 +2221,7 @@ private fun RemoteControlReadinessCard(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .testTag("readiness_primary_action"),
-                    colors = ButtonDefaults.buttonColors(containerColor = ActionBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandAction),
                 ) {
                     Text(label, fontWeight = FontWeight.Bold)
                 }
@@ -1530,50 +2264,9 @@ private fun SettingsOverviewCard(
                 text = "เปิดการตั้งค่า",
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontWeight = FontWeight.SemiBold,
-                    color = ActionBlue,
+                    color = BrandAction,
                 ),
             )
-        }
-    }
-}
-
-@Composable
-private fun SettingsCategoryPage(
-    page: SettingsPage,
-    contentPadding: PaddingValues,
-    modifier: Modifier,
-    returnToOverview: () -> Unit,
-) {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(contentPadding)
-            .testTag("ui.settings.LIST"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item(key = "settings-page-header-${page.name}") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = returnToOverview,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("กลับไปหน้าตั้งค่า")
-                }
-                Text(
-                    text = page.title,
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(
-                    text = page.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -1628,3 +2321,4 @@ private fun DiagnosticRow(label: String, value: String) {
         )
     }
 }
+

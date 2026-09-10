@@ -5,8 +5,6 @@ import com.example.motorcycleantitheftsensor.location.ConflatedLocationFixIngres
 import com.example.motorcycleantitheftsensor.location.LiveLocationHandle
 import com.example.motorcycleantitheftsensor.location.LocationFixIngress
 import com.example.motorcycleantitheftsensor.location.LocationLabelResolver
-import com.example.motorcycleantitheftsensor.location.LocationPresentation
-import com.example.motorcycleantitheftsensor.location.LocationPresentationFactory
 import com.example.motorcycleantitheftsensor.location.MovementDecision
 import com.example.motorcycleantitheftsensor.location.MovementDisplacementPolicy
 import com.example.motorcycleantitheftsensor.location.MovementTrackingState
@@ -49,7 +47,6 @@ class DefaultLivePursuitCoordinator(
     private val wallClockMs: () -> Long = System::currentTimeMillis,
     private val elapsedClockMs: () -> Long = SystemClock::elapsedRealtime,
     private val armedSessionIdFactory: () -> String = { UUID.randomUUID().toString() },
-    private val presentationFactory: LocationPresentationFactory = LocationPresentationFactory(labelResolver),
 ) : LivePursuitCoordinator {
 
     private val stateMutex = Mutex()
@@ -102,16 +99,6 @@ class DefaultLivePursuitCoordinator(
         currentState.isPursuitEligible() &&
             activeSessionId == sid &&
             lifecycleGeneration.get() == generation
-
-    private fun formatMovementAlert(presentation: LocationPresentation?): String {
-        val baseAlert = "🚨 ตรวจพบว่ารถหรืออุปกรณ์กำลังถูกเคลื่อนย้าย\nเริ่มติดตามตำแหน่งแบบสดเป็นเวลา 15 นาที"
-        return if (presentation != null) {
-            val labelLine = presentation.labelTh?.takeIf { it.isNotBlank() }?.let { "\n📍 บริเวณโดยประมาณ: $it" } ?: ""
-            "$baseAlert$labelLine\n🗺️ แผนที่: ${presentation.mapsUrl} (ความแม่นยำ ~${presentation.accuracyMeters}m)"
-        } else {
-            baseAlert
-        }
-    }
 
     private fun recordStoreFailure() {
         coordinatorProvider()?.recordPersistenceFailure(PersistenceSource.MOVEMENT_TRACKING)

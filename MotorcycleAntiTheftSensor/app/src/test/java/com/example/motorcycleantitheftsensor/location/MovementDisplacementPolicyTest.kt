@@ -32,6 +32,40 @@ class MovementDisplacementPolicyTest {
     }
 
     @Test
+    fun theReportedThresholdIsTheOneTheDetectorApplies() {
+        // The status report quotes this number to the owner. If it were computed a second
+        // time anywhere else, the quoted threshold and the enforced one would drift, and
+        // the owner would be told their vehicle was inside a limit it had already crossed.
+        val policy = MovementDisplacementPolicy()
+        val anchorFix = TrackedLocationFix(0.0, 0.0, 1000L, 1000L, 5f)
+        policy.reset(ParkingAnchor(anchorFix, "session1"))
+
+        // Accurate fixes: the base distance governs, not the accuracy floor.
+        assertEquals(
+            100.0,
+            MovementDisplacementPolicy.displacementThresholdMeters(5f, 5f),
+            0.001,
+        )
+        // Coarse fixes cannot demonstrate a hundred-metre move, so the floor rises.
+        assertEquals(
+            130.0,
+            MovementDisplacementPolicy.displacementThresholdMeters(50f, 50f),
+            0.001,
+        )
+
+        // And the number the detector actually enforces agrees with it: 111 m is inside a
+        // threshold of 130 and outside one of 100.
+        val coarseAnchor = TrackedLocationFix(0.0, 0.0, 1000L, 1000L, 50f)
+        val coarsePolicy = MovementDisplacementPolicy()
+        coarsePolicy.reset(ParkingAnchor(coarseAnchor, "session2"))
+        val coarseFix = TrackedLocationFix(0.001, 0.0, 2000L, 2000L, 50f)
+        assertTrue(coarsePolicy.evaluate(coarseFix, 2000L) is MovementDecision.InsideAnchor)
+
+        val sharpFix = TrackedLocationFix(0.001, 0.0, 2000L, 2000L, 5f)
+        assertTrue(policy.evaluate(sharpFix, 2000L) is MovementDecision.Candidate)
+    }
+
+    @Test
     fun insideAnchorResetsCounter() {
         val policy = MovementDisplacementPolicy()
         val anchorFix = TrackedLocationFix(0.0, 0.0, 1000L, 1000L, 5f)

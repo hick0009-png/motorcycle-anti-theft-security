@@ -12,8 +12,8 @@ data class EntryOrientationSample(
 
 /**
  * Learned hinge model produced by two consistent commissioning cycles. The axis is
- * sign-canonicalized (largest-absolute component positive) so `allowedDirection = +1`
- * means "opening rotates positively around the stored axis".
+ * oriented along opening rotation so `allowedDirection = +1` means "opening rotates
+ * positively around the stored axis".
  */
 data class EntryHingeModel(
     val axisX: Double,
@@ -23,9 +23,64 @@ data class EntryHingeModel(
     val residualToleranceDeg: Double,
     val algorithmVersion: Int,
     val sensorIdentity: String,
-    val mountSignature: String,
     val orientationSourcePolicy: String,
+    /**
+     * When this model was accepted, stamped by [ProtectionProfilePolicy.commissionEntry]
+     * rather than by the pure state machine that computes the geometry.
+     *
+     * Null for a model commissioned before it was recorded — the status report says so
+     * instead of inventing a date. Deliberately outside [fingerprint]: when the hinge was
+     * measured says nothing about whether the measurement still applies.
+     */
+    val commissionedAtWallMs: Long? = null,
+    /**
+     * How the phone was tilted when the model was measured, in its own frame.
+     *
+     * The hinge axis is expressed in the device frame, so it describes this door only while
+     * the phone sits the way it sat during commissioning. Move the phone to another cradle,
+     * another angle, another door, and the axis silently describes nothing — which used to be
+     * discovered only later, by a door verdict that was wrong.
+     *
+     * Null for every model commissioned before this was recorded. Those keep exactly the
+     * behaviour they have always had rather than being invalidated for a measurement that was
+     * never taken; recalibrating is what gives a model its pose. Deliberately outside
+     * [EntryCommissioningPolicy.fingerprint], because this is checked against a live reading
+     * at the moment the watch starts, not against a string at Arm.
+     */
+    val mountUp: EntryVector3? = null,
 )
+
+/**
+ * The smallest off-axis residual an armed session will tolerate before calling a door
+ * movement a displaced mount.
+ *
+ * The commissioned tolerance is measured from two guided calibration cycles and is only as
+ * wide as those cycles were untidy. An owner who calibrates the way the guide asks — slowly,
+ * deliberately, one hand steadying the phone — produces two nearly perfect swings, and the
+ * tolerance collapses to the bare margin. The device in the field commissioned at 2.000°.
+ *
+ * A real door is not swung the way a calibration is performed. It is pushed, it rebounds on
+ * its hinge, the cradle has play, and the residual of an ordinary opening comfortably clears
+ * two degrees. The residual gate runs *before* the angle gate, so every one of those openings
+ * was answered with "the mount moved" and the session dropped into the displaced watch, where
+ * door angles are not evaluated at all — a door watch that could never once say "door opened",
+ * on a phone that was reading the door perfectly. Calibrating again could not fix it: the same
+ * formula produced the same two degrees.
+ *
+ * So the enforced tolerance has a floor, applied where the model is read rather than where it
+ * is written, which is what lets a model already commissioned too tight start working without
+ * asking the owner to calibrate again. It stays well under [EntryDetectionPolicy]'s own
+ * displaced-movement and mount-pose thresholds, so a phone genuinely handled is still caught.
+ */
+const val MIN_RESIDUAL_TOLERANCE_DEG: Double = 10.0
+
+/**
+ * The residual tolerance an armed session actually enforces: the commissioned figure, never
+ * narrower than [MIN_RESIDUAL_TOLERANCE_DEG]. Every gate that judges off-axis swing reads this
+ * rather than the raw model value.
+ */
+val EntryHingeModel.effectiveResidualToleranceDeg: Double
+    get() = residualToleranceDeg.coerceAtLeast(MIN_RESIDUAL_TOLERANCE_DEG)
 
 /**
  * Pure state machine for Entry Guard commissioning (spec section 5):
@@ -36,13 +91,14 @@ class EntryCommissioningPolicy(
     private val stillRequiredMs: Long,
     private val stillToleranceDeg: Double,
     private val minPeakAngleDeg: Double,
-    private val closeThresholdDeg: Double,
-    private val axisAgreementToleranceDeg: Double,
+    closeThresholdDeg: Double = 3.0,
+    private val axisAgreementToleranceDeg: Double = 10.0,
     private val sensorIdentity: String,
-    private val mountSignature: String,
     private val orientationSourcePolicy: String,
     private val residualMarginDeg: Double = 2.0,
 ) {
+    private val closeThresholdDeg: Double =
+        closeThresholdDeg.coerceAtMost((minPeakAngleDeg - 1.0).coerceAtLeast(1.0))
 
     enum class Phase { IDLE, STILL_CHECK, AWAITING_CYCLE_ONE, AWAITING_CYCLE_TWO, COMMISSIONED }
 
@@ -62,7 +118,6 @@ class EntryCommissioningPolicy(
         val peakAngleDeg: Double = 0.0,
         val peakRel: EntryQuaternion? = null,
         val cycleOne: CycleRecord? = null,
-        val cycleTwo: CycleRecord? = null,
         val model: EntryHingeModel? = null,
         val rejectionReason: String? = null,
     )
@@ -113,18 +168,22 @@ class EntryCommissioningPolicy(
         }
         val currentPeak = updated.peakRel ?: return updated
         val qualifies = updated.peakAngleDeg >= minPeakAngleDeg
-        val backBelowClose = total <= closeThresholdDeg && peakAngle > total || total <= closeThresholdDeg
-        if (!(backBelowClose && currentPeak != null)) return updated
+        val hasDepartedClosed = updated.peakAngleDeg > closeThresholdDeg
+        val backBelowClose = total <= closeThresholdDeg && hasDepartedClosed
+        if (!backBelowClose) return updated
         if (!qualifies) {
             // Peak never reached the selected angle: discard this attempt, keep waiting.
-            return resetCycleTracking(updated)
+            return resetCycleTracking(updated).copy(
+                rejectionReason = "peak-too-small-${updated.peakAngleDeg.toInt()}deg",
+            )
         }
         val record = buildCycleRecord(currentPeak)
         return if (updated.phase == Phase.AWAITING_CYCLE_ONE) {
             State(
                 phase = Phase.AWAITING_CYCLE_TWO,
-                cycleBaseline = sample.quaternion,
+                cycleBaseline = baseline,
                 cycleOne = record,
+                rejectionReason = null,
             )
         } else {
             validateSecondCycle(updated, record, sample)
@@ -138,12 +197,9 @@ class EntryCommissioningPolicy(
     ): State {
         val first = state.cycleOne
             ?: return resetCycleTracking(state).copy(rejectionReason = "missing-first-cycle")
-        val axisAngleDeg = Math.toDegrees(
-            acos(
-                (first.axisX * second.axisX + first.axisY * second.axisY + first.axisZ * second.axisZ)
-                    .coerceIn(-1.0, 1.0),
-            ),
-        )
+        val dot = (first.axisX * second.axisX + first.axisY * second.axisY + first.axisZ * second.axisZ)
+            .coerceIn(-1.0, 1.0)
+        val axisAngleDeg = Math.toDegrees(acos(abs(dot)))
         if (axisAngleDeg > axisAgreementToleranceDeg) {
             return resetCycleTracking(state)
                 .copy(rejectionReason = "axis-mismatch-${axisAngleDeg.toInt()}deg")
@@ -153,7 +209,7 @@ class EntryCommissioningPolicy(
             peakRel,
             doubleArrayOf(first.axisX, first.axisY, first.axisZ),
         )
-        if (signedTwist <= 0.0) {
+        if (signedTwist <= 0.0 || dot < 0.0) {
             return resetCycleTracking(state).copy(rejectionReason = "opposite-opening-direction")
         }
         val model = EntryHingeModel(
@@ -161,16 +217,22 @@ class EntryCommissioningPolicy(
             axisY = first.axisY + second.axisY,
             axisZ = first.axisZ + second.axisZ,
             allowedDirection = 1,
-            residualToleranceDeg = maxOf(first.swingResidualDeg, second.swingResidualDeg) + residualMarginDeg,
+            // Floored for the same reason the read side floors it: two tidy guided cycles
+            // measure almost no residual, and the bare margin is narrower than an ordinary
+            // door opening. See [MIN_RESIDUAL_TOLERANCE_DEG].
+            residualToleranceDeg = (maxOf(first.swingResidualDeg, second.swingResidualDeg) + residualMarginDeg)
+                .coerceAtLeast(MIN_RESIDUAL_TOLERANCE_DEG),
             algorithmVersion = ALGORITHM_VERSION,
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
+            // The still-check baseline is the phone at rest against a shut door, which is the
+            // only pose worth remembering: it is the one the axis was measured from.
+            mountUp = state.cycleBaseline?.let(EntryOrientationMath::deviceUpVector),
         ).let { raw ->
             val length = kotlin.math.sqrt(raw.axisX * raw.axisX + raw.axisY * raw.axisY + raw.axisZ * raw.axisZ)
             raw.copy(axisX = raw.axisX / length, axisY = raw.axisY / length, axisZ = raw.axisZ / length)
         }
-        return State(phase = Phase.COMMISSIONED, model = model)
+        return State(phase = Phase.COMMISSIONED, model = model, rejectionReason = null)
     }
 
     private fun resetCycleTracking(state: State): State = state.copy(
@@ -178,18 +240,25 @@ class EntryCommissioningPolicy(
         peakRel = null,
     )
 
-    /** Axis is sign-canonicalized so the recorded opening direction is always +1. */
+    fun tareBaseline(state: State, sample: EntryOrientationSample): State = state.copy(
+        cycleBaseline = sample.quaternion,
+        peakAngleDeg = 0.0,
+        peakRel = null,
+        rejectionReason = null,
+    )
+
+    /** Axis is oriented along opening rotation so the recorded opening direction is always +1. */
     private fun buildCycleRecord(peakRel: EntryQuaternion): CycleRecord {
         val q = EntryOrientationMath.normalize(peakRel)
         val length = kotlin.math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z)
-        var ax = q.x / length
-        var ay = q.y / length
-        var az = q.z / length
-        val largest = maxOf(abs(ax), abs(ay), abs(az))
-        if ((largest == abs(ax) && ax < 0.0) ||
-            (largest != abs(ax) && largest == abs(ay) && ay < 0.0) ||
-            (largest != abs(ax) && largest != abs(ay) && az < 0.0)
-        ) {
+        var ax = if (length > 1e-12) q.x / length else 0.0
+        var ay = if (length > 1e-12) q.y / length else 0.0
+        var az = if (length > 1e-12) q.z / length else 1.0
+
+        // Orient axis along the opening rotation so opening twist is strictly positive.
+        // Rotation by -theta around A is mathematically identical to +theta around -A.
+        val twist = EntryOrientationMath.twistAroundAxisDeg(peakRel, doubleArrayOf(ax, ay, az))
+        if (twist < 0.0) {
             ax = -ax
             ay = -ay
             az = -az
@@ -208,7 +277,6 @@ class EntryCommissioningPolicy(
 
     data class CommissioningContext(
         val sensorIdentity: String,
-        val mountSignature: String,
         val orientationSourcePolicy: String,
         val algorithmVersion: Int,
         val entryUseContinuous: Boolean,
@@ -221,8 +289,13 @@ class EntryCommissioningPolicy(
 
         /**
          * Stable, inspectable fingerprint covering every invalidating field: axis,
-         * allowed direction, residual tolerance, algorithm version, sensor identity,
-         * mount signature, and orientation-source policy.
+         * allowed direction, residual tolerance, algorithm version, sensor identity, and
+         * orientation-source policy.
+         *
+         * A mount signature used to be named here too. It was a fixed string, identical on
+         * every phone in every position, so it distinguished nothing and invalidated nothing;
+         * what it was meant to catch — a phone put back somewhere else — is caught by the
+         * commissioned mount pose instead, live, at the first sample of every armed session.
          */
         fun fingerprint(model: EntryHingeModel): String =
             "entry-hinge|v=${model.algorithmVersion}" +
@@ -230,7 +303,6 @@ class EntryCommissioningPolicy(
                 "|dir=${model.allowedDirection}" +
                 "|tol=${"%.3f".format(model.residualToleranceDeg)}" +
                 "|sensor=${model.sensorIdentity}" +
-                "|mount=${model.mountSignature}" +
                 "|src=${model.orientationSourcePolicy}"
 
         /**
@@ -243,7 +315,6 @@ class EntryCommissioningPolicy(
             current: CommissioningContext,
         ): Boolean =
             previous.sensorIdentity != current.sensorIdentity ||
-                previous.mountSignature != current.mountSignature ||
                 previous.orientationSourcePolicy != current.orientationSourcePolicy ||
                 previous.algorithmVersion != current.algorithmVersion ||
                 !current.entryUseContinuous

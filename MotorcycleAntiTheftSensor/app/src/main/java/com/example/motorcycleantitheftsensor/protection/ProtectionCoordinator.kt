@@ -21,6 +21,20 @@ value class RecoveryGenerationToken(val value: Long)
 /** Degradation reason recorded when the per-arm Power witness challenge was skipped. */
 internal const val POWER_CHALLENGE_DEGRADED = "Power witness placement not revalidated"
 
+/**
+ * Whether a Power arm that could not run the guided lamp toggle has nonetheless shown live
+ * proof the phone still sees the witness lamp: the charger is connected and the lamp reads
+ * lit right now. Arming from Telegram cannot ask the owner to toggle the lamp, so this
+ * passive reading stands in for the placement challenge — a witness that reads lit under
+ * power is the same evidence the toggle would have produced, gathered without the owner
+ * present. A dark or unknown witness, or a disconnected charger, is not proof and leaves the
+ * session limited exactly as a skipped challenge does.
+ */
+internal fun remoteArmPassivePlacementConfirmed(
+    chargerConnected: Boolean,
+    witnessLit: Boolean?,
+): Boolean = chargerConnected && witnessLit == true
+
 class ProtectionCoordinator(
     initialSnapshot: ProtectionSnapshot,
     private val runtime: ProtectionRuntime,
@@ -38,6 +52,20 @@ class ProtectionCoordinator(
         (() -> PowerWitnessCommissioningPolicy.CommissioningContext)? = null,
     private val powerIntegrityChallenge: (() -> Boolean)? = null,
     private val recoveredPowerIntegrityChallenge: (() -> Boolean?)? = null,
+    /**
+     * What this device can carry, per profile. Defaults to "anything", so a caller
+     * without a sensor catalog behaves exactly as before.
+     */
+    private val deviceSupport: (ProtectionProfile) -> ProfileDeviceSupport = {
+        ProfileDeviceSupport.Supported
+    },
+    /**
+     * What this phone measured about its own orientation drift, as the verdict rather
+     * than as the hours derived from it. The door watch's status has to state the same
+     * sentence the settings screen states, and a caller with no measurement layer keeps
+     * the honest default of having measured nothing.
+     */
+    private val entryDriftVerdict: () -> EntryDriftVerdict = { EntryDriftVerdict.NotMeasured },
 ) {
     private val mutableSnapshot = MutableStateFlow(initialSnapshot)
     private val commandMutex = Mutex()
@@ -46,17 +74,146 @@ class ProtectionCoordinator(
     private val incidentEpoch = AtomicLong(0L)
     private val recoveryGeneration = AtomicLong(0L)
     private val currentArmedSessionId = AtomicReference<String?>(null)
+    private val armedSignalRoles = AtomicReference<Map<SensorKind, SensorRole>>(emptyMap())
+
+    /**
+     * The door watch's level for the running session, or null when the door watch is not the
+     * armed use. The engine needs it to type what it opens: the same coincidence of sound and
+     * movement is a blow to a vehicle and an opening at a door, and only the caller knows
+     * which one is being watched.
+     */
+    private val armedEntryLevel = AtomicReference<EntryWatchLevel?>(null)
     @Volatile private var lastServiceHeartbeatAtMs: Long? = null
     @Volatile private var stateBeforeAlert: ProtectionState? = null
     @Volatile private var stateBeforeOffline: ProtectionState? = null
     @Volatile private var baseDegradationReasons: Set<String> = initialSnapshot.degradationReasons
+
+    /**
+     * Armed-session id of a Telegram Power arm that started limited for a skipped lamp
+     * challenge and is still waiting on a passive placement upgrade; null when none is
+     * pending. [reconcilePowerPlacement] clears it once the upgrade lands or the session ends.
+     */
+    @Volatile private var powerPlacementUpgradeSessionId: String? = null
     private val unavailablePersistence = AtomicReference<Set<PersistenceSource>>(emptySet())
     private val runtimeDegradations = AtomicReference<Set<String>>(emptySet())
 
     val snapshot: StateFlow<ProtectionSnapshot> = mutableSnapshot.asStateFlow()
     val audioTelemetry: StateFlow<AudioTelemetry> = runtime.audioTelemetry
 
+    init {
+        // The report must be able to name the mode from the first moment, not only after
+        // the first command. A phone that boots into a status question has had no
+        // transition yet.
+        refreshModeContext()
+    }
+
     fun currentArmedSessionId(): String? = currentArmedSessionId.get()
+
+    /**
+     * Re-reads the durable profile state into [ProtectionSnapshot.modeContext].
+     *
+     * Called on every transition and after every path that can change the selection or a
+     * profile's settings. It is deliberately not on the five-second freshness tick: none
+     * of these facts change without an owner action, and re-decoding the store that often
+     * would spend battery to learn nothing.
+     */
+    fun refreshModeContext() {
+        val context = buildModeContext() ?: return
+        if (context == snapshot.value.modeContext) return
+        updateSnapshot { current -> current.copy(modeContext = context) }
+    }
+
+    /**
+     * @return null when there is nothing to say — no profile layer at all, or a store that
+     *   could not be read. Null leaves whatever the snapshot already carried: a failed read
+     *   is not evidence that the owner deselected their mode, and reporting it as such would
+     *   tell them nothing is being watched while it is.
+     */
+    private fun buildModeContext(): ProtectionModeContext? {
+        val repository = profileRepository ?: return null
+        return try {
+            val state = repository.load()
+            val selected = state.selectedProfile
+                ?: return ProtectionModeContext(
+                    selectedProfile = null,
+                    switchingTo = state.switchTransaction?.targetProfile,
+                )
+            modeContextFrom(state, selected)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * The same durable facts, for a mode that is not the one the owner has selected.
+     *
+     * `/status ประตู` asked while the vehicle watch is armed has to answer about the door:
+     * whether its hinge is still calibrated, what angle it would alert on, whether this
+     * phone can carry it at all. None of that is in [ProtectionSnapshot], which speaks for
+     * the selected mode only, and none of it changes with the state of the running watch.
+     *
+     * The returned context describes that mode; it never claims that mode is running.
+     * Saying so is the caller's job, and the report built from this must open by saying
+     * the mode is not the one watching.
+     *
+     * @return null when there is no profile layer, or the store could not be read.
+     */
+    fun modeContextFor(profile: ProtectionProfile): ProtectionModeContext? {
+        val repository = profileRepository ?: return null
+        return try {
+            modeContextFrom(repository.load(), profile)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun modeContextFrom(
+        state: ProtectionProfileStoreState,
+        selected: ProtectionProfile,
+    ): ProtectionModeContext {
+        val resolved = profilePolicy.resolve(state, selected)
+        val stored = state.profiles.getValue(selected)
+        val entrySettings = resolved.specificSettings as? EntryProfileSettings
+        return ProtectionModeContext(
+            selectedProfile = selected,
+            entryLevel = entrySettings?.level,
+            setupState = resolved.setupState,
+            support = deviceSupport(selected),
+            switchingTo = state.switchTransaction?.targetProfile,
+            modeFacts = when (selected) {
+                ProtectionProfile.VEHICLE -> VehicleModeFacts
+                ProtectionProfile.ENTRY -> {
+                    val settings = entrySettings ?: EntryProfileSettings()
+                    val model = stored.entryHingeModel
+                    EntryModeFacts(
+                        angleThresholdDegrees = settings.angleThresholdDegrees,
+                        openConfirmationMs = settings.openConfirmationMs,
+                        closeThresholdDegrees = settings.closeThresholdDegrees,
+                        closeConfirmationMs = settings.closeConfirmationMs,
+                        hingeModelCommissioned = model != null,
+                        hingeOrientationSourceLabel = model?.orientationSourcePolicy,
+                        hingeCommissionedAtWallMs = model?.commissionedAtWallMs,
+                        // A property of this phone, not of any one session, so it is the
+                        // same answer whether or not the door watch is the one running.
+                        driftVerdict = entryDriftVerdict(),
+                    )
+                }
+                ProtectionProfile.POWER -> {
+                    val settings = resolved.specificSettings as? PowerProfileSettings
+                        ?: PowerProfileSettings()
+                    val model = stored.powerWitnessModel
+                    PowerModeFacts(
+                        lossConfirmationMs = settings.lossConfirmationMs,
+                        recoveryConfirmationMs = settings.recoveryConfirmationMs,
+                        witnessCommissioned = model != null,
+                        witnessDarkThresholdLux = model?.witnessDarkThresholdLux,
+                        witnessLitThresholdLux = model?.witnessLitThresholdLux,
+                        witnessCommissionedAtWallMs = model?.commissionedAtWallMs,
+                    )
+                }
+            },
+        )
+    }
 
 
     suspend fun arm(
@@ -68,6 +225,8 @@ class ProtectionCoordinator(
         if (disarmPending.get()) return result(commandId, CommandOutcome.REJECTED, "Disarm in progress")
         var epoch = -1L
         var armingDegradations = emptySet<String>()
+        // Every arm re-decides passive-upgrade eligibility below; clear any prior session's.
+        powerPlacementUpgradeSessionId = null
         val frozenSnapshotRef = AtomicReference<ArmedProfileSnapshot?>(null)
         val immediateResult = commandMutex.withLock {
             if (!recoveryIsCurrent(origin, recoveryToken)) {
@@ -111,6 +270,7 @@ class ProtectionCoordinator(
                     state = ProtectionState.SETUP_REQUIRED,
                     blockers = setOf("No primary sensor configured"),
                     degradations = readiness.degradations,
+                    setupBlocker = SetupBlocker.NO_PRIMARY_SENSOR,
                 )
                 return@withLock result(
                     commandId = commandId,
@@ -134,6 +294,27 @@ class ProtectionCoordinator(
             val selectedProfile = profileState?.selectedProfile
             var frozenConfiguration: SensorFusionConfiguration? = null
             if (profileState != null && selectedProfile != null) {
+                // Second gate. A profile can become unsupported after it was chosen —
+                // restored settings, a replaced device — and arming into a use nothing
+                // can detect is the failure that looks exactly like protection.
+                val support = deviceSupport(selectedProfile)
+                if (support is ProfileDeviceSupport.Unsupported) {
+                    currentArmedSessionId.set(null)
+                    armingEpoch.incrementAndGet()
+                    runtime.stopDetectors()
+                    transition(
+                        state = ProtectionState.SETUP_REQUIRED,
+                        blockers = setOf("Device cannot support the selected profile"),
+                        degradations = readiness.degradations,
+                        setupBlocker = SetupBlocker.PROFILE_UNSUPPORTED,
+                    )
+                    return@withLock result(
+                        commandId,
+                        CommandOutcome.REJECTED,
+                        "Device cannot support $selectedProfile: ${support.reason}",
+                        unsupported = support,
+                    )
+                }
                 val resolved = profilePolicy.resolve(profileState, selectedProfile)
                 if (resolved.setupState != ProfileSetupState.READY) {
                     currentArmedSessionId.set(null)
@@ -143,6 +324,7 @@ class ProtectionCoordinator(
                         state = ProtectionState.SETUP_REQUIRED,
                         blockers = setOf("Selected profile setup required"),
                         degradations = readiness.degradations,
+                        setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                     )
                     return@withLock result(
                         commandId,
@@ -151,10 +333,14 @@ class ProtectionCoordinator(
                     )
                 }
 
+                val entryLevel = (resolved.specificSettings as? EntryProfileSettings)?.level
+                    ?: EntryWatchLevel.DOOR_ANGLE
                 // Entry Guard: Arm requires a commissioned hinge model whose fingerprint
                 // still matches the current commissioning context (spec sections 5-6).
+                // Only the angle level does: the sound-and-movement level measures no angle,
+                // so a model it will never read must not be the thing that refuses the arm.
                 var entryHingeModel: EntryHingeModel? = null
-                if (selectedProfile == ProtectionProfile.ENTRY) {
+                if (selectedProfile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.DOOR_ANGLE) {
                     val storedModel = profileState.profiles.getValue(ProtectionProfile.ENTRY).entryHingeModel
                     if (storedModel == null) {
                         currentArmedSessionId.set(null)
@@ -164,6 +350,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Selected profile setup required"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -187,6 +374,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Entry commissioning invalidated"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.RECOMMISSION_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -211,6 +399,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Selected profile setup required"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.PROFILE_SETUP_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -234,6 +423,7 @@ class ProtectionCoordinator(
                             state = ProtectionState.SETUP_REQUIRED,
                             blockers = setOf("Power commissioning invalidated"),
                             degradations = readiness.degradations,
+                            setupBlocker = SetupBlocker.RECOMMISSION_REQUIRED,
                         )
                         return@withLock result(
                             commandId,
@@ -256,6 +446,16 @@ class ProtectionCoordinator(
                 }
 
                 val sessionId = UUID.randomUUID().toString()
+                // (ก+) A Telegram Power arm cannot run the guided lamp toggle, so it starts
+                // limited. Flag it for a passive placement upgrade: reconcilePowerPlacement
+                // lifts the degradation once the phone confirms it still sees the lamp lit.
+                if (
+                    selectedProfile == ProtectionProfile.POWER &&
+                    origin == CommandOrigin.TELEGRAM &&
+                    powerChallengePassed == false
+                ) {
+                    powerPlacementUpgradeSessionId = sessionId
+                }
                 val modelFingerprint = when {
                     entryHingeModel != null -> EntryCommissioningPolicy.fingerprint(entryHingeModel)
                     powerWitnessModel != null -> PowerWitnessCommissioningPolicy.fingerprint(powerWitnessModel)
@@ -284,6 +484,7 @@ class ProtectionCoordinator(
                     ),
                     commissionedModelFingerprint = modelFingerprint,
                     armedCalibrationSnapshot = calibrationSnapshot,
+                    entryLevel = entryLevel.takeIf { selectedProfile == ProtectionProfile.ENTRY },
                 )
                 // Persist the frozen snapshot with owner intent BEFORE detector start.
                 try {
@@ -308,7 +509,14 @@ class ProtectionCoordinator(
                 frozenSnapshotRef.set(armedSnapshot)
                 currentArmedSessionId.set(sessionId)
                 frozenConfiguration = armedSnapshot.effectiveConfiguration
-                val startResult = runtime.startDetectors(sessionId, armedSnapshot.effectiveConfiguration)
+                armedSignalRoles.set(ProtectionProfilePolicy.signalRoles(selectedProfile, entryLevel))
+                armedEntryLevel.set(entryLevel.takeIf { selectedProfile == ProtectionProfile.ENTRY })
+                val startResult = runtime.startDetectors(
+                    sessionId,
+                    armedSnapshot.effectiveConfiguration,
+                    ProtectionProfilePolicy.usedSensorKinds(selectedProfile, entryLevel),
+                    ProtectionProfilePolicy.signalRoles(selectedProfile, entryLevel),
+                )
                 if (!startResult.started) {
                     currentArmedSessionId.set(null)
                     armingEpoch.incrementAndGet()
@@ -446,7 +654,11 @@ class ProtectionCoordinator(
             }
 
             val finalDegradations = armingDegradations +
-                unhealthySensorReasons(health) +
+                unhealthySensorReasons(
+                    health = health,
+                    usedSensorKinds = frozenSnapshotRef.get()?.usedSensorKinds()
+                        ?: SensorKind.entries.toSet(),
+                ) +
                 telegramDegradationReasons(snapshot.value) +
                 persistenceDegradations()
             val finalState = if (finalDegradations.isEmpty()) {
@@ -507,7 +719,7 @@ class ProtectionCoordinator(
                 runtime.stopDetectors()
                 runtime.clearEntryBaseline()
                 runtime.clearPowerSession()
-                val incidentHistoryPersisted = incidentCloser("owner disarmed")
+                val incidentHistoryPersisted = incidentCloser(IncidentCloseReason.OWNER_DISARMED)
                 if (!incidentHistoryPersisted) {
                     recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
                 }
@@ -592,6 +804,17 @@ class ProtectionCoordinator(
     ): ProtectionCommandResult = commandMutex.withLock {
         val repository = profileRepository
             ?: return@withLock result(commandId, CommandOutcome.REJECTED, "Profiles are not available")
+        val support = deviceSupport(profile)
+        if (support is ProfileDeviceSupport.Unsupported) {
+            // Persisting it would let the next Arm report "protecting" for a use this
+            // hardware cannot detect at all.
+            return@withLock result(
+                commandId,
+                CommandOutcome.REJECTED,
+                "Device cannot support $profile: ${support.reason}",
+                unsupported = support,
+            )
+        }
         val updateResult = repository.update { state ->
             profilePolicy.updateProfile(state, state.profiles.getValue(profile))
                 .copy(selectedProfile = profile)
@@ -609,8 +832,10 @@ class ProtectionCoordinator(
             updateSnapshot { current ->
                 current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
             }
+            refreshModeContext()
             result(commandId, CommandOutcome.APPLIED, "Profile selected: $profile")
         } else {
+            refreshModeContext()
             result(commandId, CommandOutcome.APPLIED, "Profile saved for next Arm")
         }
     }
@@ -646,6 +871,7 @@ class ProtectionCoordinator(
             )
         }
         val resolved = profilePolicy.resolve(updateResult.getOrThrow(), selected)
+        refreshModeContext()
         if (!isArmedOrArming()) {
             runtime.applySensorConfiguration(resolved.sensorConfiguration)
             updateSnapshot { current ->
@@ -706,7 +932,7 @@ class ProtectionCoordinator(
             currentArmedSessionId.set(null)
             runtime.stopDetectors()
             runtime.clearEntryBaseline()
-            val incidentHistoryPersisted = incidentCloser("owner changed protection profile")
+            val incidentHistoryPersisted = incidentCloser(IncidentCloseReason.OWNER_CHANGED_PROFILE)
             if (!incidentHistoryPersisted) {
                 recordPersistenceFailure(PersistenceSource.INCIDENT_HISTORY)
             }
@@ -756,6 +982,7 @@ class ProtectionCoordinator(
         updateSnapshot { current ->
             current.copy(sensorFusionConfiguration = resolved.sensorConfiguration)
         }
+        refreshModeContext()
         result(commandId, CommandOutcome.APPLIED, "Profile switched to $targetProfile; arm to activate")
     }
 
@@ -817,7 +1044,6 @@ class ProtectionCoordinator(
         val entrySettings = settings as? EntryProfileSettings
         return EntryCommissioningPolicy.CommissioningContext(
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
             algorithmVersion = algorithmVersion,
             entryUseContinuous = true,
@@ -1118,7 +1344,37 @@ class ProtectionCoordinator(
         }
     }
 
+    /**
+     * (ก+) Lifts the placement degradation off a Telegram Power arm once the phone shows live
+     * proof it still sees the witness lamp. Runs on the freshness tick, so the upgrade lands a
+     * few seconds after the arm-reference window has produced a conclusive witness reading.
+     *
+     * Deliberately not persisted: a process restart re-arms the session limited and this simply
+     * re-earns the upgrade on the next confirmed reading, so the trust never outlives evidence
+     * gathered in the current run.
+     */
+    private fun reconcilePowerPlacement() {
+        val eligibleId = powerPlacementUpgradeSessionId ?: return
+        val current = snapshot.value
+        if (current.armedProfileSnapshot?.armedSessionId != eligibleId) {
+            // The session ended or was replaced before the upgrade landed.
+            powerPlacementUpgradeSessionId = null
+            return
+        }
+        // Absent means the arm is still finishing (not yet applied) or already lifted; either
+        // way, wait rather than dropping eligibility on a transient.
+        if (POWER_CHALLENGE_DEGRADED !in baseDegradationReasons) return
+        val chargerConnected = current.chargingState == ChargingState.CHARGING ||
+            current.chargingState == ChargingState.FULL
+        if (!remoteArmPassivePlacementConfirmed(chargerConnected, runtime.liveWitnessLit())) return
+        // The passive challenge is satisfied: lift the degradation for this session. The
+        // freshness recompute that follows re-derives the armed state from the reduced set.
+        powerPlacementUpgradeSessionId = null
+        baseDegradationReasons = baseDegradationReasons - POWER_CHALLENGE_DEGRADED
+    }
+
     fun evaluateFreshness(nowMs: Long) {
+        reconcilePowerPlacement()
         updateSnapshot { current ->
             val evaluatedSensors = current.sensorHealth.mapValues { (kind, health) ->
                 health.copy(state = healthPolicy.sensorState(kind, health, nowMs))
@@ -1143,7 +1399,11 @@ class ProtectionCoordinator(
                 emptySet()
             }
             val sensorDegradations = if (liveState in ARMED_STATES || liveState == ProtectionState.ARMING) {
-                unhealthySensorReasons(evaluatedSensors)
+                unhealthySensorReasons(
+                    health = evaluatedSensors,
+                    usedSensorKinds = current.armedProfileSnapshot?.usedSensorKinds()
+                        ?: SensorKind.entries.toSet(),
+                )
             } else {
                 emptySet()
             }
@@ -1180,6 +1440,7 @@ class ProtectionCoordinator(
         degradations: Set<String>,
         sensorHealth: Map<SensorKind, SensorHealth> = snapshot.value.sensorHealth,
         baseDegradations: Set<String> = degradations,
+        setupBlocker: SetupBlocker? = null,
     ) {
         baseDegradationReasons = baseDegradations
         val now = clock.nowMs()
@@ -1199,21 +1460,27 @@ class ProtectionCoordinator(
                 lastTransitionAtMs = now,
                 protectionActivatedAtMs = nextActivatedAt,
                 permissionBlockers = blockers,
+                // Carried only where it means something; a state that is not asking for setup
+                // must not keep yesterday's reason for having asked.
+                setupBlocker = setupBlocker.takeIf { state == ProtectionState.SETUP_REQUIRED },
                 degradationReasons = degradations,
                 sensorHealth = sensorHealth,
             )
         }
+        refreshModeContext()
     }
 
     private fun result(
         commandId: String,
         outcome: CommandOutcome,
         reason: String,
+        unsupported: ProfileDeviceSupport.Unsupported? = null,
     ): ProtectionCommandResult = ProtectionCommandResult(
         commandId = commandId,
         outcome = outcome,
         resultingState = snapshot.value.state,
         reason = reason,
+        unsupported = unsupported,
     )
 
     private inline fun updateSnapshot(transform: (ProtectionSnapshot) -> ProtectionSnapshot) {
@@ -1257,16 +1524,46 @@ class ProtectionCoordinator(
         ProtectionState.ARMED_DEGRADED
     }
 
-    private fun unhealthySensorReasons(
-        health: Map<SensorKind, SensorHealth>,
-    ): Set<String> = health
-        .filterValues { item ->
-            item.state == SensorHealthState.UNAVAILABLE ||
-                item.state == SensorHealthState.STALE ||
-                item.state == SensorHealthState.FAILED
-        }
-        .keys
-        .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+
+    /**
+     * The role the armed use gave a signal the configuration cannot name.
+     *
+     * Signals that reach the engine outside the detector set — the confirmed-movement fix
+     * is the only one — have to be stamped from the same table, or the use would have one
+     * host on paper and another in practice.
+     */
+    fun currentSignalRole(kind: SensorKind): SensorRole? = armedSignalRoles.get()[kind]
+
+    /** Whether the running session is the door watch listening for sound and movement. */
+    fun soundAndMovementDoorWatchArmed(): Boolean =
+        armedEntryLevel.get() == EntryWatchLevel.SOUND_AND_MOVEMENT
+
+    /**
+     * Whether the running session is the door watch measuring an angle. At this level the
+     * orientation verdict from the dedicated Entry listener is the only host; a raw movement
+     * sample reaching the engine is corroboration, never an alarm of its own. The engine needs
+     * to be told, because the source role stamped upstream still reads PRIMARY for the
+     * orientation sensors the general detector set also samples.
+     */
+    fun doorAngleWatchArmed(): Boolean =
+        armedEntryLevel.get() == EntryWatchLevel.DOOR_ANGLE
+
+    /**
+     * Whether this armed session has a movement signal that could vouch for a door verdict.
+     *
+     * The door watch reads an angle, and an angle moves on its own: the orientation a still
+     * phone reports drifts, the baseline is frozen for the whole session, and a session that
+     * lasts a working day gives the drift all day to reach a threshold meant for a door. So a
+     * door claim is asked whether anything shook — but only where the question can be
+     * answered. A use that runs no movement signal, or a phone with no movement sensor,
+     * answers false here and is never asked, because a corroboration that cannot arrive would
+     * silence the watch entirely rather than sharpen it.
+     */
+    fun movementCorroborationArmed(): Boolean {
+        val role = armedSignalRoles.get()[SensorKind.VIBRATION] ?: return false
+        if (role == SensorRole.OFF) return false
+        return runtime.sourceHealth(SensorSource.ACCELEROMETER) != SensorHealthState.UNAVAILABLE
+    }
 
     private fun hasReadyPrimary(primarySources: Set<SensorSource>): Boolean =
         primarySources.any { source -> runtime.sourceHealth(source) == SensorHealthState.HEALTHY }
@@ -1302,3 +1599,23 @@ class ProtectionCoordinator(
         )
     }
 }
+
+/**
+ * A sensor the armed profile does not detect with must never degrade the armed state.
+ * Power Guard deliberately runs on the light sensor and the charging signal alone, so
+ * counting the microphone, location or movement there produced a permanent
+ * "limited" state that also masked degradations that do matter.
+ */
+internal fun unhealthySensorReasons(
+    health: Map<SensorKind, SensorHealth>,
+    usedSensorKinds: Set<SensorKind>,
+): Set<String> = health
+    .filterKeys { kind -> kind in usedSensorKinds }
+    .filterValues { item ->
+        item.state == SensorHealthState.UNAVAILABLE ||
+            item.state == SensorHealthState.STALE ||
+            item.state == SensorHealthState.FAILED
+    }
+    .keys
+    .mapTo(mutableSetOf()) { kind -> "$kind not healthy" }
+

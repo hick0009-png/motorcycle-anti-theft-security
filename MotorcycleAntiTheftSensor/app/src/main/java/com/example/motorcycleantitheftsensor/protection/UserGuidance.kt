@@ -9,7 +9,8 @@ enum class GuidanceCode {
     COMMAND_STATUS_SUCCESS, COMMAND_ARM_APPLIED, COMMAND_ARM_REJECTED,
     COMMAND_DISARM_APPLIED, COMMAND_DISARM_REJECTED,
     COMMAND_SENSITIVITY_APPLIED, COMMAND_SENSITIVITY_INVALID, COMMAND_HELP,
-    COMMAND_UNKNOWN,
+    COMMAND_UNKNOWN, PROFILE_UNSUPPORTED, PROFILE_SELECTED,
+    SETUP_REQUIRED_PROFILE, SETUP_REQUIRED_RECOMMISSION, SETUP_REQUIRED_SENSOR,
     SENSOR_HEALTHY, SENSOR_UNAVAILABLE, SENSOR_PERMISSION_MISSING,
     SENSOR_SAMPLE_FAILED, INCIDENT_OPENED, INCIDENT_UPDATED, INCIDENT_ESCALATED,
     INCIDENT_CLOSED, TELEGRAM_DELIVERY_SENDING, TELEGRAM_DELIVERY_SENT,
@@ -38,12 +39,19 @@ enum class ReasonLabel {
 
 sealed class GuidanceDetail {
     object None : GuidanceDetail()
-    data class ArmingSeconds(val seconds: Int) : GuidanceDetail()
     data class SensitivityLevel(val level: Int) : GuidanceDetail()
     data class ProtectionStateValue(val state: ProtectionState) : GuidanceDetail()
     data class IncidentTypeValue(val incidentType: IncidentType) : GuidanceDetail()
     data class SensorKindValue(val sensorKind: SensorKind) : GuidanceDetail()
     data class SafeReason(val reason: ReasonLabel) : GuidanceDetail()
+
+    /**
+     * Why this phone cannot carry a protection use, carried whole rather than as a code.
+     *
+     * The sentence the owner reads names a missing sensor or a measured drift rate with the
+     * hours behind it, so the text cannot be looked up from an enum alone.
+     */
+    data class ProfileSupportValue(val support: ProfileDeviceSupport) : GuidanceDetail()
 }
 
 data class GuidanceContent(
@@ -62,10 +70,34 @@ object UserGuidanceCatalog {
             GuidanceCode.SETUP_REQUIRED -> GuidanceContent(
                 titleTh = "ต้องตั้งค่าระบบก่อนเปิดการป้องกัน",
                 bodyTh = "ตั้งค่า Bot และจับคู่เจ้าของให้ครบ",
-                telegramTh = "⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าบนมือถือรถ",
-                severity = GuidanceSeverity.INFO,
+                telegramTh = "⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าในแอป",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_PROFILE -> GuidanceContent(
+                titleTh = "ตั้งค่าการใช้งานนี้ให้เสร็จก่อน",
+                bodyTh = "ปรับเทียบการใช้งานที่เลือกไว้ให้เสร็จ แล้วจึงเปิดการป้องกันได้",
+                telegramTh = "⚠️ การใช้งานที่เลือกไว้ยังปรับเทียบไม่เสร็จ ดูหน้าปกป้องในแอป",
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_RECOMMISSION -> GuidanceContent(
+                titleTh = "ต้องปรับเทียบใหม่ก่อนเปิดระบบ",
+                bodyTh = "สิ่งที่ปรับเทียบไว้ไม่ตรงกับเครื่องขณะนี้แล้ว ปรับเทียบใหม่เพื่อให้เชื่อถือได้",
+                telegramTh = "⚠️ การปรับเทียบเดิมใช้ไม่ได้แล้ว ต้องปรับเทียบใหม่",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
+            )
+            GuidanceCode.SETUP_REQUIRED_SENSOR -> GuidanceContent(
+                titleTh = "ยังไม่มีเซ็นเซอร์หลักที่จะตรวจจับ",
+                bodyTh = "เปิดเซ็นเซอร์อย่างน้อยหนึ่งตัวให้เป็นตัวหลัก ไม่งั้นจะไม่มีอะไรเปิดการแจ้งเตือนได้",
+                telegramTh = "⚠️ ยังไม่ได้ตั้งเซ็นเซอร์หลัก จึงเปิดการป้องกันไม่ได้",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
             )
             GuidanceCode.DISARMED -> GuidanceContent(
                 titleTh = "การป้องกันปิดอยู่",
@@ -75,9 +107,13 @@ object UserGuidanceCatalog {
                 action = GuidanceAction.OPEN_PROTECTION,
                 persistent = false
             )
+            // The countdown itself belongs to the status card's own timer line, which reads the
+            // remaining seconds from the snapshot. Naming them here too asked for a detail no
+            // caller ever built, so the number rendered as a frozen zero beside a timer that was
+            // counting down correctly.
             GuidanceCode.ARMING -> GuidanceContent(
                 titleTh = "กำลังเปิดการป้องกัน",
-                bodyTh = "กำลังปรับเทียบเซนเซอร์ เหลือ {seconds} วินาที",
+                bodyTh = "กำลังปรับเทียบเซนเซอร์ก่อนเริ่มเฝ้าระวัง",
                 telegramTh = "ℹ️ กำลังเปิดการป้องกัน รอการปรับเทียบเซนเซอร์",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -95,25 +131,25 @@ object UserGuidanceCatalog {
                 titleTh = "การป้องกันทำงานแบบจำกัด",
                 bodyTh = "{reason}",
                 telegramTh = "⚠️ การป้องกันทำงานแบบจำกัด: {reason}",
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.ALERT_ACTIVE -> GuidanceContent(
                 titleTh = "กำลังส่งสัญญาณเตือนภัย",
                 bodyTh = "ตรวจพบความผิดปกติและกำลังส่งสัญญาณเตือนภัย",
                 telegramTh = "🚨 กำลังส่งสัญญาณเตือนภัย ตรวจพบความผิดปกติ",
                 severity = GuidanceSeverity.CRITICAL,
-                action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                action = GuidanceAction.OPEN_EVENTS,
+                persistent = true
             )
             GuidanceCode.OFFLINE -> GuidanceContent(
                 titleTh = "ระบบออฟไลน์",
                 bodyTh = "บริการหลักหยุดทำงาน",
                 telegramTh = "⚠️ ระบบออฟไลน์ บริการหลักหยุดทำงาน",
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PROTECTION,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.SERVICE_RECOVERED -> GuidanceContent(
                 titleTh = "บริการเริ่มใหม่สำเร็จ",
@@ -143,37 +179,37 @@ object UserGuidanceCatalog {
                 titleTh = "Token ไม่ถูกต้องหรือเชื่อมต่อไม่ได้",
                 bodyTh = "ตรวจสอบ Token จาก BotFather แล้วลองใหม่",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
+                persistent = true
             )
             GuidanceCode.TELEGRAM_UNREACHABLE -> GuidanceContent(
                 titleTh = "ติดต่อ Telegram ไม่ได้",
-                bodyTh = "ตรวจสอบอินเทอร์เน็ตของมือถือรถ",
-                telegramTh = "⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของมือถือรถ",
-                severity = GuidanceSeverity.INFO,
+                bodyTh = "ตรวจสอบอินเทอร์เน็ตของอุปกรณ์ที่ติดตั้ง",
+                telegramTh = "⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของอุปกรณ์",
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.PAIRING_REQUIRED -> GuidanceContent(
                 titleTh = "ต้องจับคู่ Telegram ก่อน",
-                bodyTh = "พิมพ์ /pair <รหัส> จากแอปในมือถือรถ",
-                telegramTh = "🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในมือถือรถ",
-                severity = GuidanceSeverity.INFO,
+                bodyTh = "พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์",
+                telegramTh = "🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์",
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_TELEGRAM_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.PAIRING_ACCEPTED -> GuidanceContent(
                 titleTh = "จับคู่ Telegram สำเร็จ",
-                bodyTh = "บัญชีนี้สามารถสั่งงานรถได้",
-                telegramTh = "✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานรถได้",
+                bodyTh = "บัญชีนี้สามารถสั่งงานระบบได้",
+                telegramTh = "✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานระบบได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
                 persistent = false
             )
             GuidanceCode.PAIRING_INVALID_OR_EXPIRED -> GuidanceContent(
                 titleTh = "รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ",
-                bodyTh = "รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่บนมือถือรถ",
+                bodyTh = "รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่ในแอป",
                 telegramTh = "⚠️ รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.RETRY_NON_SENSITIVE_SETTINGS,
@@ -181,7 +217,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.UNAUTHORIZED_COMMAND -> GuidanceContent(
                 titleTh = "คำสั่งจากบัญชีที่ไม่ได้รับอนุญาต",
-                bodyTh = "ไม่มีการเปลี่ยนสถานะระบบ",
+                bodyTh = "ไม่มีการเปลี่ยนสถานะของระบบ",
                 telegramTh = "🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -189,7 +225,7 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.COMMAND_STATUS_SUCCESS -> GuidanceContent(
                 titleTh = "สถานะระบบ",
-                bodyTh = "อัปเดตข้อมูลสถานะแล้ว",
+                bodyTh = "อัปเดตข้อมูลสถานะ",
                 telegramTh = "ℹ️ สถานะระบบ: {protectionStatus}",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -246,7 +282,13 @@ object UserGuidanceCatalog {
             GuidanceCode.COMMAND_HELP -> GuidanceContent(
                 titleTh = "คำสั่งที่ใช้ได้",
                 bodyTh = "ดูรายการคำสั่งใน Telegram",
-                telegramTh = "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+                telegramTh = "ℹ️ คำสั่ง: /status รายงานตามโหมดที่เลือกไว้ (ตอบเฉพาะสิ่งที่โหมดนั้นเฝ้าจริง), " +
+                    // Built from the table that parses the words, so a word offered here is
+                    // always a word the parser accepts.
+                    "/status <โหมด> ดูโหมดอื่นที่ตั้งไว้แต่ไม่ได้เฝ้าอยู่ (" +
+                    PresentationTextCatalog.modeWordExamples() + "), " +
+                    "/where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
+                    "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                     "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -254,10 +296,26 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.COMMAND_UNKNOWN -> GuidanceContent(
                 titleTh = "คำสั่งไม่สำเร็จ",
-                bodyTh = "ไม่รู้จักคำสั่งนี้",
+                bodyTh = "พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 telegramTh = "ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
+                persistent = false
+            )
+            GuidanceCode.PROFILE_SELECTED -> GuidanceContent(
+                titleTh = "เลือกการใช้งานแล้ว",
+                bodyTh = "ตรวจสอบการตั้งค่าของการใช้งานนี้ก่อนเปิดระบบ",
+                telegramTh = null,
+                severity = GuidanceSeverity.INFO,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = false
+            )
+            GuidanceCode.PROFILE_UNSUPPORTED -> GuidanceContent(
+                titleTh = "ใช้โหมดนี้บนเครื่องนี้ไม่ได้",
+                bodyTh = "{profileSupport}",
+                telegramTh = "⚠️ ใช้โหมดนี้บนเครื่องนี้ไม่ได้: {profileSupport}",
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
                 persistent = false
             )
             GuidanceCode.SENSOR_HEALTHY -> GuidanceContent(
@@ -272,17 +330,17 @@ object UserGuidanceCatalog {
                 titleTh = "เซนเซอร์ไม่พร้อมใช้งาน",
                 bodyTh = "{sensorName}: {safeReason}",
                 telegramTh = "รวมใน /status",
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
             )
             GuidanceCode.SENSOR_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ต้องอนุญาตสิทธิ์",
                 bodyTh = "เปิดสิทธิ์ที่จำเป็นเพื่อใช้งานฟีเจอร์นี้",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
+                persistent = true
             )
             GuidanceCode.SENSOR_SAMPLE_FAILED -> GuidanceContent(
                 titleTh = "อ่านค่าเซนเซอร์ไม่สำเร็จ",
@@ -318,7 +376,13 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.INCIDENT_CLOSED -> GuidanceContent(
                 titleTh = "เหตุการณ์สิ้นสุดแล้ว",
-                bodyTh = "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที",
+                // The stillness window is why a movement incident closes; saying it on a
+                // power or door incident misreports what the system actually observed.
+                bodyTh = when ((detail as? GuidanceDetail.IncidentTypeValue)?.incidentType) {
+                    IncidentType.POWER -> "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
+                    IncidentType.ENTRY_DOOR -> "ประตูปิดและนิ่งแล้ว"
+                    else -> "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที"
+                },
                 telegramTh = "ℹ️ เหตุการณ์สิ้นสุดแล้ว",
                 severity = GuidanceSeverity.INFO,
                 action = GuidanceAction.NONE,
@@ -344,9 +408,9 @@ object UserGuidanceCatalog {
                 titleTh = "ส่ง Telegram ไม่สำเร็จ",
                 bodyTh = "ระบบจะรายงานสถานะการเชื่อมต่อ",
                 telegramTh = "ไม่มีการตอบซ้ำ",
-                severity = GuidanceSeverity.INFO,
-                action = GuidanceAction.NONE,
-                persistent = false
+                severity = GuidanceSeverity.WARNING,
+                action = GuidanceAction.OPEN_PROTECTION,
+                persistent = true
             )
             GuidanceCode.SMS_FALLBACK_USED -> GuidanceContent(
                 titleTh = "ใช้ช่องทางสำรองสำหรับเหตุการณ์วิกฤต",
@@ -358,27 +422,27 @@ object UserGuidanceCatalog {
             )
             GuidanceCode.NOTIFICATION_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ยังไม่ได้อนุญาตการแจ้งเตือน",
-                bodyTh = "เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนมือถือรถ",
+                bodyTh = "เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนอุปกรณ์เครื่องนี้",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.MICROPHONE_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ไมโครโฟนยังไม่พร้อม",
                 bodyTh = "การตรวจจับเสียงจะไม่ทำงาน แต่ระบบส่วนอื่นยังทำงาน",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.LOCATION_PERMISSION_MISSING -> GuidanceContent(
                 titleTh = "ตำแหน่งยังไม่พร้อม",
                 bodyTh = "ข้อมูลตำแหน่งจะไม่ถูกรวมในเหตุการณ์",
                 telegramTh = null,
-                severity = GuidanceSeverity.INFO,
+                severity = GuidanceSeverity.WARNING,
                 action = GuidanceAction.OPEN_PERMISSION_SETTINGS,
-                persistent = false
+                persistent = true
             )
             GuidanceCode.SMS_PERMISSION_DENIED -> GuidanceContent(
                 titleTh = "SMS ถูกปิดเพื่อความปลอดภัย",
@@ -406,7 +470,6 @@ object UserGuidanceCatalog {
             )
         }
 
-        val seconds = (detail as? GuidanceDetail.ArmingSeconds)?.seconds?.toString() ?: "0"
         val level = (detail as? GuidanceDetail.SensitivityLevel)?.level?.toString() ?: "0"
         val state = (detail as? GuidanceDetail.ProtectionStateValue)?.state?.name ?: ""
         val incidentType = (detail as? GuidanceDetail.IncidentTypeValue)
@@ -415,16 +478,20 @@ object UserGuidanceCatalog {
             ?: ""
         val sensorName = (detail as? GuidanceDetail.SensorKindValue)?.sensorKind?.name ?: ""
         val safeReason = (detail as? GuidanceDetail.SafeReason)?.reason?.name ?: ""
+        val profileSupport = (detail as? GuidanceDetail.ProfileSupportValue)
+            ?.support
+            ?.let(PresentationTextCatalog::profileSupport)
+            ?: "เครื่องนี้ไม่มีเซ็นเซอร์ที่โหมดนี้ต้องใช้"
         val permissionName = "Permission"
         val featureName = "Feature"
 
         fun String?.resolve(): String? {
-            return this?.replace("{seconds}", seconds)
-                ?.replace("{level}", level)
+            return this?.replace("{level}", level)
                 ?.replace("{state}", state)
                 ?.replace("{incidentType}", incidentType)
                 ?.replace("{sensorName}", sensorName)
                 ?.replace("{safeReason}", safeReason)
+                ?.replace("{profileSupport}", profileSupport)
                 ?.replace("{reason}", safeReason)
                 ?.replace("{permissionName}", permissionName)
                 ?.replace("{featureName}", featureName)

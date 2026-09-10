@@ -1,5 +1,6 @@
 package com.example.motorcycleantitheftsensor.protection
 
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,6 +26,179 @@ object PresentationTextCatalog {
             name = "ไฟเลี้ยงจุดติดตั้ง",
             promise = "เฝ้าระวังสายชาร์จและไฟยืนยันของปลั๊กหรือรางไฟที่ตั้งค่าไว้",
         )
+    }
+
+    /**
+     * What this mode promises to catch, with the door watch's two levels told apart.
+     *
+     * [profile] carries one sentence per mode, and for the door watch that sentence is
+     * about an angle the lower level cannot measure. Every surface that states the promise
+     * has to make the same distinction, so it is made once here rather than at each of
+     * them: a report and a state-change alert that disagreed about what is being watched
+     * would be two answers to the owner's only question.
+     */
+    fun profilePromise(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String =
+        if (profile == ProtectionProfile.ENTRY && entryLevel == EntryWatchLevel.SOUND_AND_MOVEMENT) {
+            "แจ้งเตือนเมื่อได้ยินเสียงพร้อมกับการขยับที่ประตูซึ่งติดตั้งโทรศัพท์ไว้"
+        } else {
+            profile(profile).promise
+        }
+
+    /** How far the door watch can see, in the words both the report and the alert use. */
+    fun entryLevelLabel(level: EntryWatchLevel): String = when (level) {
+        EntryWatchLevel.DOOR_ANGLE -> "มุมประตู (วัดองศาได้)"
+        EntryWatchLevel.SOUND_AND_MOVEMENT -> "เสียงและการขยับ (วัดองศาไม่ได้)"
+    }
+
+    /**
+     * "ประตูและทางเข้า · มุมประตู (วัดองศาได้)" — the mode, for a line that already says โหมด.
+     *
+     * The level rides along only where it changes the answer, which is the door watch and
+     * nowhere else.
+     */
+    fun modeName(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String {
+        val name = profile(profile).name
+        return if (profile == ProtectionProfile.ENTRY && entryLevel != null) {
+            "$name · " + entryLevelLabel(entryLevel)
+        } else {
+            name
+        }
+    }
+
+    /** The same name where nothing else on the line supplies the word โหมด. */
+    fun modeLabel(profile: ProtectionProfile, entryLevel: EntryWatchLevel?): String =
+        "โหมด" + modeName(profile, entryLevel)
+
+    /**
+     * The short word an owner types to name a mode, one per mode.
+     *
+     * `/status ประตู` is typed one-handed on a phone, often in the dark. The full names
+     * are accepted too (below), but the word offered in `/help` has to be the short one.
+     */
+    private val MODE_SHORT_WORDS: Map<ProtectionProfile, List<String>> = mapOf(
+        ProtectionProfile.VEHICLE to listOf("รถ", "vehicle", "car"),
+        ProtectionProfile.ENTRY to listOf("ประตู", "ทางเข้า", "entry", "door"),
+        ProtectionProfile.POWER to listOf("ไฟเลี้ยง", "ไฟ", "power"),
+    )
+
+    /**
+     * Which mode the owner meant, or null when the word matches none.
+     *
+     * The full display name is taken from [profile] rather than repeated here, so a mode
+     * that is renamed keeps answering to its new name without anyone remembering to update
+     * a second list. The enum constant is deliberately not accepted: `VEHICLE` is not a
+     * word this product ever shows an owner, and accepting it would invite it into a reply.
+     */
+    fun profileFromOwnerWord(word: String): ProtectionProfile? {
+        val needle = word.trim().lowercase()
+        if (needle.isEmpty()) return null
+        return ProtectionProfile.entries.firstOrNull { profile ->
+            val displayName = profile(profile).name
+            displayName.lowercase() == needle ||
+                MODE_SHORT_WORDS.getValue(profile).any { alias -> alias == needle }
+        }
+    }
+
+    /** The one word per mode that `/help` and the "I did not understand" reply offer. */
+    fun modeWord(profile: ProtectionProfile): String = MODE_SHORT_WORDS.getValue(profile).first()
+
+    /** "· ยานพาหนะ → /status รถ" per line, for the reply to a word that matched nothing. */
+    fun modeWordMenu(): String = ProtectionProfile.entries.joinToString("\n") { profile ->
+        "· ${profile(profile).name} → /status ${modeWord(profile)}"
+    }
+
+    /** The same words on one line, for `/help`, which is already a single long sentence. */
+    fun modeWordExamples(): String = ProtectionProfile.entries.joinToString(", ") { profile ->
+        "/status ${modeWord(profile)}"
+    }
+
+    /**
+     * The mode on a tappable button: an icon to find it by, and the same short word the
+     * owner would have typed.
+     *
+     * Deliberately the word from [modeWord] rather than the full name — a row of three
+     * buttons carrying "ไฟเลี้ยงจุดติดตั้ง" wraps into unreadable stacks on a phone — and
+     * deliberately the same word, so that tapping and typing are visibly one command.
+     */
+    fun modeButtonLabel(profile: ProtectionProfile): String =
+        MODE_ICONS.getValue(profile) + " " + modeWord(profile)
+
+    private val MODE_ICONS: Map<ProtectionProfile, String> = mapOf(
+        ProtectionProfile.VEHICLE to "🚗",
+        ProtectionProfile.ENTRY to "🚪",
+        ProtectionProfile.POWER to "💡",
+    )
+
+    /**
+     * Why a profile locks the sensors it does not use, in the owner's words.
+     *
+     * [SensorLockPresentation.notice] heads the advanced sensor card; [reason] repeats
+     * on each locked row. Both are null for a profile that locks nothing, and null when
+     * no profile is selected — an unselected state must not claim anything is locked.
+     */
+    fun sensorLock(profile: ProtectionProfile?): SensorLockPresentation = when (profile) {
+        null, ProtectionProfile.VEHICLE, ProtectionProfile.ENTRY -> SensorLockPresentation()
+        ProtectionProfile.POWER -> SensorLockPresentation(
+            notice = "โหมดไฟเลี้ยงใช้เฉพาะเซ็นเซอร์แสง (ไฟยืนยัน) และสถานะการชาร์จ " +
+                "เซ็นเซอร์อื่นถูกล็อกไว้ในโหมดนี้ ปรับค่าไม่ได้",
+            reason = "โหมดไฟเลี้ยงไม่ใช้เซ็นเซอร์นี้ — การขยับตอนถอด/เสียบสายชาร์จ " +
+                "จะเปิดเหตุการณ์ซ้อนกับเหตุการณ์ไฟเลี้ยง",
+            presetNotice = "กำหนดโดยโหมดไฟเลี้ยง",
+        )
+    }
+
+    /**
+     * The same role, in the two words a status row has space for.
+     *
+     * [evidenceRoleLabel] is the settings screen's sentence-length label. A report that
+     * lists six sensors cannot repeat "ใช้ประกอบการยืนยัน" on every line and stay readable on a
+     * lock screen, and the distinction it draws is the one that matters: which signals can
+     * raise an alert on their own.
+     */
+    fun evidenceRoleShortLabel(role: SensorRole): String? = when (role) {
+        SensorRole.PRIMARY -> "หลัก"
+        SensorRole.SUPPORTING -> "ประกอบ"
+        SensorRole.OFF -> null
+    }
+
+    /**
+     * The orientation source a hinge model was commissioned on, named as the owner would.
+     *
+     * The stored value is a fingerprint token ("game-rotation-vector") that must never
+     * change; this is the only place it is translated, and an unrecognised token is passed
+     * through rather than guessed at.
+     */
+    fun orientationSourceName(label: String?): String? = when (label) {
+        null -> null
+        EntryOrientationSource.GAME_ROTATION_VECTOR.label -> "ไจโรสโคป"
+        EntryOrientationSource.ROTATION_VECTOR.label -> "ไจโรสโคปร่วมกับเข็มทิศ"
+        EntryOrientationSource.GEOMAGNETIC_ROTATION_VECTOR.label -> "เข็มทิศ"
+        else -> label
+    }
+
+    /**
+     * A destination the owner can recognise but a reader of the chat cannot dial.
+     *
+     * The owner has to be able to confirm they set the right number — a fallback pointing
+     * at an old SIM is worse than none, and they cannot check it from where they are. The
+     * chat is not private enough for the whole number: it survives in Telegram's history,
+     * on any device still signed in, and in whatever backup that device keeps.
+     */
+    fun maskedSmsDestination(destination: String?): String? {
+        val digits = destination?.filter(Char::isDigit) ?: return null
+        if (digits.length < 4) return null
+        val head = digits.take(2)
+        val tail = digits.takeLast(2)
+        val hidden = digits.length - 4
+        val middle = buildString {
+            repeat(hidden) { index ->
+                // Grouped the way a Thai mobile number is read aloud, so the shape of the
+                // number the owner remembers is still visible through the mask.
+                if (index == 1 || index == 4) append('-')
+                append('x')
+            }
+        }
+        return "$head$middle$tail"
     }
 
     /** Evidence-role labels approved by the spec (§3.3). */
@@ -154,6 +328,276 @@ object PresentationTextCatalog {
             }
         }
 
+    /**
+     * What a device limitation costs the owner, in the owner's words. Never a scolding
+     * about their phone: it says what this use can and cannot do here.
+     */
+    fun profileSupport(support: ProfileDeviceSupport): String? = when (support) {
+        ProfileDeviceSupport.Supported -> null
+        is ProfileDeviceSupport.Degraded -> when (support.reason) {
+            ProfileSupportReason.NO_LIGHT_SENSOR ->
+                "เครื่องนี้ไม่มีเซ็นเซอร์วัดแสง จะใช้ได้เฉพาะสัญญาณการชาร์จ " +
+                    "ยืนยันสองทางไม่ได้ ความแม่นยำลดลง"
+            ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY ->
+                "เครื่องนี้ไม่มีไจโรสโคป จะวัดมุมด้วยเข็มทิศอย่างเดียว " +
+                    "ต้องใช้เวลายืนยันนานขึ้น"
+            ProfileSupportReason.DRIFT_LIMITS_SESSION ->
+                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเอง เฝ้าต่อเนื่องได้" +
+                    "${hoursPhrase(support.trustedHours)} นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด " +
+                    "— ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
+            ProfileSupportReason.NO_MOVEMENT_SENSOR, ProfileSupportReason.NO_ANGLE_SENSOR,
+            ProfileSupportReason.DRIFT_TOO_FAST -> null
+        }
+        is ProfileDeviceSupport.Unsupported -> when (support.reason) {
+            ProfileSupportReason.NO_ANGLE_SENSOR ->
+                "เครื่องนี้ไม่มีไจโรสโคปและเข็มทิศ จึงวัดมุมการเปิดประตูไม่ได้"
+            ProfileSupportReason.NO_MOVEMENT_SENSOR ->
+                "เครื่องนี้ไม่มีมาตรวัดความเร่ง จึงตรวจการขยับหรือเคลื่อนย้ายไม่ได้"
+            ProfileSupportReason.DRIFT_TOO_FAST ->
+                "เครื่องนี้วัดตัวเองแล้วพบว่ามุมไหลเองเร็วเกินไป " +
+                    "(ถึงเกณฑ์แจ้งเตือนใน${hoursPhrase(support.trustedHours)}) " +
+                    "จะเตือนทั้งที่ประตูไม่ได้เปิด จึงใช้โหมดนี้บนเครื่องนี้ไม่ได้"
+            ProfileSupportReason.NO_LIGHT_SENSOR, ProfileSupportReason.NO_GYROSCOPE_COMPASS_ONLY,
+            ProfileSupportReason.DRIFT_LIMITS_SESSION -> null
+        }
+    }
+
+    fun profileSupportBadge(support: ProfileDeviceSupport): String = when (support) {
+        ProfileDeviceSupport.Supported -> "🟢 เครื่องนี้ใช้ได้"
+        is ProfileDeviceSupport.Degraded -> "🟡 ใช้ได้บางส่วน"
+        is ProfileDeviceSupport.Unsupported -> "⚪ ใช้ไม่ได้"
+    }
+
+    /**
+     * Hardware availability wording. "จำกัด" must never read as a fault: the sensor is
+     * present and usable, it just cannot carry a confirmation that assumes a rate.
+     */
+    fun sensorAvailabilityLabel(availability: SensorAvailability): String = when (availability) {
+        SensorAvailability.AVAILABLE -> "ใช้ได้"
+        SensorAvailability.LIMITED -> "จำกัด"
+        SensorAvailability.MISSING -> "ไม่มีในเครื่องนี้"
+    }
+
+    fun sensorAvailabilityBadge(availability: SensorAvailability): String = when (availability) {
+        SensorAvailability.AVAILABLE -> "🟢"
+        SensorAvailability.LIMITED -> "🟡"
+        SensorAvailability.MISSING -> "⚪"
+    }
+
+    /** TalkBack reads this instead of the emoji, which it would announce as a colour. */
+    fun sensorAvailabilityContentDescription(name: String, availability: SensorAvailability): String =
+        "$name: ${sensorAvailabilityLabel(availability)}"
+
+    fun sensorInventoryLine(available: Int, limited: Int, missing: Int): String =
+        "เซ็นเซอร์ในเครื่องนี้: มี $available · จำกัด $limited · ไม่มี $missing"
+
+    /**
+     * The real asymmetry between the two roles on a phone that lacks the sensor.
+     *
+     * `SensorCapabilityController` raises UNAVAILABLE and rejects the whole configuration
+     * when a missing source is primary, so one such row stops every other sensor too.
+     * The same source as supporting only lands in `degradedSources` and everything else
+     * keeps running. That difference is invisible on screen, and it is the trap.
+     */
+    const val SENSOR_PRIMARY_UNAVAILABLE =
+        "เครื่องนี้ไม่มีเซ็นเซอร์ตัวนี้ จึงตั้งเป็นหลักไม่ได้ — " +
+            "ถ้าตั้งได้ ระบบจะปฏิเสธการตั้งค่าทั้งชุดและเซ็นเซอร์ตัวอื่นจะหยุดตามไปด้วย " +
+            "ส่วน \"ประกอบ\" ระบบจะข้ามตัวนี้ไปเฉย ๆ ตัวอื่นยังทำงานตามปกติ"
+
+    /** Shown when a configuration made elsewhere already holds the rejected combination. */
+    const val SENSOR_PRIMARY_UNAVAILABLE_NOW =
+        "ตอนนี้ตั้งเป็นหลักอยู่ทั้งที่เครื่องนี้ไม่มีเซ็นเซอร์ตัวนี้ " +
+            "ระบบจะเริ่มป้องกันไม่ได้จนกว่าจะเปลี่ยนเป็น \"ประกอบ\" หรือ \"ปิด\""
+
+    /** Fixed labels for the lock affordances, so the screen never invents its own. */
+    const val SENSOR_LOCK_CHIP = "ล็อกโดยโหมด"
+    const val SENSOR_LOCK_CHANGE_USE = "เปลี่ยนการใช้งาน"
+
+    /**
+     * What one source contributes to one protection use, and what each role would really
+     * do. See [SensorContributionCatalog] for why every line is what it is; nothing here
+     * may promise a detection the engine does not perform.
+     */
+    fun contribution(profile: ProtectionProfile, source: SensorSource): SensorContribution =
+        SensorContributionCatalog.contribution(profile, source)
+
+    /** Prefixes the one contribution line the sensor row shows. */
+    const val SENSOR_DETECTS_PREFIX = "ช่วยตรวจจับ"
+
+    /** Prefixes a note about a detection the role on this screen does not govern. */
+    const val SENSOR_CAVEAT_PREFIX = "หมายเหตุ"
+
+    fun hostName(host: ProtectionHost): String = when (host) {
+        ProtectionHost.MOVEMENT -> "การสั่นและการเคลื่อนไหว"
+        ProtectionHost.ORIENTATION -> "เซ็นเซอร์ทิศทาง (มุมประตู)"
+        ProtectionHost.LIGHT -> "แสงบริเวณจุดติดตั้ง"
+        ProtectionHost.SOUND -> "เสียง"
+        ProtectionHost.LOCATION -> "ตำแหน่ง"
+        ProtectionHost.CHARGING -> "สัญญาณสายชาร์จ"
+    }
+
+    /**
+     * "เจ้าภาพของโหมดนี้: ..." — the signals allowed to raise an alert on their own.
+     * Everything else can only join one they raised.
+     */
+    fun hostSummaryLine(hosts: List<ProtectionHost>): String =
+        "เจ้าภาพของโหมดนี้ (เปิดเหตุการณ์ได้เอง): " + hosts.joinToString(" · ", transform = ::hostName)
+
+    const val HOST_SUMMARY_EXPLANATION =
+        "สัญญาณอื่นเปิดเหตุการณ์เองไม่ได้ ทำได้แค่เข้าไปเติมหลักฐานให้เหตุการณ์ที่เจ้าภาพเปิดไว้"
+
+    /**
+     * The overnight drift measurement. Deliberately worded as a measurement rather than a
+     * protection feature: it detects nothing and alerts nobody.
+     */
+    const val DRIFT_LOG_TITLE = "วัดการไหลของมุมสำหรับโหมดประตู (สำหรับวินิจฉัย)"
+    const val DRIFT_LOG_EXPLANATION =
+        "โหมดประตูตรึงมุมอ้างอิงไว้ตลอดการเฝ้าหนึ่งครั้ง ถ้าค่ามุมของเครื่องไหลไปเองจนถึงเกณฑ์ " +
+            "จะแจ้งเตือนทั้งที่ประตูไม่ได้ขยับ อัตราการไหลต่างกันมากตามรุ่นเครื่อง จึงต้องวัดจริง — " +
+            "วางเครื่องนิ่งสนิท เริ่มบันทึก แล้วปล่อยทิ้งไว้ 8 ชั่วโมง"
+    /** The door watch's two levels, in the owner's words rather than the model's. */
+    const val ENTRY_LEVEL_SOUND_TITLE = "เฝ้าด้วยเสียงและการสั่น"
+    const val ENTRY_LEVEL_SOUND_BODY =
+        "ใช้ได้ทันที ไม่ต้องปรับเทียบ — แจ้งเมื่อได้ยินเสียงพร้อมการสั่นที่ประตู " +
+            "บอกได้ว่ามีบางอย่างเกิดขึ้น แต่บอกไม่ได้ว่าประตูเปิดกี่องศา"
+    const val ENTRY_LEVEL_ANGLE_UPGRADE = "ตั้งค่าโหมดวัดมุมประตู"
+    const val ENTRY_LEVEL_ANGLE_UPGRADE_HINT =
+        "ติดโทรศัพท์กับบานประตูให้แน่น แล้วปรับเทียบสองรอบ — จะบอกได้ว่าประตูเปิดกี่องศา " +
+            "และตัดการเตือนจากเสียงนอกบ้านออกได้ดีขึ้น"
+    const val ENTRY_LEVEL_ANGLE_HIDE = "ซ่อนการตั้งค่าโหมดวัดมุม"
+
+    const val DRIFT_LOG_START = "เริ่มบันทึก"
+    const val DRIFT_LOG_STOP = "หยุดบันทึก"
+
+    /**
+     * The way out of a measurement taken while the phone was being handled.
+     *
+     * The store keeps the longer recording rather than the newer one, so an eight-hour
+     * measurement that caught someone picking the phone up can only be replaced by an even
+     * longer one. Without a way to throw it away, that phone is refused the door watch
+     * forever over a number that was never about drift.
+     */
+    const val DRIFT_LOG_CLEAR = "ลบผลวัดเดิม แล้ววัดใหม่"
+    const val DRIFT_LOG_CLEAR_HINT =
+        "ถ้ามีใครจับเครื่องหรือเปิดประตูระหว่างวัด ค่าที่ได้จะสูงเกินจริง — ลบแล้ววัดใหม่ได้"
+
+
+    fun driftLogStatusLine(
+        recording: Boolean,
+        sensorName: String,
+        elapsedMinutes: Long,
+        rows: Int,
+        maxTwistDeg: Double,
+        disturbances: Int = 0,
+    ): String {
+        val state = if (recording) "กำลังบันทึก" else "หยุดแล้ว"
+        val twist = String.format(java.util.Locale.US, "%.2f", maxTwistDeg)
+        val line = "$state · $sensorName · นับได้ $elapsedMinutes นาที · $rows จุด · ไหลสูงสุด $twist°"
+        // Said rather than silently handled. An owner who moved the phone and is not told
+        // sees a count that stopped climbing and no reason for it.
+        return if (disturbances > 0) "$line · ถูกขยับ $disturbances ครั้ง (ไม่นับช่วงนั้น)" else line
+    }
+
+    /**
+     * Hours the owner can plan around, said the way a person would say them.
+     *
+     * A rate fast enough to matter rounds down to zero, and "ราว 0 ชั่วโมง" told an owner
+     * nothing at the exact moment they were being refused the use and needed to understand
+     * why. Below an hour the number is not the point; that it is under an hour is.
+     */
+    fun hoursPhrase(hours: Int?): String =
+        if (hours == null || hours < 1) "ไม่ถึงหนึ่งชั่วโมง" else "ราว $hours ชั่วโมง"
+
+    /**
+     * What the measurement means for this owner's sessions, in hours they can plan around.
+     *
+     * Never a grade for the phone. The question an owner has is "can I leave it armed while I
+     * am at work", and that is what this answers.
+     */
+    fun driftBudgetLine(verdict: EntryDriftVerdict): String = when (verdict) {
+        EntryDriftVerdict.NotMeasured ->
+            "ยังวัดไม่นานพอ (ต้องอย่างน้อย 5 นาที) — วางเครื่องนิ่ง ๆ แล้วปล่อยไว้"
+        is EntryDriftVerdict.Trustworthy ->
+            "เครื่องนี้นิ่งพอ — มุมจะไหลถึงเกณฑ์ก็ต่อเมื่อเปิดค้าง" +
+                "${hoursPhrase(verdict.hoursToThreshold.toInt())} เฝ้าข้ามคืนหรือทั้งวันทำงานได้"
+        is EntryDriftVerdict.Limited ->
+            "เฝ้าต่อเนื่องได้${hoursPhrase(verdict.hoursToThreshold.toInt())} " +
+                "นานกว่านั้นอาจเตือนทั้งที่ประตูไม่ได้เปิด — ปิดแล้วเปิดใหม่เพื่อเริ่มนับใหม่"
+        is EntryDriftVerdict.Unusable ->
+            "มุมของเครื่องนี้ไหลถึงเกณฑ์ใน${hoursPhrase(verdict.hoursToThreshold.toInt())} " +
+                "จะเตือนผิดจนใช้งานจริงไม่ได้"
+    }
+
+    /** "โหมดยานพาหนะ · หลัก 2 · ประกอบ 8 · ปิด 0" — what this use is actually set up to run. */
+    fun sensorRoleTallyLine(
+        profile: ProtectionProfile,
+        primary: Int,
+        supporting: Int,
+        off: Int,
+    ): String = "โหมด${profile(profile).name} · หลัก $primary · ประกอบ $supporting · ปิด $off"
+
+    /**
+     * A configuration with no primary at all cannot arm: `hasReadyPrimary` has nothing to
+     * find. The dialog already refuses the last removal, so this states the condition
+     * rather than warning about an edit in progress.
+     */
+    const val SENSOR_NO_PRIMARY_WARNING =
+        "ไม่มีเซ็นเซอร์หลักเลย ระบบจะเริ่มป้องกันไม่ได้จนกว่าจะตั้งอย่างน้อยหนึ่งตัวเป็นหลัก"
+
+    /**
+     * The note a whole capability group carries, or null when it carries none.
+     *
+     * Derived from the per-source caveats rather than written again, and only when every
+     * source in the group says the same thing — a note over a group where it holds for
+     * some rows and not others would be false for the rest.
+     */
+    fun capabilityCaveat(profile: ProtectionProfile, capability: SensorCapability): String? =
+        SensorSource.entries
+            .filter { it.capability == capability }
+            .map { contribution(profile, it).caveatTh }
+            .distinct()
+            .singleOrNull()
+
+    /** Labels for the panel comparing what the three roles would do. */
+    const val SENSOR_ROLE_EFFECTS_TITLE = "เปลี่ยนบทบาทแล้วได้อะไร"
+    const val SENSOR_COST_PREFIX = "ต้นทุน"
+
+    /**
+     * What being a primary costs, stated once for the role rather than repeated per
+     * sensor: it is a property of the arming gate, not of any one source.
+     *
+     * `ProtectionCoordinator.hasReadyPrimary` is an `any`, so one calibrated primary is
+     * enough to arm and adding more does not make arming slower. Copy that implied
+     * otherwise would talk owners out of a setting that costs them nothing.
+     */
+    const val SENSOR_PRIMARY_ARMING_RULE =
+        "ระบบจะเริ่มป้องกันได้เมื่อมีตัวหลักที่ปรับเทียบเสร็จแล้วอย่างน้อยหนึ่งตัว " +
+            "การตั้งเป็นหลักเพิ่มไม่ได้ทำให้เริ่มป้องกันช้าลง"
+
+    /**
+     * Recommendation wording.
+     *
+     * [SENSOR_DIVERGES_CHIP] deliberately says the setting does not match rather than
+     * that the owner changed it: the advanced screen still edits the shared
+     * configuration, so a row can diverge from the profile's recommendation without
+     * anyone having touched it.
+     */
+    const val SENSOR_RECOMMENDED_STAR = "⭐"
+    const val SENSOR_RECOMMENDED_CHIP = "แนะนำสำหรับโหมดนี้"
+    const val SENSOR_DIVERGES_CHIP = "ไม่ตรงกับค่าแนะนำ"
+    const val SENSOR_RESTORE_RECOMMENDED = "คืนค่าที่แนะนำของโหมดนี้"
+
+    /** TalkBack cannot see the star, so the recommended button says so in words. */
+    fun sensorRecommendedContentDescription(roleLabel: String, profile: ProtectionProfile): String =
+        "$roleLabel — ค่าที่แนะนำของโหมด${profile(profile).name}"
+
+    fun sensorDivergesLine(count: Int, profile: ProtectionProfile): String =
+        "$count รายการไม่ตรงกับค่าที่แนะนำของโหมด${profile(profile).name}"
+
+    /** "<source> ล็อกโดยโหมด... ตั้งค่าไม่ได้" for TalkBack, which cannot see dimming. */
+    fun sensorLockedContentDescription(name: String, profile: ProtectionProfile): String =
+        "$name ถูกล็อกในโหมด${profile(profile).name} ตั้งค่าไม่ได้"
+
     fun capabilityName(capability: SensorCapability): String = when (capability) {
         SensorCapability.MOVEMENT -> "การเคลื่อนไหว"
         SensorCapability.ROTATION -> "การหมุนและเอียง"
@@ -231,9 +675,36 @@ object PresentationTextCatalog {
     }
 
     /**
-     * Events history screen terms (profile-aware Thai UX, Task 5). `strings.xml`
-     * mirrors these values for resource-based rendering; host tests pin them here
-     * so resource drift fails the build.
+     * Bottom navigation, the protection hero button, and the arming countdown.
+     *
+     * These read as three groups but share one property: they are the only Thai the
+     * owner sees before anything has happened yet, so they are the wording most likely
+     * to be edited by someone who has not read the rest of this catalog.
+     */
+    const val DESTINATION_PROTECTION_LABEL = "ปกป้อง"
+    const val DESTINATION_EVENTS_LABEL = "เหตุการณ์"
+    const val DESTINATION_SETTINGS_LABEL = "ตั้งค่า"
+    const val DESTINATION_PROTECTION_DESCRIPTION = "แท็บปกป้อง"
+    const val DESTINATION_EVENTS_DESCRIPTION = "แท็บเหตุการณ์"
+    const val DESTINATION_SETTINGS_DESCRIPTION = "แท็บตั้งค่า"
+
+    const val ACTION_ARM_PROTECTION = "เปิดระบบป้องกัน"
+    const val ACTION_DISARM_PROTECTION = "ปิดระบบป้องกัน"
+    const val ACTION_STOP_ALARM = "ปิดสัญญาณเตือน"
+
+    /**
+     * Held still through the countdown because the door watch freezes its closed
+     * reference from the pose it settles on as the countdown ends: a door moved during
+     * it skews the whole session, and this sentence is the only warning the owner gets.
+     */
+    const val ARMING_ENTRY_HOLD_STILL =
+        "ปิดประตูให้สนิทและอย่าเพิ่งขยับระหว่างนับถอยหลัง เพื่อให้ระบบจับตำแหน่งประตูปิดได้ถูกต้อง"
+
+    fun armingCountdown(seconds: Int): String = "กำลังเปิดระบบ อีก $seconds วินาที"
+    /**
+     * Events history screen terms (profile-aware Thai UX, Task 5). EventsScreen used
+     * to read half of these from `strings.xml` and half from here, which is how two
+     * copies of the same sentence came to sit one function call apart.
      */
     const val EVENTS_LOADING = "กำลังโหลดเหตุการณ์"
     const val EVENTS_EMPTY_TITLE = "ยังไม่มีเหตุการณ์"
@@ -267,8 +738,8 @@ object PresentationTextCatalog {
 
     /**
      * Notification presentation (profile-aware Thai UX, Task 6). The title and channel
-     * names are installation-neutral; resources mirror these values while host tests pin
-     * them so wording cannot drift back to legacy brand or raw state enums.
+     * names are installation-neutral, and are read straight from here: a service posting
+     * a notification has a Context, but nothing else on this path needs one.
      */
     const val NOTIFICATION_TITLE = "ระบบป้องกัน"
     const val FOREGROUND_CHANNEL_NAME = "สถานะการป้องกัน"
@@ -314,25 +785,6 @@ object PresentationTextCatalog {
         ProtectionState.ARMED_DEGRADED -> "การป้องกันทำงานแบบจำกัด"
         ProtectionState.ALERT_ACTIVE -> "พบเหตุการณ์ผิดปกติ"
         ProtectionState.OFFLINE -> "ออฟไลน์"
-    }
-
-    fun formatEvidence(evidence: IncidentEvidence): IncidentEvidencePresentation {
-        val src = evidence.source
-        val label = if (src != null) sourceName(src) else capabilityName(evidence.capability ?: SensorCapability.MOVEMENT)
-        val desc = when (evidence.unit) {
-            SensorUnit.METERS_PER_SECOND_SQUARED -> "ตรวจพบแรงสั่นต่อเนื่อง (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} m/s²)"
-            SensorUnit.DEGREES -> "มุมของรถเปลี่ยนประมาณ ${String.format(Locale.US, "%.1f", evidence.baselineDelta)}°"
-            SensorUnit.RADIANS_PER_SECOND -> "การหมุนความเร็ว ${String.format(Locale.US, "%.2f", evidence.normalizedValue)} rad/s"
-            SensorUnit.MICROTESLA -> "สนามแม่เหล็กรอบรถเปลี่ยนจากค่าตอนเปิดระบบ (${String.format(Locale.US, "%.1f", evidence.baselineDelta)} µT)"
-            SensorUnit.LUX_RATIO -> "แสงบริเวณจุดติดตั้งเพิ่มขึ้นจากค่าตอนเปิดระบบ"
-            SensorUnit.NORMALIZED_STATE -> "สถานะวัตถุใกล้โทรศัพท์เปลี่ยนจาก ใกล้ เป็น ไกล"
-            SensorUnit.TRIGGER -> "เซ็นเซอร์ตรวจพบการเคลื่อนไหวของตัวรถ"
-            null -> "ตรวจพบสัญญาณความผิดปกติ"
-        }
-        return IncidentEvidencePresentation(
-            label = label,
-            valueDescription = desc,
-        )
     }
 
     fun formatTimestamp(epochMs: Long): String {

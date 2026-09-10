@@ -69,6 +69,11 @@ class ArmedProfileSnapshotCodec(
             root.put("commissionedModelFingerprint", JSONObject.NULL)
         }
         root.put("armedCalibrationSnapshot", encodeCalibration(snapshot.armedCalibrationSnapshot))
+        // Optional within the same schema version: a session frozen before the level was
+        // recorded decodes with a null level, which is exactly what it knew.
+        if (snapshot.entryLevel != null) {
+            root.put("entryLevel", snapshot.entryLevel.name)
+        }
         return root.toString()
     }
 
@@ -99,6 +104,14 @@ class ArmedProfileSnapshotCodec(
                     root.getString("commissionedModelFingerprint")
                 }
             val calibration = decodeCalibration(profile, root.getJSONObject("armedCalibrationSnapshot"))
+            val entryLevel = if (root.isNull("entryLevel")) {
+                null
+            } else {
+                decodeEnum<EntryWatchLevel>(root, "entryLevel")
+            }
+            require(entryLevel == null || profile == ProtectionProfile.ENTRY) {
+                "Only an entry armed session may carry a watch level, found profile $profile"
+            }
             return ArmedProfileSnapshot(
                 armedSessionId = armedSessionId,
                 profile = profile,
@@ -107,6 +120,7 @@ class ArmedProfileSnapshotCodec(
                 configurationFingerprint = configurationFingerprint,
                 commissionedModelFingerprint = commissionedModelFingerprint,
                 armedCalibrationSnapshot = calibration,
+                entryLevel = entryLevel,
             )
         } catch (e: IllegalArgumentException) {
             throw e

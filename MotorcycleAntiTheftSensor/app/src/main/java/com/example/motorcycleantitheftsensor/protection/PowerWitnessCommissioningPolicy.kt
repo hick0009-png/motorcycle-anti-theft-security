@@ -29,6 +29,12 @@ data class PowerWitnessModel(
     val algorithmVersion: Int,
     val sensorIdentity: String,
     val hoodSignature: String,
+    /**
+     * When this model was accepted, stamped by [ProtectionProfilePolicy.commissionPower].
+     * Null for a model commissioned before it was recorded, and never part of
+     * [fingerprint] — the date does not decide whether the calibration still holds.
+     */
+    val commissionedAtWallMs: Long? = null,
 ) {
     /**
      * Separate loss/recovery thresholds create a stable middle band. The recorded

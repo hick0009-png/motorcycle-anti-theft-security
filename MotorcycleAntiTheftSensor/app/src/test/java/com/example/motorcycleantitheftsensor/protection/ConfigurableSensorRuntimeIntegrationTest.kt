@@ -3,7 +3,6 @@ package com.example.motorcycleantitheftsensor.protection
 import com.example.motorcycleantitheftsensor.sensor.DefaultSensorCapabilityController
 import com.example.motorcycleantitheftsensor.sensor.SensorCatalog
 import com.example.motorcycleantitheftsensor.sensor.SensorDescriptor
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

@@ -25,8 +25,12 @@ import java.io.File
  * Scans ONLY the reachable production entry path rooted at `Navigation.kt ->
  * ProtectionAppScreen` plus the service/channel formatters. Test tags, enum
  * identifiers, protocol commands, resource names, and developer-only logs are not
- * user-facing; disconnected legacy screens (`DashboardScreen`, `ui/main/MainScreen`)
- * are deliberately NOT scanned and must never be edited just to satisfy this test.
+ * user-facing and are not scanned.
+ *
+ * [reachableKotlinFiles] is a whitelist rather than a directory walk, so a file
+ * joins the contract only when someone adds it by hand. Anything the owner cannot
+ * reach carries no user-facing language to police, and widening the scan to cover
+ * it would only invite editing unreachable code to turn a test green.
  */
 class ThaiPresentationSourceContractTest {
 
@@ -68,13 +72,12 @@ class ThaiPresentationSourceContractTest {
         "ui/protection/ProtectionScreen.kt",
         "ui/protection/EntryGuardSection.kt",
         "ui/protection/PowerGuardSection.kt",
+        "ui/protection/BlackBoxExportCard.kt",
         "ui/events/EventsScreen.kt",
         "ui/settings/SettingsScreen.kt",
         "protection/PresentationTextCatalog.kt",
         "protection/UserGuidance.kt",
         "protection/IncidentMessageFormatter.kt",
-        "protection/IncidentMessagePresentationFactory.kt",
-        "protection/ProtectionMessagePresentationFactory.kt",
         "protection/ProtectionStateTelegramNotifier.kt",
         "telegram/ProtectionStatusFormatter.kt",
         "telegram/ProtectionStatusProjection.kt",
@@ -82,10 +85,17 @@ class ThaiPresentationSourceContractTest {
         "service/DirectBootBootstrapService.kt",
     )
 
-    /** Static shared copy also lives in resources; scan it for wording terms. */
+    /**
+     * Resources are scanned to prove wording stays out of them, not to find wording in
+     * them: strings.xml holds `app_name` and nothing else, because the manifest is the
+     * one reader that cannot go through the catalog.
+     */
     private val reachableResourceFiles = listOf(
         "../../../../res/values/strings.xml",
     )
+
+    /** The Thai block, U+0E00..U+0E7F, written as codepoints so the range stays readable. */
+    private val THAI_CODEPOINTS = 0x0E00..0x0E7F
 
     private fun sourceRoot(): File {
         val candidates = listOf(
@@ -128,6 +138,30 @@ class ThaiPresentationSourceContractTest {
         assertTrue("Expected a meaningful reachable set", reachableKotlinFiles.size >= 20)
         reachableSources()
         reachableResources()
+    }
+
+    /**
+     * The catalog is the only home for user-facing Thai, and this is the assertion that
+     * keeps it that way. `strings.xml` may hold `app_name` because the manifest resolves
+     * it, and nothing else: most of the app's wording is produced by formatters that
+     * never see a Context, so a resource copy could only ever be a second copy — which
+     * is what it was, thirteen sentences of it, before this was written down.
+     */
+    @Test
+    fun userFacingThaiLivesInTheCatalogAndNotInResources() {
+        for ((relative, content) in reachableResources()) {
+            val offenders = content.lines()
+                .withIndex()
+                .filter { (_, line) -> line.any { it.code in THAI_CODEPOINTS } }
+                .map { (index, line) -> "$relative:${index + 1} ${line.trim()}" }
+            assertTrue(
+                offenders.joinToString(
+                    separator = System.lineSeparator(),
+                    prefix = "Thai wording belongs in PresentationTextCatalog, not in resources:",
+                ),
+                offenders.isEmpty(),
+            )
+        }
     }
 
     @Test

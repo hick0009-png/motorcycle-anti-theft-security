@@ -2,6 +2,7 @@ package com.example.motorcycleantitheftsensor.protection
 
 import com.example.motorcycleantitheftsensor.location.LocationPresentation
 import java.util.Locale
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 class IncidentMessageFormatter(
@@ -56,7 +57,7 @@ class IncidentMessageFormatter(
                     } else {
                         val kindName = when (ev.kind) {
                             SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
-                            SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                            SensorKind.VIBRATION -> "${watchedSubject()}ถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
                             SensorKind.LOCATION -> "พิกัด"
@@ -96,7 +97,67 @@ class IncidentMessageFormatter(
         presentation: LocationPresentation? = null,
     ): String = formatTelegram(incident.toDefaultUpdate(), presentation)
 
-    fun formatSms(update: IncidentUpdate): String {
+    /**
+     * The SMS fallback copy. [location] is appended as raw coordinates rather than the
+     * reverse-geocoded label and maps URL Telegram gets: a label costs a network round
+     * trip this channel exists precisely because the device cannot make, and every byte
+     * here is paid for in SMS parts.
+     *
+     * Coordinates are withheld from closed updates, matching how the Telegram channel
+     * drops its location block once an incident is over.
+     */
+    /**
+     * The same message, led by a line saying it is late and when the event actually happened.
+     *
+     * Without this line a backlog sent the moment the network returns is indistinguishable from
+     * something happening right now, and an owner who runs outside at eight in the morning for a
+     * door that opened at midnight has been told a lie by a system built to be believed.
+     */
+    fun formatDelayed(
+        update: IncidentUpdate,
+        presentation: LocationPresentation? = null,
+        delayedByMs: Long,
+    ): String {
+        val body = formatTelegram(update, presentation)
+        val incident = update.incidentOrNull()
+        if (body.isEmpty() || incident == null) return body
+        val happenedAt = PresentationTextCatalog.formatTimestamp(incident.updatedAtMs)
+        return "⏱ ส่งย้อนหลัง — เหตุนี้เกิดเมื่อ $happenedAt " +
+            "และค้างส่งอยู่ ${delayDescription(delayedByMs)} เพราะตอนนั้นส่งออกไม่ได้\n\n" +
+            body
+    }
+
+    private fun delayDescription(delayedByMs: Long): String {
+        val minutes = (delayedByMs / 60_000L).coerceAtLeast(0L)
+        val hours = minutes / 60
+        val remainder = minutes % 60
+        return when {
+            minutes < 1L -> "ไม่ถึงหนึ่งนาที"
+            hours < 1L -> "$minutes นาที"
+            remainder == 0L -> "$hours ชั่วโมง"
+            else -> "$hours ชั่วโมง $remainder นาที"
+        }
+    }
+
+    fun formatSms(update: IncidentUpdate, location: IncidentLocation? = null): String {
+        val body = smsBody(update)
+        if (body.isEmpty() || location == null) return body
+        val incident = update.incidentOrNull() ?: return body
+        if (update is IncidentUpdate.Closed || incident.lifecycle == IncidentLifecycle.CLOSED) {
+            return body
+        }
+        return "$body\n${coordinateLine(location)}"
+    }
+
+    private fun coordinateLine(location: IncidentLocation): String = String.format(
+        Locale.US,
+        "📍 พิกัด: %.5f,%.5f (~%dm)",
+        location.latitude,
+        location.longitude,
+        ceil(location.accuracyMeters.toDouble()).toInt().coerceAtLeast(1),
+    )
+
+    private fun smsBody(update: IncidentUpdate): String {
         val incident = update.incidentOrNull() ?: return ""
         if (incident.type == IncidentType.ENTRY_DOOR) {
             return entryMessage(update, incident)
@@ -141,7 +202,7 @@ class IncidentMessageFormatter(
                     } else {
                         val kindName = when (ev.kind) {
                             SensorKind.LIGHT -> "แสงบริเวณจุดติดตั้ง"
-                            SensorKind.VIBRATION -> "รถถูกขยับหรือมุมเอียงเปลี่ยนไป"
+                            SensorKind.VIBRATION -> "${watchedSubject()}ถูกขยับหรือมุมเอียงเปลี่ยนไป"
                             SensorKind.POWER_THERMAL -> "ระบบไฟ/ความร้อน"
                             SensorKind.MICROPHONE -> "เสียง"
                             else -> ev.kind.thaiName()
@@ -169,7 +230,8 @@ class IncidentMessageFormatter(
         return message
     }
 
-    fun formatSms(incident: SecurityIncident): String = formatSms(incident.toDefaultUpdate())
+    fun formatSms(incident: SecurityIncident): String =
+        formatSms(incident.toDefaultUpdate(), incident.location)
 
     fun format(update: IncidentUpdate): String = formatTelegram(update, null)
 
@@ -193,7 +255,22 @@ class IncidentMessageFormatter(
             "เหตุยังตรวจพบต่อเนื่องเกิน 1 นาที\n" +
             "ประเภท: ${PresentationTextCatalog.incidentTypeLabel(incident.type)}\n" +
             "หลักฐานที่ยืนยันแล้ว: ${incident.evidence.size} รายการ\n" +
-            "ตรวจสอบรถและตำแหน่งล่าสุดทันที"
+            "ตรวจสอบ${watchedSubject()}และตำแหน่งล่าสุดทันที"
+
+    /**
+     * The noun for the thing the armed session is actually watching, so generic copy that
+     * once hard-coded "รถ" reads correctly in every mode. Chosen from the armed profile,
+     * not the sensor or incident type: an event classified as VIBRATION while Entry Guard
+     * is armed is still about a door, not a vehicle, and every message path that does not
+     * branch on ENTRY_DOOR first would otherwise borrow the vehicle word. Falls back to
+     * the vehicle word when no armed profile is known (legacy frozen sessions, disarmed
+     * replays), which preserves the original Vehicle Guard wording exactly.
+     */
+    private fun watchedSubject(): String = when (getSnapshot()?.armedProfileSnapshot?.profile) {
+        ProtectionProfile.ENTRY -> "ประตู"
+        ProtectionProfile.POWER -> "จุดติดตั้ง"
+        ProtectionProfile.VEHICLE, null -> "รถ"
+    }
 
     private fun SecurityIncident.toDefaultUpdate(): IncidentUpdate = when (lifecycle) {
         IncidentLifecycle.CLOSED -> IncidentUpdate.Closed(this)
@@ -221,11 +298,26 @@ class IncidentMessageFormatter(
         ) {
             return "หยุดการเฝ้าระวัง—หลักฐานตำแหน่งประตูขาดหาย"
         }
+        // A close the door watch did not itself resolve — the owner disarmed, switched profile,
+        // the movement went quiet — lands no closing verdict on the incident. It must say the
+        // watch ended, not read the last live door sample (a door-open angle, a stale
+        // mount-moved) back as if it were the outcome.
+        if (update is IncidentUpdate.Closed && !IncidentCloseReason.isTerminalVerdict(incident.closeReason)) {
+            return "การเฝ้าระวังที่ประตูปิดลงแล้ว"
+        }
         val latest = incident.evidence.lastOrNull {
-            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true
+            it.diagnostic?.startsWith(ENTRY_DIAGNOSTIC_PREFIX) == true ||
+                it.diagnostic == CHARGER_DISCONNECTED
         }
         return when (latest?.diagnostic) {
+            // Under a door watch the charging line is tamper with the guarding phone, not a
+            // supply signal, and speaks door words — never the POWER "แหล่งจ่ายไฟผิดปกติ" copy.
+            CHARGER_DISCONNECTED ->
+                "สายชาร์จของโทรศัพท์ที่เฝ้าประตูถูกถอด อาจมีคนแตะโทรศัพท์ กรุณาตรวจสอบ"
             ENTRY_MOUNT_MOVED -> "โทรศัพท์หรือขายึดถูกขยับ กรุณาตรวจสอบและปรับเทียบใหม่"
+            ENTRY_MOUNT_RESTORED -> "โทรศัพท์กลับเข้าตำแหน่งเดิมแล้ว การเฝ้าประตูทำงานต่อตามปกติ"
+            ENTRY_MOUNT_UNRECOGNIZED ->
+                "ตำแหน่งติดตั้งไม่ตรงกับที่ปรับเทียบไว้ วัดมุมประตูไม่ได้ กรุณาปรับเทียบประตูใหม่"
             ENTRY_SOURCE_UNAVAILABLE, ENTRY_SOURCE_RECOVERED ->
                 "ข้อมูลมุมประตูขาดหาย กำลังรอเซนเซอร์กลับมาทำงาน"
             ENTRY_DOOR_CLOSED -> "ประตูปิดและนิ่งแล้ว"
@@ -235,6 +327,14 @@ class IncidentMessageFormatter(
                 } else {
                     "ประตูเปิด ${latest.normalizedValue.roundToInt()}° จากตำแหน่งปิด"
                 }
+            // No orientation evidence at all is the sound-and-movement level: it heard and
+            // felt something at the door and has no angle to report, so it must not borrow
+            // the angle level's words about a door that closed.
+            null -> if (update is IncidentUpdate.Closed) {
+                "การเฝ้าระวังที่ประตูปิดลงแล้ว"
+            } else {
+                "ได้ยินเสียงพร้อมการสั่นที่ประตู"
+            }
             else ->
                 if (update is IncidentUpdate.Closed) {
                     "ประตูปิดและนิ่งแล้ว"
@@ -258,6 +358,14 @@ class IncidentMessageFormatter(
      * loss; recovery copy states the monitored point is stable again.
      */
     private fun powerMessage(update: IncidentUpdate, incident: SecurityIncident): String {
+        // A close the supply arbiter did not itself resolve — the owner disarmed, switched
+        // profile, the process was interrupted — lands no recovery verdict on the incident. It
+        // must say the watch ended, never claim "the power came back" off a leftover charger or
+        // loss reading that was never a recovery. Only [IncidentCloseReason.POWER_SUPPLY_STABLE]
+        // has appended the recovery evidence the settlement copy below reads.
+        if (update is IncidentUpdate.Closed && !IncidentCloseReason.isTerminalVerdict(incident.closeReason)) {
+            return "การเฝ้าระวังไฟเลี้ยงที่จุดนี้สิ้นสุดแล้ว"
+        }
         val latest = incident.evidence.lastOrNull {
             it.diagnostic == CHARGER_DISCONNECTED ||
                 it.diagnostic?.startsWith(POWER_DIAGNOSTIC_PREFIX) == true
@@ -271,6 +379,10 @@ class IncidentMessageFormatter(
                 "ไฟยืนยันไม่พบ ตรวจสอบหลอดไฟยืนยัน การวางตำแหน่ง และเส้นทางจ่ายไฟ"
             POWER_CONFIRMED_LOSS ->
                 "ยืนยันไฟเลี้ยงขาดในจุดที่เฝ้าระวัง"
+            POWER_PARTIAL_WITNESS_DARK ->
+                "สายชาร์จกลับมาแล้ว แต่ไฟยืนยันยังไม่มา — จุดที่เฝ้าระวังยังไม่มีไฟเลี้ยง ตรวจสอบเบรกเกอร์ หลอดไฟยืนยัน และเส้นทางจ่ายไฟ"
+            POWER_PARTIAL_CHARGING_LOST ->
+                "ไฟยืนยันกลับมาแล้ว แต่สายชาร์จยังไม่กลับมา — ตรวจสอบสายชาร์จ ที่ชาร์จ และพอร์ตชาร์จของโทรศัพท์"
             POWER_RECOVERED ->
                 "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว"
             else ->
@@ -290,13 +402,17 @@ class IncidentMessageFormatter(
         val ENTRY_SOURCE_UNAVAILABLE = ProtectionDiagnostics.ENTRY_SOURCE_UNAVAILABLE
         val ENTRY_SOURCE_RECOVERED = ProtectionDiagnostics.ENTRY_SOURCE_RECOVERED
         val ENTRY_MOUNT_MOVED = ProtectionDiagnostics.ENTRY_MOUNT_MOVED
-        const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = "interrupted"
+        val ENTRY_MOUNT_RESTORED = ProtectionDiagnostics.ENTRY_MOUNT_RESTORED
+        val ENTRY_MOUNT_UNRECOGNIZED = ProtectionDiagnostics.ENTRY_MOUNT_UNRECOGNIZED
+        const val ENTRY_EVIDENCE_INTERRUPTED_MARKER = IncidentCloseReason.EVIDENCE_INTERRUPTED_MARKER
 
         val POWER_DIAGNOSTIC_PREFIX = ProtectionDiagnostics.POWER_PREFIX
         val CHARGER_DISCONNECTED = ProtectionDiagnostics.CHARGER_DISCONNECTED
         val POWER_CHARGING_HEALTH = ProtectionDiagnostics.POWER_CHARGING_HEALTH
         val POWER_WITNESS_DARK = ProtectionDiagnostics.POWER_WITNESS_DARK
         val POWER_CONFIRMED_LOSS = ProtectionDiagnostics.POWER_CONFIRMED_LOSS
+        val POWER_PARTIAL_WITNESS_DARK = ProtectionDiagnostics.POWER_PARTIAL_WITNESS_DARK
+        val POWER_PARTIAL_CHARGING_LOST = ProtectionDiagnostics.POWER_PARTIAL_CHARGING_LOST
         val POWER_RECOVERED = ProtectionDiagnostics.POWER_RECOVERED
     }
 }

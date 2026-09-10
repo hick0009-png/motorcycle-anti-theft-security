@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
@@ -38,8 +39,8 @@ import com.example.motorcycleantitheftsensor.protection.IncidentLifecycle
 import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.ui.protection.PROTECTION_LIST_TAG
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -108,7 +109,7 @@ class ProtectionAppScreenTest {
     }
 
     @Test
-    fun powerSetupOffersCalibrationBesideTheDisabledArmAction() {
+    fun powerSetupPromptsInTheStatusCardAndCalibratesFromTheWitnessCardOnly() {
         var commissioningStarts = 0
         val state = baseState(ProtectionState.SETUP_REQUIRED).copy(
             profile = ProtectionProfileUiState(
@@ -123,8 +124,14 @@ class ProtectionAppScreenTest {
             )
         }
 
+        // The status card states what is missing; the witness card owns the action, so
+        // the owner is never shown two buttons that start the same calibration.
         compose.onNodeWithText("ปรับเทียบไฟยืนยันก่อนเปิดระบบป้องกัน").assertIsDisplayed()
-        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").performClick()
+        compose.onNodeWithText("เริ่มปรับเทียบไฟยืนยัน").assertDoesNotExist()
+
+        compose.onNodeWithTag(PROTECTION_LIST_TAG)
+            .performScrollToNode(hasText("เริ่มปรับเทียบ"))
+        compose.onNodeWithText("เริ่มปรับเทียบ").performClick()
 
         compose.runOnIdle {
             assertEquals(1, commissioningStarts)
@@ -244,7 +251,7 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText(
             "ยังไม่ได้ให้สิทธิ์ไมโครโฟน การตรวจจับเสียงผิดปกติจะใช้ไม่ได้",
         ).assertExists()
-        compose.onNodeWithText("การตรวจจับที่ลดลง").assertExists()
+        compose.onNodeWithText("ความครอบคลุมของเซนเซอร์ลดลง").assertExists()
         compose.onNodeWithText("สิ่งที่ยังขาดก่อนป้องกันได้").assertDoesNotExist()
         compose.onNodeWithText("ตรวจสอบสิทธิ์").performClick()
         compose.runOnIdle {
@@ -285,6 +292,17 @@ class ProtectionAppScreenTest {
         compose.onNodeWithText(TEST_ONLY_TOKEN).assertDoesNotExist()
     }
 
+    /**
+     * The bot token is the one secret typed on this screen, and it is the only field held in
+     * a plain `remember` (`SettingsScreen.kt:169`) so that a restore cannot bring it back.
+     *
+     * This used to check a second field, a typed SMS encryption key. That field is gone: the
+     * key is generated on the device and never leaves it, so there is nothing to type. The
+     * destination number beside it is deliberately `rememberSaveable`
+     * (`SettingsScreen.kt:170`) — it is the owner's own number, not a credential, and a
+     * half-typed number surviving a rotation is the behaviour every other field has. Adding
+     * it here would turn a security assertion into a complaint about ordinary form state.
+     */
     @Test
     fun settingsSecretsDoNotSurviveSavedStateRestoration() {
         val restoration = StateRestorationTester(compose)
@@ -302,16 +320,10 @@ class ProtectionAppScreenTest {
             hasText("เปลี่ยน Bot Token ใหม่"),
         )
         compose.onNode(tokenField).performTextInput(UNSAVED_TOKEN)
-        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(
-            hasText("คีย์เข้ารหัส SMS (Encryption Key)"),
-        )
-        val smsKeyField = hasSetTextAction() and hasText("คีย์เข้ารหัส SMS (Encryption Key)")
-        compose.onNode(smsKeyField).performTextInput(UNSAVED_SMS_KEY)
 
         restoration.emulateSavedInstanceStateRestore()
 
         compose.onAllNodes(hasText(UNSAVED_TOKEN, substring = true)).assertCountEquals(0)
-        compose.onAllNodes(hasText(UNSAVED_SMS_KEY, substring = true)).assertCountEquals(0)
     }
 
     @Test
@@ -346,10 +358,21 @@ class ProtectionAppScreenTest {
 
         openSettingsPage("การแจ้งเตือนและความปลอดภัย")
 
-        val copy =
-            "SMS Fallback จะทำงานเฉพาะเมื่อเหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น (ไม่ส่งพิกัด GPS เพื่อความปลอดภัย)"
-        compose.onNodeWithTag("ui.settings.LIST").performScrollToNode(hasText(copy))
-        compose.onNodeWithText(copy).assertExists()
+        // When it fires: only a critical incident whose Telegram delivery failed. Never a
+        // second channel running alongside the first.
+        val eligibility = "เหตุการณ์วิกฤต (CRITICAL_BREACH) และการส่ง Telegram ล้มเหลวเท่านั้น"
+        compose.onNodeWithTag("ui.settings.LIST")
+            .performScrollToNode(hasText(eligibility, substring = true))
+        val explanation = compose.onNode(hasText(eligibility, substring = true))
+        explanation.assertExists()
+
+        // What it carries. Both halves are stated because both can be wrong in opposite
+        // directions: an SMS carrying the position in clear would be the leak this screen
+        // once promised to avoid, and one carrying no position at all would be an alert
+        // nobody can act on. The device key is what made the first safe.
+        explanation.assertTextContains("พิกัดล่าสุด", substring = true)
+        explanation.assertTextContains("AES-256-GCM", substring = true)
+        explanation.assertTextContains("ไม่ออกจากเครื่อง", substring = true)
     }
 
     @Test
@@ -390,7 +413,8 @@ class ProtectionAppScreenTest {
         }
 
         compose.onNodeWithText("การป้องกันทำงานแบบจำกัด").assertExists()
-        compose.onNodeWithText("VIBRATION not healthy").assertExists()
+        compose.onNodeWithText("การสั่นสะเทือนทำงานไม่ปกติ").assertExists()
+        compose.onNodeWithText("VIBRATION not healthy").assertDoesNotExist()
     }
 
     @Test
@@ -529,7 +553,7 @@ class ProtectionAppScreenTest {
         openAdvancedDiagnostics()
 
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("การสั่นสะเทือน"))
-        compose.onAllNodes(hasText("การวัดสดจะเริ่มหลังเปิดระบบ"))[0].assertHeightIsAtLeast(10.dp)
+        compose.onAllNodes(hasText("จะเริ่มอ่านค่าหลังเปิดการป้องกัน"))[0].assertHeightIsAtLeast(10.dp)
     }
 
     @Test
@@ -691,8 +715,8 @@ class ProtectionAppScreenTest {
         showWithLocalNavigation(state)
         openAdvancedDiagnostics()
 
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ไมโครโฟนพร้อมใช้งาน"))
-        compose.onNodeWithText("ไมโครโฟนพร้อมใช้งาน").assertExists()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("ตรวจพบไมโครโฟน"))
+        compose.onNodeWithText("ตรวจพบไมโครโฟน").assertExists()
     }
 
     @Test
@@ -723,7 +747,7 @@ class ProtectionAppScreenTest {
         compose.onNodeWithTag(
             com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
         ).performScrollTo()
-        compose.onNodeWithText("สถานะระบบ").assertDoesNotExist()
+        compose.onNodeWithText("สถานะการทำงาน").assertDoesNotExist()
         compose.onNodeWithTag(
             com.example.motorcycleantitheftsensor.ui.protection.AUDIO_RUNTIME_CARD_TAG,
         ).assertDoesNotExist()
@@ -732,7 +756,7 @@ class ProtectionAppScreenTest {
             com.example.motorcycleantitheftsensor.ui.protection.ADVANCED_DIAGNOSTICS_TOGGLE_TAG,
         ).performClick()
 
-        compose.onNodeWithText("สถานะระบบ").assertExists()
+        compose.onNodeWithText("สถานะการทำงาน").assertExists()
     }
 
     @Test
@@ -1015,7 +1039,7 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
     changeSensitivity = {},
     requestPermissions = {},
     replaceBotToken = {},
-    configureSmsFallback = { _, _ -> },
+    configureSmsFallback = { _ -> },
     retry = {},
     retrySettings = {},
     resetPairing = {},
@@ -1024,7 +1048,7 @@ private fun fakeActions(): ProtectionAppActions = ProtectionAppActions(
 
 private const val TEST_ONLY_TOKEN = "123456:TEST_ONLY_NOT_A_REAL_TOKEN"
 private const val UNSAVED_TOKEN = "123456:UNSAVED_TEST_TOKEN"
-private const val UNSAVED_SMS_KEY = "UNSAVED_SMS_KEY"
+
 private const val TEST_TIMESTAMP_MS = 1_725_000_000_000L
 private const val OPAQUE_ALPHA = 0.95f
 private const val NEAR_WHITE = 0.90f

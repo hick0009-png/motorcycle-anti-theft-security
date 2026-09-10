@@ -12,13 +12,26 @@ import com.example.motorcycleantitheftsensor.protection.IncidentSeverity
 import com.example.motorcycleantitheftsensor.protection.IncidentType
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProtectionProfile
+import com.example.motorcycleantitheftsensor.protection.ProtectionProfilePolicy
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
 import com.example.motorcycleantitheftsensor.protection.ProfileSetupState
 import com.example.motorcycleantitheftsensor.protection.SecurityIncident
+import com.example.motorcycleantitheftsensor.protection.PowerWitnessCommissioningPolicy
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
+import com.example.motorcycleantitheftsensor.protection.SensorCapability
+import com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration
 import com.example.motorcycleantitheftsensor.protection.SensorKind
+import com.example.motorcycleantitheftsensor.protection.SensorRole
+import com.example.motorcycleantitheftsensor.protection.SensorSource
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
+import com.example.motorcycleantitheftsensor.telegram.toGuidanceCode
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
+import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
+import com.example.motorcycleantitheftsensor.protection.EntryWatchLevel
+import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupportPolicy
+import com.example.motorcycleantitheftsensor.sensor.SensorAvailability
 import kotlin.math.ceil
 
 enum class ProtectionDestination { PROTECTION, EVENTS, SETTINGS }
@@ -61,23 +74,64 @@ data class ProtectionSettingsSummary(
     val sensorDisplayPreset: com.example.motorcycleantitheftsensor.protection.SensorPresetDisplay? = null,
 )
 
-data class SensorGroupUiModel(
-    val capability: com.example.motorcycleantitheftsensor.protection.SensorCapability,
-    val nameTh: String,
-    val sensitivity: Int,
-    val roleSummaryTh: String,
-    val isDegraded: Boolean,
-    val calibrationProgress: Float? = null,
+/**
+ * What this device can do with one sensor source, projected from the hardware
+ * descriptor by [SensorAvailabilityPolicy]. [vendor] and [powerMa] are shown only as
+ * supporting detail; the badge is the decision.
+ */
+data class SensorAvailabilityUiModel(
+    val source: SensorSource,
+    val availability: SensorAvailability,
+    val vendor: String? = null,
+    val powerMa: Float? = null,
 )
 
-data class SensorSourceUiModel(
-    val source: com.example.motorcycleantitheftsensor.protection.SensorSource,
-    val nameTh: String,
-    val role: com.example.motorcycleantitheftsensor.protection.SensorRole,
-    val isAvailable: Boolean,
-    val thresholdOverride: Double? = null,
-    val debounceOverrideMs: Long? = null,
-)
+/** Counts for the "มี N · จำกัด N · ไม่มี N" summary line. */
+data class SensorInventorySummary(
+    val available: Int = 0,
+    val limited: Int = 0,
+    val missing: Int = 0,
+) {
+    val known: Boolean get() = available + limited + missing > 0
+}
+
+fun Map<SensorSource, SensorAvailabilityUiModel>.inventorySummary(): SensorInventorySummary =
+    SensorInventorySummary(
+        available = values.count { it.availability == SensorAvailability.AVAILABLE },
+        limited = values.count { it.availability == SensorAvailability.LIMITED },
+        missing = values.count { it.availability == SensorAvailability.MISSING },
+    )
+
+/** Counts for the "หลัก N · ประกอบ N · ปิด N" summary line. */
+data class SensorRoleTally(
+    val primary: Int = 0,
+    val supporting: Int = 0,
+    val off: Int = 0,
+) {
+    /**
+     * Arming needs one healthy primary, so a tally with none cannot protect anything.
+     * `ProtectionCoordinator` falls back to the accelerometer when a configuration names
+     * no primary at all, but that fallback is not something a settings screen should
+     * teach an owner to rely on.
+     */
+    val armable: Boolean get() = primary > 0
+}
+
+/**
+ * Counts the roles a configuration carries.
+ *
+ * Callers pass the configuration the profile will actually apply — with the sources it
+ * pins OFF already pinned — so the summary cannot claim eight corroborating sensors for
+ * a use that runs one.
+ */
+fun SensorFusionConfiguration.roleTally(): SensorRoleTally {
+    val roles = SensorSource.entries.map { source(it).role }
+    return SensorRoleTally(
+        primary = roles.count { it == SensorRole.PRIMARY },
+        supporting = roles.count { it == SensorRole.SUPPORTING },
+        off = roles.count { it == SensorRole.OFF },
+    )
+}
 
 data class ProtectionEventRow(
     val id: String,
@@ -103,6 +157,10 @@ data class ProtectionProfileUiState(
     val showPicker: Boolean = false,
     val pendingSwitchTarget: ProtectionProfile? = null,
     val entryAngleDegrees: Int? = null,
+    /** Which level of the door watch this owner is on; null for other uses. */
+    val entryLevel: EntryWatchLevel? = null,
+    /** What this phone measured about its own orientation drift, against [entryAngleDegrees]. */
+    val entryDriftVerdict: EntryDriftVerdict = EntryDriftVerdict.NotMeasured,
     val entryRequiresControlledRearm: Boolean = false,
     val commissioning: EntryCommissioningUiState? = null,
     val powerCommissioning: PowerCommissioningUiState? = null,
@@ -111,6 +169,94 @@ data class ProtectionProfileUiState(
     /** Two independent POWER signal rows; null for non-POWER profiles. */
     val powerSummary: PowerSummaryRows? = null,
 )
+
+/**
+ * What the advanced sensor screen may edit under the selected profile.
+ *
+ * Derived once from [ProtectionProfilePolicy] so Compose never decides for itself which
+ * sensors a profile uses ("readiness is never inferred in Compose"). A profile that
+ * locks nothing yields the default instance, which reads as fully editable.
+ */
+data class SensorEditabilityUiModel(
+    val profile: ProtectionProfile? = null,
+    val lockedSources: Set<SensorSource> = emptySet(),
+    val lockedCapabilities: Set<SensorCapability> = emptySet(),
+    val presetSelectable: Boolean = true,
+    val notice: String? = null,
+    val rowReason: String? = null,
+    val presetNotice: String? = null,
+) {
+    val anyLocked: Boolean get() = lockedSources.isNotEmpty()
+
+    fun isLocked(source: SensorSource): Boolean = source in lockedSources
+
+    fun isLocked(capability: SensorCapability): Boolean = capability in lockedCapabilities
+
+    /** Sources the selected profile still detects with, in declaration order. */
+    val editableSources: List<SensorSource>
+        get() = SensorSource.entries.filterNot(::isLocked)
+
+    val lockedSourceList: List<SensorSource>
+        get() = SensorSource.entries.filter(::isLocked)
+
+    companion object {
+        fun from(profile: ProtectionProfile?): SensorEditabilityUiModel {
+            if (profile == null) return SensorEditabilityUiModel()
+            val presentation = PresentationTextCatalog.sensorLock(profile)
+            return SensorEditabilityUiModel(
+                profile = profile,
+                lockedSources = ProtectionProfilePolicy.lockedSources(profile),
+                lockedCapabilities = ProtectionProfilePolicy.lockedCapabilities(profile),
+                presetSelectable = ProtectionProfilePolicy.presetSelectable(profile),
+                notice = presentation.notice,
+                rowReason = presentation.reason,
+                presetNotice = presentation.presetNotice,
+            )
+        }
+    }
+}
+
+/**
+ * The role each source is recommended to carry under the selected profile.
+ *
+ * Read from [ProtectionProfilePolicy] rather than rebuilt here, for the same reason
+ * [SensorEditabilityUiModel] is: a second copy of the recommendation table would keep
+ * pointing at a role the profile has stopped asking for. With no profile selected the
+ * map is empty and the screen claims nothing — an unknown recommendation is not a
+ * recommendation of OFF.
+ */
+data class SensorRecommendationUiModel(
+    val profile: ProtectionProfile? = null,
+    val roles: Map<SensorSource, SensorRole> = emptyMap(),
+) {
+    val known: Boolean get() = roles.isNotEmpty()
+
+    fun recommendedRole(source: SensorSource): SensorRole? = roles[source]
+
+    /**
+     * True only when a recommendation exists and the current role is not it. An unknown
+     * recommendation never marks a row as diverging.
+     */
+    fun differs(source: SensorSource, current: SensorRole): Boolean =
+        roles[source]?.let { it != current } ?: false
+
+    /** Sources out of line with the recommendation, restricted to what this profile may edit. */
+    fun divergingSources(
+        configuration: SensorFusionConfiguration,
+        editability: SensorEditabilityUiModel,
+    ): List<SensorSource> = editability.editableSources
+        .filter { differs(it, configuration.source(it).role) }
+
+    companion object {
+        fun from(profile: ProtectionProfile?): SensorRecommendationUiModel {
+            if (profile == null) return SensorRecommendationUiModel()
+            return SensorRecommendationUiModel(
+                profile = profile,
+                roles = ProtectionProfilePolicy.recommendedRoles(profile),
+            )
+        }
+    }
+}
 
 /** Guided two-cycle commissioning progress for the เข็มทิศประตู flow (spec section 9). */
 enum class EntryCommissioningPhase {
@@ -125,6 +271,9 @@ data class EntryCommissioningUiState(
     val phase: EntryCommissioningPhase,
     val liveAngleDeg: Double = 0.0,
     val selectedAngleDeg: Int = 15,
+    val closeThresholdDeg: Double = 4.0,
+    val axisToleranceDeg: Double = 16.0,
+    val peakAngleDeg: Double = 0.0,
     val failureReason: String? = null,
 )
 
@@ -142,17 +291,58 @@ data class PowerCommissioningUiState(
     val failureReason: String? = null,
 )
 
+/** Stable identifiers for why a Power Guard calibration ended without a witness model. */
+object PowerCommissioningFailure {
+    const val NO_LIGHT_SENSOR = "no-light-sensor"
+    const val NO_LIGHT_SAMPLES = "no-light-samples"
+    const val SAVE_FAILED = "save-failed"
+}
+
+/**
+ * Thai explanation for a failed calibration. The copy follows the reason: telling an
+ * owner whose phone has no light sensor to inspect the lamp hood sends them to repair
+ * the wrong thing.
+ */
+internal fun powerCommissioningFailureText(reason: String?): String = when (reason) {
+    PowerCommissioningFailure.NO_LIGHT_SENSOR ->
+        "เครื่องนี้ไม่มีเซนเซอร์แสง — โหมดไฟเลี้ยงต้องใช้ไฟยืนยัน จึงใช้งานไม่ได้"
+    PowerCommissioningFailure.NO_LIGHT_SAMPLES ->
+        "ไม่ได้รับค่าแสงจากเซนเซอร์ — ลองรีสตาร์ทเครื่องแล้วปรับเทียบใหม่"
+    PowerCommissioningFailure.SAVE_FAILED ->
+        "บันทึกค่าปรับเทียบไม่สำเร็จ ลองใหม่อีกครั้ง"
+    PowerWitnessCommissioningPolicy.REJECTION_NOT_SEPARATED ->
+        "ช่วงแสงไม่แยกกันพอ — ตรวจสอบฝาครอบแล้วเริ่มใหม่"
+    else -> "ปรับเทียบไม่สำเร็จ กรุณาลองใหม่"
+}
+
+/**
+ * Thai sensor-row text while protection is off. A sensor the phone does not have will
+ * never start reading, so promising that it will is a lie the owner cannot check.
+ */
+internal fun idleSensorRowText(kind: SensorKind, health: SensorHealth?): String = when {
+    health == null -> IDLE_SENSOR_WAITING_TEXT
+    kind == SensorKind.LIGHT && health.lightDetail?.hardwareSupported == false ->
+        "ไม่พบเซนเซอร์แสงบนเครื่องนี้"
+    kind == SensorKind.VIBRATION && health.vibrationDetail?.hardwareAvailable == false ->
+        "ไม่พบเซนเซอร์ความเคลื่อนไหวบนเครื่องนี้"
+    else -> IDLE_SENSOR_WAITING_TEXT
+}
+
+private const val IDLE_SENSOR_WAITING_TEXT = "จะเริ่มอ่านค่าหลังเปิดการป้องกัน"
+
 /**
  * Independent POWER signal rows (spec sections 3.6/5): neither row alone may claim an
  * outage; each carries its own state so the owner reads them separately.
  */
-enum class ChargingRowState { CONNECTED, DISCONNECTED, UNKNOWN }
+enum class ChargingRowState { CHARGING, DISCHARGING, FULL, NOT_CHARGING, UNKNOWN }
 
-enum class WitnessRowState { DETECTED, DARK, AMBIGUOUS, UNAVAILABLE }
+enum class WitnessRowState { AVAILABLE, DETECTED, DARK, AMBIGUOUS, UNAVAILABLE }
 
 data class PowerSummaryRows(
     val charging: ChargingRowState = ChargingRowState.UNKNOWN,
     val witness: WitnessRowState = WitnessRowState.UNAVAILABLE,
+    val lastUpdatedAtMs: Long? = null,
+    val confirmedFault: Boolean = false,
     val lastLux: Double? = null,
     val requiresWitnessPlacementRevalidation: Boolean = false,
 )
@@ -165,6 +355,8 @@ data class ProtectionStatusUiState(
     val telegramReachable: Boolean,
     val lastTelegramContactAtMs: Long?,
     val permissionBlockers: Set<String>,
+    /** Why setup is required, when it is, so the card can say which setup. */
+    val setupBlocker: SetupBlocker? = null,
     val sensorHealth: Map<SensorKind, SensorHealth>,
     val degradationReasons: Set<String>,
     val batteryLevelPercent: Int?,
@@ -189,7 +381,7 @@ interface ProtectionSettingsGateway {
     fun saveSensitivity(level: Int)
     suspend fun replaceBotToken(token: String): SettingsOperationResult
     suspend fun resetPairing(): SettingsOperationResult
-    fun saveSmsFallback(destination: String, aesKey: String): SettingsOperationResult
+    fun saveSmsFallback(destination: String): SettingsOperationResult
     fun saveSensorConfiguration(config: com.example.motorcycleantitheftsensor.protection.SensorFusionConfiguration): SettingsOperationResult =
         SettingsOperationResult(applied = true, message = "Sensor configuration updated")
 }
@@ -213,7 +405,42 @@ data class ProtectionUiState(
     val activeSettingsOperation: SettingsOperation? = null,
     val audio: AudioUiTelemetry = AudioUiTelemetry(),
     val profile: ProtectionProfileUiState = ProtectionProfileUiState(),
+    /**
+     * Hardware inventory of this device, read once from the sensor catalog. Empty only
+     * before the catalog is available; the screen must not read empty as "all missing".
+     */
+    val sensorAvailability: Map<SensorSource, SensorAvailabilityUiModel> = emptyMap(),
 ) {
+    /**
+     * Derived from [profile], never stored: the view model assembles this state in two
+     * steps and copies the selected profile in after the fact, so a stored field would
+     * silently keep reporting "nothing is locked".
+     */
+    val sensorEditability: SensorEditabilityUiModel
+        get() = SensorEditabilityUiModel.from(profile.selectedProfile)
+
+    val sensorRecommendation: SensorRecommendationUiModel
+        get() = SensorRecommendationUiModel.from(profile.selectedProfile)
+
+    /**
+     * What each protection use can do on this device. Derived, for the same reason.
+     *
+     * The drift verdict is passed in because the arm path passes it: a picker that judged
+     * hardware alone would keep offering the door watch as pressable on a phone the
+     * coordinator refuses, and the refusal reached the owner as "คำสั่งไม่สำเร็จ".
+     */
+    val profileDeviceSupport: Map<ProtectionProfile, ProfileDeviceSupport>
+        get() {
+            val availability = sensorAvailability.mapValues { (_, model) -> model.availability }
+            return ProtectionProfile.entries.associateWith { candidate ->
+                ProfileDeviceSupportPolicy.support(
+                    candidate,
+                    availability,
+                    entryDrift = profile.entryDriftVerdict,
+                )
+            }
+        }
+
     companion object {
         fun from(
             snapshot: ProtectionSnapshot,
@@ -234,6 +461,7 @@ data class ProtectionUiState(
             activeSettingsOperation: SettingsOperation? = null,
             audio: AudioUiTelemetry = AudioUiTelemetry(),
             profile: ProtectionProfileUiState = ProtectionProfileUiState(),
+            sensorAvailability: Map<SensorSource, SensorAvailabilityUiModel> = emptyMap(),
         ): ProtectionUiState = ProtectionUiState(
             destination = destination,
             protection = snapshot.toStatusUiState(),
@@ -257,6 +485,7 @@ data class ProtectionUiState(
             activeSettingsOperation = activeSettingsOperation,
             audio = audio,
             profile = profile,
+            sensorAvailability = sensorAvailability,
         )
     }
 }
@@ -269,6 +498,7 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
     telegramReachable = telegramReachable,
     lastTelegramContactAtMs = lastTelegramContactAtMs,
     permissionBlockers = permissionBlockers,
+    setupBlocker = setupBlocker,
     sensorHealth = sensorHealth,
     degradationReasons = degradationReasons,
     batteryLevelPercent = batteryLevelPercent,
@@ -284,14 +514,33 @@ private fun ProtectionSnapshot.toStatusUiState(): ProtectionStatusUiState = Prot
     },
     lastDeliveryState = lastDeliveryState,
     persistentGuidance = when {
-        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.SETUP_REQUIRED ->
-            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.SETUP_REQUIRED)
-        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
+        // Level 1: Alert active — highest priority
+        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.ALERT_ACTIVE ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.ALERT_ACTIVE)
+        // Level 2: Service offline
+        !serviceRunning || state == com.example.motorcycleantitheftsensor.protection.ProtectionState.OFFLINE ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.OFFLINE)
+        // Level 3: Setup required. Reads the same typed reason the status card reads, or the
+        // two cards sit one above the other saying different things about the same state.
+        state == com.example.motorcycleantitheftsensor.protection.ProtectionState.SETUP_REQUIRED ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+                state.toGuidanceCode(setupBlocker),
+            )
+        // Level 4: Telegram unreachable
+        !telegramReachable && telegramPolling ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_UNREACHABLE)
+        // Level 5: Permission blockers
         permissionBlockers.isNotEmpty() ->
             com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
                 com.example.motorcycleantitheftsensor.protection.GuidanceCode.NOTIFICATION_PERMISSION_MISSING
             )
+        // Level 6: Degraded operation
+        degradationReasons.isNotEmpty() ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.ARMED_DEGRADED)
+        // Level 7: Delivery failed
+        lastDeliveryState == com.example.motorcycleantitheftsensor.protection.DeliveryState.FAILED ->
+            com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.TELEGRAM_DELIVERY_FAILED)
+        // Healthy or disarmed — no persistent card
         else -> null
     },
 )
@@ -307,8 +556,10 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
             com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_ESCALATED,
             com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
         ).bodyTh
-        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED).bodyTh
-        else -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_UPDATED).bodyTh
+        com.example.motorcycleantitheftsensor.protection.IncidentLifecycle.CLOSED -> com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog.content(
+            com.example.motorcycleantitheftsensor.protection.GuidanceCode.INCIDENT_CLOSED,
+            com.example.motorcycleantitheftsensor.protection.GuidanceDetail.IncidentTypeValue(type),
+        ).bodyTh
     },
     updatedAtMs = updatedAtMs,
     deliveryState = deliveryState,
@@ -316,12 +567,12 @@ private fun SecurityIncident.toEventRow(): ProtectionEventRow = ProtectionEventR
 
 private fun ProtectionSnapshot.armingSecondsRemaining(nowMs: Long): Int? {
     if (state != ProtectionState.ARMING) return null
-    return ceil((lastTransitionAtMs + ARMING_DURATION_MS - nowMs).toDouble() / MILLIS_PER_SECOND)
+    val windowMs = com.example.motorcycleantitheftsensor.protection.ARMING_WINDOW_MS
+    return ceil((lastTransitionAtMs + windowMs - nowMs).toDouble() / MILLIS_PER_SECOND)
         .toInt()
-        .coerceIn(0, 10)
+        .coerceIn(0, ceil(windowMs / MILLIS_PER_SECOND).toInt())
 }
 
-private const val ARMING_DURATION_MS = 10_000L
 private const val MILLIS_PER_SECOND = 1_000.0
 
 internal fun AudioTelemetry.toAudioUiTelemetry(
@@ -358,12 +609,12 @@ internal fun AudioTelemetry.toAudioUiTelemetry(
 }
 
 internal fun microphoneHealthText(health: SensorHealth?): String {
-    if (health == null) return "ยังไม่ทราบสถานะไมโครโฟน"
+    if (health == null) return "สถานะไมโครโฟนไม่ทราบ"
     return when (health.state) {
-        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "ไมโครโฟนพร้อมใช้งาน"
+        SensorHealthState.AVAILABLE, SensorHealthState.HEALTHY -> "ตรวจพบไมโครโฟน"
         SensorHealthState.UNAVAILABLE -> "ไมโครโฟนไม่พร้อมใช้งาน"
-        SensorHealthState.STALE -> "ข้อมูลไมโครโฟนล่าช้า"
-        SensorHealthState.FAILED -> "ไมโครโฟนขัดข้อง"
+        SensorHealthState.STALE -> "ข้อมูลไมโครโฟนไม่ใหม่"
+        SensorHealthState.FAILED -> "ไมโครโฟนทำงานผิดพลาด"
     }
 }
 

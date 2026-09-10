@@ -233,6 +233,7 @@ class ProtectionProfileCodec(
                 obj.put("kind", ProfileKinds.ENTRY)
                 putOptionalInt(obj, "angleThresholdDegrees", overrides.angleThresholdDegrees)
                 putOptionalLong(obj, "openConfirmationMs", overrides.openConfirmationMs)
+                putOptionalName(obj, "level", overrides.level?.name)
             }
             is PowerProfileOverrides -> {
                 obj.put("kind", ProfileKinds.POWER)
@@ -270,6 +271,10 @@ class ProtectionProfileCodec(
                 EntryProfileOverrides(
                     angleThresholdDegrees = angleThresholdDegrees,
                     openConfirmationMs = openConfirmationMs,
+                    // Absent in every document written before the level existed, and absent is
+                    // exactly right there: the resolver reads it as "not chosen by hand" and
+                    // answers from whether the phone has a commissioned model.
+                    level = decodeOptionalEnum<EntryWatchLevel>(obj, "level"),
                 )
             }
             ProtectionProfile.POWER -> {
@@ -378,6 +383,7 @@ class ProtectionProfileCodec(
             algorithmVersion = obj.getInt("algorithmVersion"),
             sensorIdentity = obj.getString("sensorIdentity"),
             hoodSignature = obj.getString("hoodSignature"),
+            commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
         )
     }
 
@@ -390,8 +396,13 @@ class ProtectionProfileCodec(
         obj.put("residualToleranceDeg", model.residualToleranceDeg)
         obj.put("algorithmVersion", model.algorithmVersion)
         obj.put("sensorIdentity", model.sensorIdentity)
-        obj.put("mountSignature", model.mountSignature)
         obj.put("orientationSourcePolicy", model.orientationSourcePolicy)
+        model.commissionedAtWallMs?.let { obj.put("commissionedAtWallMs", it) }
+        model.mountUp?.let { up ->
+            obj.put("mountUpX", up.x)
+            obj.put("mountUpY", up.y)
+            obj.put("mountUpZ", up.z)
+        }
         return obj
     }
 
@@ -416,9 +427,11 @@ class ProtectionProfileCodec(
         val algorithmVersion = obj.getInt("algorithmVersion")
         require(algorithmVersion >= 1) { "Entry commissioning algorithm version must be >= 1" }
         val sensorIdentity = obj.getString("sensorIdentity")
-        val mountSignature = obj.getString("mountSignature")
+        // "mountSignature" may still be present on a model written by an older build. It is
+        // read past rather than required: it never carried anything but a fixed string, and a
+        // model already on disk must keep loading without asking its owner to calibrate again.
         val orientationSourcePolicy = obj.getString("orientationSourcePolicy")
-        require(sensorIdentity.isNotBlank() && mountSignature.isNotBlank() && orientationSourcePolicy.isNotBlank()) {
+        require(sensorIdentity.isNotBlank() && orientationSourcePolicy.isNotBlank()) {
             "Entry hinge model identity fields must not be blank"
         }
         return EntryHingeModel(
@@ -429,8 +442,19 @@ class ProtectionProfileCodec(
             residualToleranceDeg = residualToleranceDeg,
             algorithmVersion = algorithmVersion,
             sensorIdentity = sensorIdentity,
-            mountSignature = mountSignature,
             orientationSourcePolicy = orientationSourcePolicy,
+            commissionedAtWallMs = obj.optLong("commissionedAtWallMs", 0L).takeIf { it > 0L },
+            // Absent on every model commissioned before poses were recorded, which is what
+            // keeps those models valid instead of decommissioning them on the next read.
+            mountUp = if (obj.has("mountUpX") && obj.has("mountUpY") && obj.has("mountUpZ")) {
+                EntryVector3(
+                    x = obj.getDouble("mountUpX"),
+                    y = obj.getDouble("mountUpY"),
+                    z = obj.getDouble("mountUpZ"),
+                )
+            } else {
+                null
+            },
         )
     }
 

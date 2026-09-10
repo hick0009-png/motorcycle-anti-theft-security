@@ -17,6 +17,27 @@ class UserGuidanceCatalogTest {
         assertFalse(content.telegramTh.orEmpty().contains("TAMPER"))
     }
 
+    /**
+     * A template variable is only ever filled from a [GuidanceDetail] a caller has to build.
+     * The arming body named one no caller built, so it rendered a frozen "0" for the whole
+     * countdown. Nothing catches that at the call site — the placeholder resolves to its
+     * fallback and reads like a real value — so the catalog is asked here instead: whatever a
+     * screen shows must survive being resolved with no detail at all.
+     */
+    @Test
+    fun everyCatalogEntryReadsCorrectlyWithNoDetail() {
+        GuidanceCode.values().forEach { code ->
+            val content = UserGuidanceCatalog.content(code, GuidanceDetail.None)
+            listOf("titleTh" to content.titleTh, "bodyTh" to content.bodyTh)
+                .forEach { (field, text) ->
+                    assertFalse(
+                        "Code $code leaves an unresolved placeholder in $field: $text",
+                        text.contains("{"),
+                    )
+                }
+        }
+    }
+
     @Test
     fun `Verify catalog negative cases for secrets`() {
         val forbiddenStrings = listOf(
@@ -43,14 +64,14 @@ class UserGuidanceCatalogTest {
         val c_SETUP_REQUIRED = UserGuidanceCatalog.content(GuidanceCode.SETUP_REQUIRED, GuidanceDetail.None)
         assertEquals("ต้องตั้งค่าระบบก่อนเปิดการป้องกัน", c_SETUP_REQUIRED.titleTh)
         assertEquals("ตั้งค่า Bot และจับคู่เจ้าของให้ครบ", c_SETUP_REQUIRED.bodyTh)
-        assertEquals("⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าบนมือถือรถ", c_SETUP_REQUIRED.telegramTh)
+        assertEquals("⚠️ ระบบยังตั้งค่าไม่ครบ ดูหน้าการตั้งค่าในแอป", c_SETUP_REQUIRED.telegramTh)
         val c_DISARMED = UserGuidanceCatalog.content(GuidanceCode.DISARMED, GuidanceDetail.None)
         assertEquals("การป้องกันปิดอยู่", c_DISARMED.titleTh)
         assertEquals("ระบบออนไลน์และพร้อมเปิดการป้องกัน", c_DISARMED.bodyTh)
         assertEquals("ℹ️ ปิดการป้องกันแล้ว", c_DISARMED.telegramTh)
         val c_ARMING = UserGuidanceCatalog.content(GuidanceCode.ARMING, GuidanceDetail.None)
         assertEquals("กำลังเปิดการป้องกัน", c_ARMING.titleTh)
-        assertEquals("กำลังปรับเทียบเซนเซอร์ เหลือ 0 วินาที", c_ARMING.bodyTh)
+        assertEquals("กำลังปรับเทียบเซนเซอร์ก่อนเริ่มเฝ้าระวัง", c_ARMING.bodyTh)
         assertEquals("ℹ️ กำลังเปิดการป้องกัน รอการปรับเทียบเซนเซอร์", c_ARMING.telegramTh)
         val c_ARMED_HEALTHY = UserGuidanceCatalog.content(GuidanceCode.ARMED_HEALTHY, GuidanceDetail.None)
         assertEquals("การป้องกันทำงานปกติ", c_ARMED_HEALTHY.titleTh)
@@ -86,27 +107,27 @@ class UserGuidanceCatalogTest {
         assertNull(c_BOT_TOKEN_INVALID.telegramTh)
         val c_TELEGRAM_UNREACHABLE = UserGuidanceCatalog.content(GuidanceCode.TELEGRAM_UNREACHABLE, GuidanceDetail.None)
         assertEquals("ติดต่อ Telegram ไม่ได้", c_TELEGRAM_UNREACHABLE.titleTh)
-        assertEquals("ตรวจสอบอินเทอร์เน็ตของมือถือรถ", c_TELEGRAM_UNREACHABLE.bodyTh)
-        assertEquals("⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของมือถือรถ", c_TELEGRAM_UNREACHABLE.telegramTh)
+        assertEquals("ตรวจสอบอินเทอร์เน็ตของอุปกรณ์ที่ติดตั้ง", c_TELEGRAM_UNREACHABLE.bodyTh)
+        assertEquals("⚠️ ติดต่อ Telegram ไม่ได้ ตรวจสอบอินเทอร์เน็ตของอุปกรณ์", c_TELEGRAM_UNREACHABLE.telegramTh)
         val c_PAIRING_REQUIRED = UserGuidanceCatalog.content(GuidanceCode.PAIRING_REQUIRED, GuidanceDetail.None)
         assertEquals("ต้องจับคู่ Telegram ก่อน", c_PAIRING_REQUIRED.titleTh)
-        assertEquals("พิมพ์ /pair <รหัส> จากแอปในมือถือรถ", c_PAIRING_REQUIRED.bodyTh)
-        assertEquals("🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในมือถือรถ", c_PAIRING_REQUIRED.telegramTh)
+        assertEquals("พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์", c_PAIRING_REQUIRED.bodyTh)
+        assertEquals("🔒 ต้องจับคู่ Telegram ก่อน พิมพ์ /pair <รหัส> จากแอปในอุปกรณ์", c_PAIRING_REQUIRED.telegramTh)
         val c_PAIRING_ACCEPTED = UserGuidanceCatalog.content(GuidanceCode.PAIRING_ACCEPTED, GuidanceDetail.None)
         assertEquals("จับคู่ Telegram สำเร็จ", c_PAIRING_ACCEPTED.titleTh)
-        assertEquals("บัญชีนี้สามารถสั่งงานรถได้", c_PAIRING_ACCEPTED.bodyTh)
-        assertEquals("✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานรถได้", c_PAIRING_ACCEPTED.telegramTh)
+        assertEquals("บัญชีนี้สามารถสั่งงานระบบได้", c_PAIRING_ACCEPTED.bodyTh)
+        assertEquals("✅ จับคู่ Telegram สำเร็จ บัญชีนี้สามารถสั่งงานระบบได้", c_PAIRING_ACCEPTED.telegramTh)
         val c_PAIRING_INVALID_OR_EXPIRED = UserGuidanceCatalog.content(GuidanceCode.PAIRING_INVALID_OR_EXPIRED, GuidanceDetail.None)
         assertEquals("รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ", c_PAIRING_INVALID_OR_EXPIRED.titleTh)
-        assertEquals("รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่บนมือถือรถ", c_PAIRING_INVALID_OR_EXPIRED.bodyTh)
+        assertEquals("รหัสไม่ถูกต้องหรือหมดอายุ สร้างรหัสใหม่ในแอป", c_PAIRING_INVALID_OR_EXPIRED.bodyTh)
         assertEquals("⚠️ รหัสจับคู่ไม่ถูกต้องหรือหมดอายุ", c_PAIRING_INVALID_OR_EXPIRED.telegramTh)
         val c_UNAUTHORIZED_COMMAND = UserGuidanceCatalog.content(GuidanceCode.UNAUTHORIZED_COMMAND, GuidanceDetail.None)
         assertEquals("คำสั่งจากบัญชีที่ไม่ได้รับอนุญาต", c_UNAUTHORIZED_COMMAND.titleTh)
-        assertEquals("ไม่มีการเปลี่ยนสถานะระบบ", c_UNAUTHORIZED_COMMAND.bodyTh)
+        assertEquals("ไม่มีการเปลี่ยนสถานะของระบบ", c_UNAUTHORIZED_COMMAND.bodyTh)
         assertEquals("🔒 บัญชีนี้ไม่ได้รับอนุญาตให้สั่งงาน", c_UNAUTHORIZED_COMMAND.telegramTh)
         val c_COMMAND_STATUS_SUCCESS = UserGuidanceCatalog.content(GuidanceCode.COMMAND_STATUS_SUCCESS, GuidanceDetail.None)
         assertEquals("สถานะระบบ", c_COMMAND_STATUS_SUCCESS.titleTh)
-        assertEquals("อัปเดตข้อมูลสถานะแล้ว", c_COMMAND_STATUS_SUCCESS.bodyTh)
+        assertEquals("อัปเดตข้อมูลสถานะ", c_COMMAND_STATUS_SUCCESS.bodyTh)
         assertEquals("ℹ️ สถานะระบบ: {protectionStatus}", c_COMMAND_STATUS_SUCCESS.telegramTh)
         val c_COMMAND_ARM_APPLIED = UserGuidanceCatalog.content(GuidanceCode.COMMAND_ARM_APPLIED, GuidanceDetail.None)
         assertEquals("เปิดการป้องกันแล้ว", c_COMMAND_ARM_APPLIED.titleTh)
@@ -139,14 +160,18 @@ class UserGuidanceCatalogTest {
         assertEquals("คำสั่งที่ใช้ได้", c_COMMAND_HELP.titleTh)
         assertEquals("ดูรายการคำสั่งใน Telegram", c_COMMAND_HELP.bodyTh)
         assertEquals(
-            "ℹ️ คำสั่ง: /status, /arm, /disarm, /sensitivity 1-10 ปรับระดับการตรวจจับ " +
+            "ℹ️ คำสั่ง: /status รายงานตามโหมดที่เลือกไว้ (ตอบเฉพาะสิ่งที่โหมดนั้นเฝ้าจริง), " +
+                "/status <โหมด> ดูโหมดอื่นที่ตั้งไว้แต่ไม่ได้เฝ้าอยู่ " +
+                    "(/status รถ, /status ประตู, /status ไฟเลี้ยง), " +
+                "/where ถามตำแหน่งตอนนี้, /arm, /disarm, " +
+                "/sensitivity 1-10 ปรับระดับการตรวจจับ " +
                 "(/sensitivity เป็นคำสั่งเดิม ใช้ได้เฉพาะเซ็นเซอร์ที่รองรับในโหมดยานพาหนะ)",
             c_COMMAND_HELP.telegramTh,
         )
         assertFalse(c_COMMAND_HELP.telegramTh!!.contains("<รหัส>"))
         val c_COMMAND_UNKNOWN = UserGuidanceCatalog.content(GuidanceCode.COMMAND_UNKNOWN, GuidanceDetail.None)
         assertEquals("คำสั่งไม่สำเร็จ", c_COMMAND_UNKNOWN.titleTh)
-        assertEquals("ไม่รู้จักคำสั่งนี้", c_COMMAND_UNKNOWN.bodyTh)
+        assertEquals("พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้", c_COMMAND_UNKNOWN.bodyTh)
         assertEquals("ℹ️ ไม่พบคำสั่ง พิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้", c_COMMAND_UNKNOWN.telegramTh)
         val c_SENSOR_HEALTHY = UserGuidanceCatalog.content(GuidanceCode.SENSOR_HEALTHY, GuidanceDetail.None)
         assertEquals("เซนเซอร์พร้อมใช้งาน", c_SENSOR_HEALTHY.titleTh)
@@ -198,7 +223,7 @@ class UserGuidanceCatalogTest {
         assertEquals("ไม่เปิดเผยปลายทางหรือ key", c_SMS_FALLBACK_USED.telegramTh)
         val c_NOTIFICATION_PERMISSION_MISSING = UserGuidanceCatalog.content(GuidanceCode.NOTIFICATION_PERMISSION_MISSING, GuidanceDetail.None)
         assertEquals("ยังไม่ได้อนุญาตการแจ้งเตือน", c_NOTIFICATION_PERMISSION_MISSING.titleTh)
-        assertEquals("เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนมือถือรถ", c_NOTIFICATION_PERMISSION_MISSING.bodyTh)
+        assertEquals("เปิดสิทธิ์เพื่อเห็นสถานะสำคัญบนอุปกรณ์เครื่องนี้", c_NOTIFICATION_PERMISSION_MISSING.bodyTh)
         assertNull(c_NOTIFICATION_PERMISSION_MISSING.telegramTh)
         val c_MICROPHONE_PERMISSION_MISSING = UserGuidanceCatalog.content(GuidanceCode.MICROPHONE_PERMISSION_MISSING, GuidanceDetail.None)
         assertEquals("ไมโครโฟนยังไม่พร้อม", c_MICROPHONE_PERMISSION_MISSING.titleTh)
@@ -249,4 +274,35 @@ class UserGuidanceCatalogTest {
         assertTrue(applied.telegramTh!!.contains("โหมดยานพาหนะ"))
         assertTrue(help.telegramTh!!.contains("คำสั่งเดิม"))
     }
+
+    /**
+     * Fix C: the stillness window explains why a movement incident closed. Reporting it
+     * on a power or door incident misstates what the system observed and made a real
+     * diagnosis harder to read.
+     */
+    @Test
+    fun closedIncidentBodyDescribesWhatActuallySettledForEachType() {
+        assertEquals(
+            "ไฟเลี้ยงที่จุดเฝ้าระวังกลับมาคงที่แล้ว",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.POWER),
+            ).bodyTh,
+        )
+        assertEquals(
+            "ประตูปิดและนิ่งแล้ว",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.ENTRY_DOOR),
+            ).bodyTh,
+        )
+        assertEquals(
+            "ไม่มีความเคลื่อนไหวต่อเนื่อง 30 วินาที",
+            UserGuidanceCatalog.content(
+                GuidanceCode.INCIDENT_CLOSED,
+                GuidanceDetail.IncidentTypeValue(IncidentType.VIBRATION),
+            ).bodyTh,
+        )
+    }
+
 }

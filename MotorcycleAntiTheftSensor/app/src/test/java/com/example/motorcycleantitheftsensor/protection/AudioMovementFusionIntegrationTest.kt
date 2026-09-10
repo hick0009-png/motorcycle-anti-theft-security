@@ -49,6 +49,7 @@ class AudioMovementFusionIntegrationTest {
         // Engine accepts audio observation alone
         val obs = SensorObservation(
             kind = SensorKind.MICROPHONE,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 2100L,
             wallClockMs = 102100L,
             normalizedValue = 0.9,
@@ -86,6 +87,7 @@ class AudioMovementFusionIntegrationTest {
         // Mic observation accepted into engine precursor
         val micObs = SensorObservation(
             kind = SensorKind.MICROPHONE,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 2100L,
             wallClockMs = 102100L,
             normalizedValue = 0.9,
@@ -106,6 +108,7 @@ class AudioMovementFusionIntegrationTest {
         )
         val locObs = SensorObservation(
             kind = SensorKind.LOCATION,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = fix.elapsedRealtimeMs,
             wallClockMs = fix.wallClockMs,
             normalizedValue = 1.0,
@@ -163,6 +166,7 @@ class AudioMovementFusionIntegrationTest {
     fun audioPipelineResetClearsEngineAudioPrecursors() {
         val obs = SensorObservation(
             kind = SensorKind.MICROPHONE,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 2000L,
             wallClockMs = 102000L,
             normalizedValue = 0.9,
@@ -188,6 +192,7 @@ class AudioMovementFusionIntegrationTest {
         // Subsequent vibration does not match the cleared audio
         val vibObs = SensorObservation(
             kind = SensorKind.VIBRATION,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 3000L,
             wallClockMs = 103000L,
             normalizedValue = 2.0,

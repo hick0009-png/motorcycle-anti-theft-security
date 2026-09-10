@@ -200,6 +200,7 @@ class AndroidProtectionRuntimeTest {
         processor.seedBaseline(SensorKind.VIBRATION, SensorBaseline(9.8, 3))
         detectors.locationObservation = SensorObservation(
             kind = SensorKind.LOCATION,
+            role = SensorRole.PRIMARY,
             eventElapsedMs = 950L,
             wallClockMs = 5_050L,
             normalizedValue = 1.0,
@@ -394,6 +395,22 @@ class AndroidProtectionRuntimeTest {
     }
 
     @Test
+    fun powerConfirmationWakeLockCoversTheWindowWithMarginAndNeverLeaks() {
+        // A normal ten-second debounce is held for the window plus the grace margin.
+        assertEquals(12_000L, powerConfirmationWakeLockMs(delayMs = 10_000L))
+        // A near-immediate deadline still adds the full margin, so the hold is never zero.
+        assertEquals(
+            POWER_CONFIRMATION_WAKELOCK_MARGIN_MS + 1L,
+            powerConfirmationWakeLockMs(delayMs = 1L),
+        )
+        // A corrupt, oversized deadline is capped so the CPU can never be pinned awake.
+        assertEquals(
+            POWER_CONFIRMATION_WAKELOCK_MAX_MS,
+            powerConfirmationWakeLockMs(delayMs = 10L * 60L * 1000L),
+        )
+    }
+
+    @Test
     fun cachedPowerWitnessIsFreshOnlyInTheGenerationThatDeliveredIt() {
         assertTrue(
             powerWitnessIsFreshForGeneration(
@@ -441,6 +458,57 @@ class AndroidProtectionRuntimeTest {
             ),
         )
     }
+
+    // --- Bug #6: commissioning stall on an on-change light sensor ---
+
+    @Test
+    fun commissioningRepeatReEmitsTheCachedReadingWhileTheStreamIsActive() {
+        val continuity = PowerWitnessContinuityCache()
+        continuity.record(lux = 4.5, generation = 3L)
+
+        val sample = powerCommissioningRepeatSample(
+            streamActive = true,
+            listenerRegistered = true,
+            cached = continuity.latest(),
+            nowElapsedMs = 12_000L,
+        )
+
+        assertEquals(PowerWitnessSample(lux = 4.5, timestampMs = 12_000L, fresh = true), sample)
+    }
+
+    @Test
+    fun commissioningRepeatStaysSilentUntilTheFirstRealReadingArrives() {
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = true,
+                listenerRegistered = true,
+                cached = null,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun commissioningRepeatStopsWhenTheListenerOrStreamIsGone() {
+        val cached = CachedPowerWitness(lux = 4.5, generation = 3L)
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = true,
+                listenerRegistered = false,
+                cached = cached,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+        assertNull(
+            powerCommissioningRepeatSample(
+                streamActive = false,
+                listenerRegistered = true,
+                cached = cached,
+                nowElapsedMs = 12_000L,
+            ),
+        )
+    }
+
 }
 
 private fun assertUserMessageHidesInternalPowerTokens(message: String) {
@@ -555,6 +623,7 @@ private class RecordingDetectorSet(
 
 private fun microphoneObservation(): SensorObservation = SensorObservation(
     kind = SensorKind.MICROPHONE,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = 900L,
     wallClockMs = 5_000L,
     normalizedValue = 0.4,
@@ -565,6 +634,7 @@ private fun microphoneObservation(): SensorObservation = SensorObservation(
 
 private fun powerObservation(value: Double, diagnostic: String): SensorObservation = SensorObservation(
     kind = SensorKind.POWER_THERMAL,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = 900L,
     wallClockMs = 5_000L,
     normalizedValue = value,
@@ -579,6 +649,7 @@ private fun vibrationObservation(
     eventElapsedMs: Long = 900L,
 ): SensorObservation = SensorObservation(
     kind = SensorKind.VIBRATION,
+    role = SensorRole.PRIMARY,
     eventElapsedMs = eventElapsedMs,
     wallClockMs = 5_000L,
     normalizedValue = value,

@@ -4,8 +4,6 @@ import android.app.AlarmManager
 import android.content.Context
 import org.junit.Test
 import org.mockito.Mockito.mock
-import org.mockito.kotlin.any
-import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class AlarmWatchdogReceiverTest {

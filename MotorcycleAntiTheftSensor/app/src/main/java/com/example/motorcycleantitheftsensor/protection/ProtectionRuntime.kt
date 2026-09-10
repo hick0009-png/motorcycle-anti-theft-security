@@ -37,6 +37,17 @@ data class MicrophoneReadiness(
     }
 }
 
+/**
+ * How long Arm spends calibrating before the watch is live.
+ *
+ * Written once, here, because three separate places need the same number and only one of them
+ * is the one that actually waits: the countdown on the status card and the service's own grace
+ * gate are both statements *about* [ArmingDelay]. When they were three literals, a change to
+ * the delay left the other two quietly lying — the card would finish counting while the watch
+ * was still deaf, or count past a watch already live.
+ */
+const val ARMING_WINDOW_MS: Long = 10_000L
+
 fun interface ArmingDelay {
     suspend fun await()
 }
@@ -62,6 +73,13 @@ interface ProtectionRuntime {
     fun startDetectors(
         armedSessionId: String,
         configuration: SensorFusionConfiguration,
+        usedSensorKinds: Set<SensorKind> = SensorKind.entries.toSet(),
+        /**
+         * Which signals this use lets open an incident, for the ones the configuration
+         * cannot name. An empty table means the caller did not declare any, and the runtime
+         * then keeps the pre-declaration behaviour rather than silently muting a signal.
+         */
+        signalRoles: Map<SensorKind, SensorRole> = emptyMap(),
     ): DetectorStartResult = startDetectors(armedSessionId)
 
     fun stopDetectors()
@@ -95,8 +113,42 @@ interface ProtectionRuntime {
      * the relative-orientation baseline capture. Default no-op keeps non-Entry runtimes
      * and host fakes unaffected.
      */
+    /**
+     * The orientation sensor an armed door watch will really listen to on this device, or
+     * null when it has none — or when this runtime cannot tell. Commissioning stamps the
+     * answer into the hinge model, so a phone that falls back is recommissioned instead of
+     * carrying a model measured against a sensor it no longer uses.
+     */
+    fun entryOrientationSource(): EntryOrientationSource? = null
+
     fun beginEntrySession(sessionId: String, model: EntryHingeModel, settings: EntryProfileSettings) {
     }
+
+    /**
+     * The door angle against the frozen armed baseline, right now.
+     *
+     * Read on demand and never carried on the snapshot: it changes with every orientation
+     * sample, and a snapshot field that moved that fast would make every sample a semantic
+     * change and write a durable record for each one, all night.
+     */
+    fun liveDoorAngleDeg(): Double? = null
+
+    /**
+     * What the two gates that run before the door angle currently measure, so a watch that keeps
+     * answering "the mount moved" to an ordinary opening can be asked why rather than guessed at.
+     */
+    fun liveDoorGate(): DoorGateReading? = null
+
+    /** What the armed power arbiter currently makes of the witness lamp. */
+    fun liveWitnessLit(): Boolean? = null
+
+    /**
+     * Milliseconds until a running loss or recovery confirmation would conclude, or null
+     * when nothing is being confirmed.
+     *
+     * @param nowElapsedMs the same clock the arbiter's deadline was computed against.
+     */
+    fun liveConfirmationCountdownMs(nowElapsedMs: Long): Long? = null
 
     /** Clears the armed-session Entry baseline (owner disarm or controlled profile change). */
     fun clearEntryBaseline() {
@@ -139,9 +191,12 @@ interface ProtectionRuntime {
     /**
      * Commissioning-time witness stream: registers the ambient-light source without an
      * armed session so the guided lamp off/on flow can observe live samples.
+     *
+     * @return true when a live witness-light source was acquired. A runtime that cannot
+     * observe light must say so here; the guided flow has no other way to tell the
+     * difference between "waiting for the owner" and "waiting for nothing".
      */
-    fun startPowerCommissioningStream() {
-    }
+    fun startPowerCommissioningStream(): Boolean = false
 
     /** Stops the commissioning witness stream unless an armed session needs it. */
     fun stopPowerCommissioningStream() {

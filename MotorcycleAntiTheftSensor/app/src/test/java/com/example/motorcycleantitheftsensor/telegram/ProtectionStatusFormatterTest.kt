@@ -14,17 +14,56 @@ import com.example.motorcycleantitheftsensor.protection.MicrophoneHealthDetail
 import com.example.motorcycleantitheftsensor.protection.PowerThermalHealthDetail
 import com.example.motorcycleantitheftsensor.protection.ProtectionSnapshot
 import com.example.motorcycleantitheftsensor.protection.ProtectionState
+import com.example.motorcycleantitheftsensor.protection.GuidanceCode
+import com.example.motorcycleantitheftsensor.protection.SetupBlocker
+import com.example.motorcycleantitheftsensor.protection.UserGuidanceCatalog
 import com.example.motorcycleantitheftsensor.protection.SensorHealth
 import com.example.motorcycleantitheftsensor.protection.SensorHealthState
 import com.example.motorcycleantitheftsensor.protection.SensorKind
 import com.example.motorcycleantitheftsensor.protection.VibrationHealthDetail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.regex.Pattern
 
 class ProtectionStatusFormatterTest {
+
+    @Test
+    fun setupRequiredNamesWhichSetupIsMissing() {
+        // Every one of the six ways into SETUP_REQUIRED produced the same sentence, which
+        // sends the owner to the Telegram settings. An uncalibrated door watch is not that.
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_PROFILE,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.PROFILE_SETUP_REQUIRED),
+        )
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_RECOMMISSION,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.RECOMMISSION_REQUIRED),
+        )
+        assertEquals(
+            GuidanceCode.SETUP_REQUIRED_SENSOR,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.NO_PRIMARY_SENSOR),
+        )
+        assertEquals(
+            GuidanceCode.PROFILE_UNSUPPORTED,
+            ProtectionState.SETUP_REQUIRED.toGuidanceCode(SetupBlocker.PROFILE_UNSUPPORTED),
+        )
+    }
+
+    @Test
+    fun setupRequiredWithNoTypedReasonKeepsTheAccountSetupCopy() {
+        assertEquals(GuidanceCode.SETUP_REQUIRED, ProtectionState.SETUP_REQUIRED.toGuidanceCode())
+    }
+
+    @Test
+    fun profileSetupCopyDoesNotSendTheOwnerToTheTelegramSettings() {
+        val telegramCopy = UserGuidanceCatalog.content(GuidanceCode.SETUP_REQUIRED).bodyTh
+        val profileCopy = UserGuidanceCatalog.content(GuidanceCode.SETUP_REQUIRED_PROFILE).bodyTh
+        assertNotEquals(telegramCopy, profileCopy)
+        assertFalse("Profile setup copy still mentions the bot: $profileCopy", profileCopy.contains("Bot"))
+    }
 
     private val formatter = ProtectionStatusFormatter()
 
@@ -103,31 +142,27 @@ class ProtectionStatusFormatterTest {
         val output = formatter.format(snapshot, nowMs, nowMs)
 
         val expectedLines = listOf(
-            "🛡️ สถานะระบบป้องกัน",
+            "🛡️ ยังไม่ได้เลือกโหมด · กำลังป้องกัน",
+            "เฝ้ามาแล้ว 24 นาที",
             "",
-            "สถานะระบบ: กำลังป้องกัน",
-            "ทำงานมาแล้ว: 24 นาที",
-            "[ 🏃 การเคลื่อนไหว ]",
+            "🎯 ตอนนี้เฝ้าอะไรอยู่",
+            "⚠️ ยังไม่ได้เลือกโหมดการใช้งาน — รายงานนี้จึงแสดงเซ็นเซอร์ทั้งหมด",
             "ความไวการตรวจจับ: 8/10",
             "",
-            "📡 ระบบหลัก",
-            "✅ Service: ทำงาน",
-            "✅ Telegram: เชื่อมต่อ | ติดต่อล่าสุด 3 วินาทีที่แล้ว",
-            "",
-            "🔎 เซนเซอร์กำลังตรวจจับ: 5/5",
+            "🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 5/5",
             "✅ การสั่น: ทำงาน | ล่าสุด 1 วินาที",
             "✅ แสง: ทำงาน | 126 lux | ล่าสุด 2 วินาที",
             "✅ ไมโครโฟน: กำลังฟัง | ตัวจำแนกเสียงพร้อม",
             "✅ GPS: กำลังติดตาม | ล่าสุด 6 วินาที | ±19 เมตร",
             "✅ พลังงาน/อุณหภูมิ: ทำงาน",
             "",
-            "🔋 แบตเตอรี่: 100%",
-            "🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): 32.0°C",
+            "📡 ช่องทางแจ้งเตือน",
+            "✅ Service: ทำงาน",
+            "✅ Telegram: เชื่อมต่อ | ติดต่อล่าสุด 3 วินาทีที่แล้ว",
+            "🔋 แบตเตอรี่: 100% · อุณหภูมิ 32.0°C",
             "🔌 สายชาร์จ: เสียบอยู่ | กำลังชาร์จ",
             "",
             "🚨 เหตุการณ์ล่าสุด",
-            "ประเภท: ตรวจพบการสั่น",
-            "สถานะ: เหตุการณ์สิ้นสุดแล้ว",
             "📤 Telegram: ส่งสำเร็จ",
             "",
             "✅ ระบบทำงานครบ ไม่พบปัญหา",
@@ -168,17 +203,22 @@ class ProtectionStatusFormatterTest {
 
         val output = formatter.format(snapshot, nowMs, nowMs)
 
-        val idxHeader = output.indexOf("🛡️ สถานะระบบป้องกัน")
-        val idxMain = output.indexOf("📡 ระบบหลัก")
-        val idxSensors = output.indexOf("🔎 เซนเซอร์")
+        // The order is the argument: what is watched, then what it can see, then how
+        // far it can be believed, then what to do. The channels block sits below all of
+        // it — its health is not in question for someone reading the message it delivered.
+        val idxHeader = output.indexOf("🛡️ ")
+        val idxScope = output.indexOf("🎯 ")
+        val idxSensors = output.indexOf("🔎 ")
+        val idxChannels = output.indexOf("📡 ช่องทางแจ้งเตือน")
         val idxBattery = output.indexOf("🔋 แบตเตอรี่:")
         val idxIncident = output.indexOf("🚨 เหตุการณ์ล่าสุด")
         val idxIssues = output.indexOf("✅ ระบบทำงานครบ ไม่พบปัญหา")
 
-        assertTrue(idxHeader >= 0)
-        assertTrue(idxMain > idxHeader)
-        assertTrue(idxSensors > idxMain)
-        assertTrue(idxBattery > idxSensors)
+        assertEquals(0, idxHeader)
+        assertTrue(idxScope > idxHeader)
+        assertTrue(idxSensors > idxScope)
+        assertTrue(idxChannels > idxSensors)
+        assertTrue(idxBattery > idxChannels)
         assertTrue(idxIncident > idxBattery)
         assertTrue(idxIssues > idxIncident)
     }
@@ -192,28 +232,28 @@ class ProtectionStatusFormatterTest {
             state = ProtectionState.ARMED_HEALTHY,
             protectionActivatedAtMs = nowMs - 10_000L,
         )
-        assertTrue(formatter.format(snap10s, nowMs, nowMs).contains("ทำงานมาแล้ว: 10 วินาที"))
+        assertTrue(formatter.format(snap10s, nowMs, nowMs).contains("เฝ้ามาแล้ว 10 วินาที"))
 
         // 24 minutes
         val snap24m = ProtectionSnapshot.offline(nowMs).copy(
             state = ProtectionState.ARMED_HEALTHY,
             protectionActivatedAtMs = nowMs - 24 * 60 * 1000L,
         )
-        assertTrue(formatter.format(snap24m, nowMs, nowMs).contains("ทำงานมาแล้ว: 24 นาที"))
+        assertTrue(formatter.format(snap24m, nowMs, nowMs).contains("เฝ้ามาแล้ว 24 นาที"))
 
         // 3 hours 12 minutes
         val snap3h12m = ProtectionSnapshot.offline(nowMs).copy(
             state = ProtectionState.ARMED_HEALTHY,
             protectionActivatedAtMs = nowMs - (3 * 3600 + 12 * 60) * 1000L,
         )
-        assertTrue(formatter.format(snap3h12m, nowMs, nowMs).contains("ทำงานมาแล้ว: 3 ชั่วโมง 12 นาที"))
+        assertTrue(formatter.format(snap3h12m, nowMs, nowMs).contains("เฝ้ามาแล้ว 3 ชั่วโมง 12 นาที"))
 
         // 2 days 5 hours
         val snap2d5h = ProtectionSnapshot.offline(nowMs).copy(
             state = ProtectionState.ARMED_HEALTHY,
             protectionActivatedAtMs = nowMs - (2 * 86400 + 5 * 3600) * 1000L,
         )
-        assertTrue(formatter.format(snap2d5h, nowMs, nowMs).contains("ทำงานมาแล้ว: 2 วัน 5 ชั่วโมง"))
+        assertTrue(formatter.format(snap2d5h, nowMs, nowMs).contains("เฝ้ามาแล้ว 2 วัน 5 ชั่วโมง"))
     }
 
     @Test
@@ -236,10 +276,10 @@ class ProtectionStatusFormatterTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะระบบ: ปลดการป้องกันแล้ว"))
+        assertTrue(output.contains("ยังไม่ได้เปิดการเฝ้า"))
         assertFalse("shared status must not use vehicle-only wording", output.contains("สถานะรถ"))
-        assertFalse(output.contains("ทำงานมาแล้ว:"))
-        assertTrue(output.contains("🔎 เซนเซอร์: หยุดตามคำสั่ง Disarm | พร้อมใช้งาน 5/5"))
+        assertFalse(output.contains("เฝ้ามาแล้ว"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: หยุดตามคำสั่ง /disarm | พร้อมใช้งาน 5/5"))
         assertTrue(output.contains("✅ การสั่น: พร้อมใช้งาน"))
         assertTrue(output.contains("✅ แสง: พร้อมใช้งาน"))
         assertTrue(output.contains("✅ ไมโครโฟน: พร้อมใช้งาน"))
@@ -268,8 +308,8 @@ class ProtectionStatusFormatterTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("สถานะระบบ: กำลังเริ่มการป้องกัน (รอการเปิดระบบ)"))
-        assertTrue(output.contains("🔎 เซนเซอร์: กำลังเริ่มการทำงาน | พร้อมใช้งาน 5/5"))
+        assertTrue(output.contains("กำลังเริ่มการเฝ้า"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: กำลังเริ่ม | พร้อมใช้งาน 5/5"))
     }
 
     @Test
@@ -300,7 +340,7 @@ class ProtectionStatusFormatterTest {
         )
 
         val output = formatter.format(snapshot, nowMs, nowMs)
-        assertTrue(output.contains("🔎 เซนเซอร์กำลังตรวจจับ: 4/5"))
+        assertTrue(output.contains("🔎 เซ็นเซอร์ทั้งหมด: ทำงาน 4/5"))
         assertTrue(output.contains("⚠️ GPS: พิกัดล่าสุด 47 วินาทีที่แล้ว | ข้อมูลเก่า"))
         assertTrue(output.contains("วิธีแก้: ตรวจว่าเปิดตำแหน่งและวางโทรศัพท์ในจุดรับสัญญาณได้"))
     }
@@ -375,11 +415,10 @@ class ProtectionStatusFormatterTest {
         val snapshot = ProtectionSnapshot.offline(0L)
         val output = formatter.format(snapshot, 0L, 0L)
 
-        assertTrue(output.contains("สถานะระบบ: ออฟไลน์"))
+        assertTrue(output.contains("ออฟไลน์"))
         assertTrue(output.contains("❌ Service: ออฟไลน์"))
         assertTrue(output.contains("❌ Telegram: ขาดการเชื่อมต่อ"))
         assertTrue(output.contains("🔋 แบตเตอรี่: ยังไม่มีข้อมูล"))
-        assertTrue(output.contains("🌡️ อุณหภูมิเครื่อง (แบตเตอรี่): ยังไม่มีข้อมูล"))
         assertTrue(output.contains("🔌 สายชาร์จ: ยังไม่มีข้อมูล"))
     }
 }

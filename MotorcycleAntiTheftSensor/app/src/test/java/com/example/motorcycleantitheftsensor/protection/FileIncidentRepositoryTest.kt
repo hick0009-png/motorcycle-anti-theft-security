@@ -402,6 +402,48 @@ class FileIncidentRepositoryTest {
         assertEquals(1, loaded.size)
         assertEquals("enc-1", loaded.single().id)
     }
+
+    @Test
+    fun upsertAdvancesTheHistoryRevision() {
+        val repository = FileIncidentRepository(
+            file = temporaryFolder.newFile("incidents.bin"),
+            maxRecords = 200,
+        )
+        val before = repository.revision.value
+
+        repository.upsert(incident(id = "i-1", updatedAtMs = 1L))
+
+        assertEquals(before + 1L, repository.revision.value)
+    }
+
+    @Test
+    fun clearingHistoryAdvancesTheHistoryRevision() {
+        val repository = FileIncidentRepository(
+            file = temporaryFolder.newFile("incidents.bin"),
+            maxRecords = 200,
+        )
+        repository.upsert(incident(id = "i-1", updatedAtMs = 1L))
+        val afterUpsert = repository.revision.value
+
+        repository.clearHistory()
+
+        assertEquals(afterUpsert + 1L, repository.revision.value)
+    }
+
+    @Test
+    fun readingHistoryLeavesTheRevisionAlone() {
+        val repository = FileIncidentRepository(
+            file = temporaryFolder.newFile("incidents.bin"),
+            maxRecords = 200,
+        )
+        repository.upsert(incident(id = "i-1", updatedAtMs = 1L))
+        val afterUpsert = repository.revision.value
+
+        repository.listNewestFirst()
+        repository.findById("i-1")
+
+        assertEquals(afterUpsert, repository.revision.value)
+    }
 }
 
 private data class LegacyV1Incident(

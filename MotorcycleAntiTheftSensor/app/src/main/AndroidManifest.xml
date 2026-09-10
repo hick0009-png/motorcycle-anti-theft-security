@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!--
+        Sound is evidence this app already collects: the vehicle watch classifies impacts and
+        power tools on device. From Android 14 a foreground service that touches the microphone
+        must say so here and hold this permission, or the read is refused while the screen is
+        off — which is every moment this app exists for. The test phone runs API 28 and would
+        never have shown it.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SEND_SMS" />
@@ -66,7 +74,7 @@
             android:name=".service.SensorService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|location">
+            android:foregroundServiceType="specialUse|location|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Motorcycle anti-theft sensor monitoring" />
@@ -103,20 +111,20 @@
             </intent-filter>
         </receiver>
 
-        <!-- Device Admin Controller for FRP Lock and Kiosk Lockdown -->
-        <receiver
-            android:name=".security.DeviceAdminController"
-            android:description="@string/app_name"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_DEVICE_ADMIN"
-            android:exported="true">
+        <!--
+          Hands out the black box export, and nothing else. Not exported, granting read on a
+          single URI at a time: the file leaves the app only when the owner picks a
+          destination in the share sheet.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.blackbox"
+            android:exported="false"
+            android:grantUriPermissions="true">
             <meta-data
-                android:name="android.app.device_admin"
-                android:resource="@xml/device_admin_policies" />
-            <intent-filter>
-                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-            </intent-filter>
-        </receiver>
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/blackbox_paths" />
+        </provider>
 
     </application>
 

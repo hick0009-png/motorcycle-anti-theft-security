@@ -26,11 +26,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.example.motorcycleantitheftsensor.R
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.ui.ProtectionAppActions
 import com.example.motorcycleantitheftsensor.ui.ProtectionEventRow
@@ -48,7 +46,7 @@ fun EventsScreen(
 
     when {
         state.eventsLoading -> EventMessage(
-            title = stringResource(R.string.events_loading_title),
+            title = PresentationTextCatalog.EVENTS_LOADING,
             contentPadding = contentPadding,
             modifier = modifier,
             progress = true,
@@ -62,8 +60,8 @@ fun EventsScreen(
         )
 
         state.events.isEmpty() -> EventMessage(
-            title = stringResource(R.string.events_empty_title),
-            detail = stringResource(R.string.events_empty_detail),
+            title = PresentationTextCatalog.EVENTS_EMPTY_TITLE,
+            detail = PresentationTextCatalog.EVENTS_EMPTY_DETAIL,
             contentPadding = contentPadding,
             modifier = modifier,
         )
@@ -106,7 +104,7 @@ fun EventsScreen(
                             .fillMaxWidth()
                             .heightIn(min = 48.dp),
                     ) {
-                        Text(stringResource(R.string.events_clear_history_action))
+                        Text(PresentationTextCatalog.EVENTS_CLEAR_HISTORY)
                     }
                 }
             }
@@ -119,8 +117,8 @@ fun EventsScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text(stringResource(R.string.events_clear_confirm_title)) },
-            text = { Text(stringResource(R.string.events_clear_confirm_body)) },
+            title = { Text(PresentationTextCatalog.EVENTS_CLEAR_CONFIRM_TITLE) },
+            text = { Text(PresentationTextCatalog.EVENTS_CLEAR_CONFIRM_BODY) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -129,7 +127,7 @@ fun EventsScreen(
                     },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text(stringResource(R.string.events_clear_confirm_action))
+                    Text(PresentationTextCatalog.EVENTS_CONFIRM_CLEAR)
                 }
             },
             dismissButton = {
@@ -137,7 +135,7 @@ fun EventsScreen(
                     onClick = { confirmClear = false },
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Text(stringResource(R.string.events_cancel_action))
+                    Text(PresentationTextCatalog.EVENTS_CANCEL)
                 }
             },
         )
@@ -193,7 +191,7 @@ private fun EventError(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = stringResource(R.string.events_error_title),
+                text = PresentationTextCatalog.EVENTS_ERROR_TITLE,
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.semantics { heading() },
             )
@@ -202,7 +200,7 @@ private fun EventError(
                 onClick = retry,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) {
-                Text(stringResource(R.string.events_retry_action))
+                Text(PresentationTextCatalog.EVENTS_RETRY)
             }
         }
     }
