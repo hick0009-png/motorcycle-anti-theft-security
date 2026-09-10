@@ -5,6 +5,7 @@ import com.example.motorcycleantitheftsensor.protection.ChargingState
 import com.example.motorcycleantitheftsensor.protection.EntryDriftVerdict
 import com.example.motorcycleantitheftsensor.protection.EntryModeFacts
 import com.example.motorcycleantitheftsensor.protection.EntryWatchLevel
+import com.example.motorcycleantitheftsensor.protection.LightHealthDetail
 import com.example.motorcycleantitheftsensor.protection.PowerModeFacts
 import com.example.motorcycleantitheftsensor.protection.PresentationTextCatalog
 import com.example.motorcycleantitheftsensor.protection.ProfileDeviceSupport
@@ -96,6 +97,33 @@ data class ModeIdentityProjection(
  * that told a Power Guard owner to fix their GPS did so because this layer kept its own
  * list of five sensor kinds, and no amount of care in one table keeps two tables equal.
  */
+/**
+ * The `/status` witness threshold line, in lux.
+ *
+ * While armed, the arbiter judges against the commissioned bands re-expressed for the light
+ * present at Arm — a motorcycle armed in daylight is watched against a boundary several times
+ * the commissioned one. Reporting the frozen commissioned numbers there tells the owner a
+ * dark/lit cutoff the running detector is not using, so the armed (scaled) pair wins whenever
+ * it is present; the commissioned pair is the honest answer only while disarmed. The two armed
+ * fields are always written and cleared together, so a lone one is treated as absent rather
+ * than mixed with a commissioned partner.
+ */
+internal fun powerThresholdText(
+    armedDarkThresholdLux: Double?,
+    armedLitThresholdLux: Double?,
+    commissionedDarkThresholdLux: Double?,
+    commissionedLitThresholdLux: Double?,
+): String {
+    val armed = armedDarkThresholdLux != null && armedLitThresholdLux != null
+    val darkLux = if (armed) armedDarkThresholdLux else commissionedDarkThresholdLux
+    val litLux = if (armed) armedLitThresholdLux else commissionedLitThresholdLux
+    return if (darkLux == null || litLux == null) {
+        "เกณฑ์: ยังไม่ได้ปรับเทียบไฟยืนยัน"
+    } else {
+        "เกณฑ์: ต่ำกว่า ${darkLux.toInt()} lux = ดับ · สูงกว่า ${litLux.toInt()} lux = สว่าง"
+    }
+}
+
 object ModeStatusSections {
 
     private const val UNKNOWN_NOT_ARMED = "ยังไม่ได้อาร์ม"
@@ -388,11 +416,12 @@ object ModeStatusSections {
         // The health map already carries the last light sample, and it is not in the
         // projection key, so reading it here costs nothing and answers even when no live
         // supplier was wired in.
-        val lux = live?.witnessLux ?: snapshot.sensorHealth[SensorKind.LIGHT]?.lightDetail?.lastLux
+        val lightDetail = snapshot.sensorHealth[SensorKind.LIGHT]?.lightDetail
+        val lux = live?.witnessLux ?: lightDetail?.lastLux
         lines += lux
             ?.let { "ค่าที่วัดได้ขณะนี้: ${it.toInt()} lux" }
             ?: "ค่าที่วัดได้ขณะนี้: อ่านไม่ได้"
-        lines += powerThresholdLines(facts)
+        lines += powerThresholdLines(facts, lightDetail)
         lines += live?.confirmationCountdownMs
             ?.takeIf { it > 0L }
             ?.let { "กำลังนับถอยหลัง: อีก ${(it / 1000L).coerceAtLeast(1L)} วินาที" }
@@ -405,13 +434,16 @@ object ModeStatusSections {
     }
 
     /** The lamp watch's settings, with the same no-live-reading rule as the door's. */
-    private fun powerThresholdLines(facts: PowerModeFacts?): List<String> {
-        val threshold = when {
-            facts?.witnessDarkThresholdLux == null || facts.witnessLitThresholdLux == null ->
-                "เกณฑ์: ยังไม่ได้ปรับเทียบไฟยืนยัน"
-            else -> "เกณฑ์: ต่ำกว่า ${facts.witnessDarkThresholdLux.toInt()} lux = ดับ · " +
-                "สูงกว่า ${facts.witnessLitThresholdLux.toInt()} lux = สว่าง"
-        }
+    private fun powerThresholdLines(
+        facts: PowerModeFacts?,
+        lightDetail: LightHealthDetail?,
+    ): List<String> {
+        val threshold = powerThresholdText(
+            armedDarkThresholdLux = lightDetail?.armedWitnessDarkThresholdLux,
+            armedLitThresholdLux = lightDetail?.armedWitnessLitThresholdLux,
+            commissionedDarkThresholdLux = facts?.witnessDarkThresholdLux,
+            commissionedLitThresholdLux = facts?.witnessLitThresholdLux,
+        )
         if (facts == null) return listOf(threshold)
         return listOf(
             threshold,
@@ -465,7 +497,9 @@ object ModeStatusSections {
             }
             ProtectionProfile.POWER -> {
                 val facts = context.modeFacts as? PowerModeFacts
-                lines += powerThresholdLines(facts)
+                // Readiness describes a mode that is not the one running, so it has no armed
+                // reference to scale by: the commissioned bands are the durable, correct answer.
+                lines += powerThresholdLines(facts, lightDetail = null)
                 lines += witnessModelLine(facts)
             }
             // The vehicle watch keeps its two owner-visible numbers elsewhere: the

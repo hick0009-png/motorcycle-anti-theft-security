@@ -179,6 +179,52 @@ class ProtectionStatusModeReportTest {
     }
 
     @Test
+    fun powerStatusReportsArmedScaledThresholdsNotCommissioned() {
+        // Armed in daylight, the arbiter judges against the commissioned bands re-expressed
+        // for the light present at Arm. /status must print that live boundary, not the frozen
+        // commissioned pair the detector is no longer using — the exact mismatch that made a
+        // "635 lux = ดับ" line meaningless while the running cutoff sat far higher.
+        val base = armedSnapshot(powerContext())
+        val light = base.sensorHealth.getValue(SensorKind.LIGHT)
+        val armed = base.copy(
+            sensorHealth = base.sensorHealth + (
+                SensorKind.LIGHT to light.copy(
+                    lightDetail = light.lightDetail!!.copy(
+                        armedWitnessDarkThresholdLux = 1035.0,
+                        armedWitnessLitThresholdLux = 4926.0,
+                    ),
+                )
+            ),
+        )
+        val output = formatter.format(armed, nowMs, nowMs)
+
+        assertTrue("Expected the armed/scaled dark cutoff: $output", output.contains("ต่ำกว่า 1035 lux = ดับ"))
+        assertTrue("Expected the armed/scaled lit cutoff: $output", output.contains("สูงกว่า 4926 lux = สว่าง"))
+        assertFalse("Commissioned 42 must not be shown while armed: $output", output.contains("ต่ำกว่า 42 lux"))
+    }
+
+    @Test
+    fun powerThresholdTextPrefersArmedScaledPairOverCommissioned() {
+        // Armed pair present: it wins.
+        assertEquals(
+            "เกณฑ์: ต่ำกว่า 1035 lux = ดับ · สูงกว่า 4926 lux = สว่าง",
+            powerThresholdText(1035.0, 4926.0, 42.0, 96.0),
+        )
+        // Disarmed: no armed pair, the commissioned calibration is the honest answer.
+        assertEquals(
+            "เกณฑ์: ต่ำกว่า 42 lux = ดับ · สูงกว่า 96 lux = สว่าง",
+            powerThresholdText(null, null, 42.0, 96.0),
+        )
+        // A lone armed value is treated as absent, never mixed with a commissioned partner.
+        assertEquals(
+            "เกณฑ์: ต่ำกว่า 42 lux = ดับ · สูงกว่า 96 lux = สว่าง",
+            powerThresholdText(1035.0, null, 42.0, 96.0),
+        )
+        // Nothing calibrated at all.
+        assertTrue(powerThresholdText(null, null, null, null).contains("ยังไม่ได้ปรับเทียบ"))
+    }
+
+    @Test
     fun entryDoorAngleModeNeverPrintsSensitivityScale() {
         // The 1-10 scale tunes the vibration detector. The door watch decides on degrees
         // and dwell time and never reads it, so printing it invites the owner to spend
