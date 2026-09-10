@@ -9,7 +9,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.hardware.SensorManager
 import android.os.Build
 import android.os.Handler
@@ -671,22 +670,6 @@ class SensorService : Service(), ServiceEnvironment {
     private fun commandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
     /**
-     * Starts the minute record.
-     *
-     * It runs for as long as the service does, armed or not, because the value of a minute
-     * row is that it is unconditional: a row that only appears while armed cannot distinguish
-     * a disarmed night from a killed one, which is the distinction the record exists to make.
-     */
-    /**
-     * Whether the app is holding one watched capability right now.
-     *
-     * Asked of the service rather than of the watcher so that the watcher stays free of
-     * Android, and so the mapping from a capability to the permission that grants it lives in
-     * one place. Notifications count as held below API 33: there was no permission to hold,
-     * and reporting "revoked" for something the platform never asked about would be a lie
-     * about the phone rather than a fact about it.
-     */
-    /**
      * The night this exists for: the phone spent eight hours out of coverage with three
      * incidents recorded and every send timing out, the network came back at 08:17, the
      * heartbeat resumed — and the three incidents stayed in the file and nowhere else,
@@ -725,6 +708,15 @@ class SensorService : Service(), ServiceEnvironment {
         }
     }
 
+    /**
+     * Whether the app is holding one watched capability right now.
+     *
+     * Asked of the service rather than of the watcher so that the watcher stays free of
+     * Android, and so the mapping from a capability to the permission that grants it lives in
+     * one place. Notifications count as held below API 33: there was no permission to hold,
+     * and reporting "revoked" for something the platform never asked about would be a lie
+     * about the phone rather than a fact about it.
+     */
     private fun holdsCapability(capability: BreadcrumbDetail): Boolean = when (capability) {
         BreadcrumbDetail.PERM_LOCATION ->
             hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)

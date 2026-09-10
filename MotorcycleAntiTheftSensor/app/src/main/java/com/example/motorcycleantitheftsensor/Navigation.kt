@@ -114,7 +114,7 @@ fun MainNavigation(
             settings = settingsGateway,
             profileRepository = graph.profileRepository,
             // Both roles are the same runtime object. Leaving the entry one null made
-            // เริ่มปรับเทียบ return before it registered a listener, so the door watch could
+            // return before it registered a listener, so the door watch could
             // never reach READY on a real phone while every unit test passed.
             entryRuntime = graph.runtime,
             powerRuntime = graph.runtime,
