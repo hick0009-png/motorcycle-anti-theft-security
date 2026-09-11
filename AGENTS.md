@@ -57,6 +57,32 @@ Do NOT:
 - Expose or commit secrets
 - Claim verification was performed when it was not
 
+## Terminal Harness Tooling
+
+These apply only when the `lsp`, `debug`, or `mcp__*` tools are present in your
+toolset. Ignore this section if they are not.
+
+**Language server.** The Kotlin server indexes on the first call against a file.
+Allow at least 180s on that first call, then normal timeouts. A 20s default expires
+during indexing — retry with the longer budget rather than reporting the server broken.
+
+**Debugging.** The `debug` tool reaches its Kotlin adapter through a shim declared in
+`dap.json`. If an attach hangs, confirm `dap.json` still routes through that shim;
+pointing it straight at the adapter binary reintroduces a deadlock where the attach
+succeeds but the caller never hears back.
+
+Breakpoints resolve only in `.kt` sources. In a `.java` file the adapter reports
+`verified: true` and then never stops — use `jdb` for Java instead.
+
+Before re-attaching, confirm the debuggee's JDWP port is LISTENING again. An orphaned
+adapter JVM holds the socket and later attaches fail with "Connection refused".
+
+**MCP tools.** MCP servers are discovered from the nearest `.mcp.json` at or above the
+directory the session started in, so the full device-control set is only present when
+the session starts at the repository root. Started from a module directory, most are
+missing. If an expected `mcp__*` tool is absent, say the session may have started below
+the config rather than reporting the tool unavailable.
+
 ## Cursor Collaboration
 
 Cursor is the interactive development assistant.

@@ -22,6 +22,8 @@
 /.claude/
 /.kilocode/
 /.mcp.json
+# Unanchored: these land in whichever module directory the agent is run from
+.omp/
 /android-mcp.log
 /docs/sensor-fusion-technician-guide-th.html
 
